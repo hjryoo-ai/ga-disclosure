@@ -1,0 +1,46 @@
+# 버전 정책 (CLAUDE.md 코드 규약)
+# - Spring Boot BOM이 관리하는 라이브러리(Flyway·JUnit·Testcontainers·AssertJ·Jackson·PostgreSQL 드라이버 등)는
+#   여기에 버전을 적지 않고 BOM(spring-boot-dependencies)에 위임한다.
+# - BOM 밖의 라이브러리만 버전을 고정한다. 확인 출처와 일자는 docs/phase-00-보고서.md.
+# - net.jqwik은 어떤 경로로도 해석되면 빌드가 실패한다(루트 build.gradle.kts, CLAUDE.md 절대 규칙 9).
+
+[versions]
+java = "25"
+spring-boot = "4.1.1"
+archunit = "1.5.1"
+json-schema-validator = "3.0.6"  # 3.0.7은 Jackson 3.2.1을 요구해 Boot BOM(3.1.5)을 끌어올린다 → BOM 호환 최신판
+postgres-image = "postgres:18.6"
+
+[libraries]
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+
+# BOM 밖 — 버전 고정
+archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
+json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "json-schema-validator" }
+
+# BOM 관리 — 버전 없음
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+assertj-core = { module = "org.assertj:assertj-core" }
+jackson-databind = { module = "tools.jackson.core:jackson-databind" }
+jackson-dataformat-yaml = { module = "tools.jackson.dataformat:jackson-dataformat-yaml" }
+postgresql = { module = "org.postgresql:postgresql" }
+flyway-core = { module = "org.flywaydb:flyway-core" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+spring-jdbc = { module = "org.springframework:spring-jdbc" }
+spring-tx = { module = "org.springframework:spring-tx" }
+spring-boot-autoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure" }
+spring-security-config = { module = "org.springframework.security:spring-security-config" }
+spring-security-web = { module = "org.springframework.security:spring-security-web" }
+spring-security-oauth2-resource-server = { module = "org.springframework.security:spring-security-oauth2-resource-server" }
+spring-security-oauth2-jose = { module = "org.springframework.security:spring-security-oauth2-jose" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
+spring-boot-starter-flyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
