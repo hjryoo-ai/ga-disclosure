@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/rules/v1/rule-version.schema.json",
+  "title": "rule_version.body (v1)",
+  "description": "룰 버전 본문(설계서 부록 D). 룰은 코드가 아니라 데이터다 — 값은 전부 예시이며 실값은 설계서 §14 확인 후 데이터로 설정한다. 필드 추가는 호환(additionalProperties 허용), 삭제·의미 변경은 v2.",
+  "type": "object",
+  "required": [
+    "minCompare", "distinctInsurer", "gradeRequired", "allowedGradingPolicies", "allowedRankingPolicies",
+    "snapshotMaxAgeDays", "reasonCodes", "signerSet", "signOrder", "managerConfirmMode", "signDeadlineDays",
+    "gateRequiresManager", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "anchor",
+    "subjectRule", "kpi", "retentionYears", "retainUnlinked", "validations"
+  ],
+  "properties": {
+    "minCompare": { "type": "integer", "minimum": 1, "description": "최소 비교(추천) 상품 수" },
+    "distinctInsurer": { "type": "boolean" },
+    "gradeRequired": {
+      "type": "object",
+      "required": ["whenLargeGa"],
+      "properties": { "whenLargeGa": { "type": "boolean" } }
+    },
+    "allowedGradingPolicies": { "$ref": "#/$defs/policyIds" },
+    "allowedRankingPolicies": { "$ref": "#/$defs/policyIds" },
+    "snapshotMaxAgeDays": { "type": "integer", "minimum": 0 },
+    "reasonCodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["code", "label"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,31}$" },
+          "label": { "type": "string", "minLength": 1 },
+          "requiresText": { "type": "boolean" },
+          "auto": { "type": "boolean", "description": "시스템이 조건에 따라 부가하는 코드(예: 고객 요청 보험사). 설계사 선택지가 아니다." }
+        }
+      }
+    },
+    "signerSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["CUSTOMER", "AGENT", "MANAGER"] }
+    },
+    "signOrder": { "type": "string", "pattern": "^[A-Z_]+$", "description": "서명 순서 정책 코드(예: SEQUENTIAL)" },
+    "managerConfirmMode": { "enum": ["REQUIRED", "OPTIONAL", "OFF"] },
+    "signDeadlineDays": { "type": "integer", "minimum": 0 },
+    "gateRequiresManager": { "type": "boolean" },
+    "remoteLinkTtlHours": { "type": "integer", "minimum": 1 },
+    "channels": {
+      "type": "object",
+      "required": ["TOUCH_PAD", "REMOTE_LINK", "PAPER_SCAN", "CERTIFIED_ESIGN"],
+      "properties": {
+        "TOUCH_PAD": { "type": "boolean" },
+        "REMOTE_LINK": { "type": "boolean" },
+        "PAPER_SCAN": { "type": "boolean" },
+        "CERTIFIED_ESIGN": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "identityCheck": {
+      "type": "object",
+      "required": ["maxFailures"],
+      "properties": {
+        "maxFailures": { "type": "integer", "minimum": 1 }
+      },
+      "patternProperties": {
+        "^(TOUCH_PAD|REMOTE_LINK|PAPER_SCAN|CERTIFIED_ESIGN)$": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z_]+$" }
+        }
+      }
+    },
+    "proxySignatureDetection": {
+      "type": "object",
+      "required": ["sameDeviceDistinctCustomersPerDay", "minSecondsFromSendToSign"],
+      "properties": {
+        "sameDeviceDistinctCustomersPerDay": { "type": "integer", "minimum": 1 },
+        "minSecondsFromSendToSign": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "required": ["externalTimestamp"],
+      "properties": {
+        "externalTimestamp": { "type": "boolean" },
+        "tsaProfile": { "type": "string" }
+      }
+    },
+    "subjectRule": {
+      "type": "object",
+      "required": ["largeGaOnly", "excludedGroups", "contractDateFrom"],
+      "properties": {
+        "largeGaOnly": { "type": "boolean" },
+        "excludedGroups": { "type": "array", "items": { "type": "string" } },
+        "contractDateFrom": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+      }
+    },
+    "kpi": {
+      "type": "object",
+      "required": ["collectionRate"],
+      "properties": { "collectionRate": { "type": "string", "minLength": 1 } }
+    },
+    "retentionYears": { "type": "integer", "minimum": 1 },
+    "retainUnlinked": { "type": "boolean" },
+    "validations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^R-[A-Z0-9-]+$" }
+    }
+  },
+  "$defs": {
+    "policyIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]*$" }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureSealed.schema.json",
+  "title": "DisclosureSealed payload (v1)",
+  "description": "봉인·발급. 해시는 정규화 JSON(RFC 8785)·PDF의 SHA-256.",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "disclosureNo",
+    "version",
+    "ruleVersionId",
+    "canonicalHash",
+    "pdfHash",
+    "chainHash",
+    "chainSeq",
+    "sealedAt"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "$ref": "../defs.schema.json#/$defs/disclosureNo"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ruleVersionId": {
+      "$ref": "../defs.schema.json#/$defs/code"
+    },
+    "gradeSnapshotId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonicalHash": {
+      "$ref": "../defs.schema.json#/$defs/sha256"
+    },
+    "pdfHash": {
+      "$ref": "../defs.schema.json#/$defs/sha256"
+    },
+    "chainHash": {
+      "$ref": "../defs.schema.json#/$defs/sha256"
+    },
+    "chainSeq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sealedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    }
+  }
+}

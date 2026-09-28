@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureVoided.schema.json",
+  "title": "DisclosureVoided payload (v1)",
+  "description": "무효. 무효 사유 텍스트는 이벤트에 싣지 않는다(자유 입력에 개인정보가 섞일 수 있다).",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "previousStatus",
+    "voidedAt"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "oneOf": [
+        {
+          "$ref": "../defs.schema.json#/$defs/disclosureNo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "봉인 전 무효는 번호가 없다"
+    },
+    "previousStatus": {
+      "$ref": "../defs.schema.json#/$defs/disclosureStatus"
+    },
+    "voidedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    }
+  }
+}

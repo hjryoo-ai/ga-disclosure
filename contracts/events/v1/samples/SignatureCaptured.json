@@ -1,0 +1,22 @@
+{
+  "eventId": "00000003-0000-4000-8000-000000000003",
+  "eventType": "SignatureCaptured",
+  "eventVersion": 1,
+  "tenantId": "T1",
+  "seq": 1003,
+  "occurredAt": "2026-09-23T10:03:00+09:00",
+  "aggregateType": "Disclosure",
+  "aggregateId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "disclosureNo": "T1-2026-000481",
+    "signerRole": "CUSTOMER",
+    "channel": "TOUCH_PAD",
+    "signedDocHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "signedAt": "2026-09-23T10:25:00+09:00",
+    "pendingRoles": [
+      "AGENT",
+      "MANAGER"
+    ]
+  }
+}

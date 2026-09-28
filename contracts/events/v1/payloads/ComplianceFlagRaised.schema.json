@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/ComplianceFlagRaised.schema.json",
+  "title": "ComplianceFlagRaised payload (v1)",
+  "description": "준법 플래그 발생. 플래그 유형·심각도 코드는 데이터(열거하지 않는다).",
+  "type": "object",
+  "required": [
+    "flagId",
+    "flagType",
+    "severity",
+    "raisedAt"
+  ],
+  "properties": {
+    "flagId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "flagType": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "severity": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+    },
+    "disclosureId": {
+      "oneOf": [
+        {
+          "$ref": "../defs.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policyNo": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agentId": {
+      "oneOf": [
+        {
+          "$ref": "../defs.schema.json#/$defs/agentId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "raisedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    }
+  }
+}

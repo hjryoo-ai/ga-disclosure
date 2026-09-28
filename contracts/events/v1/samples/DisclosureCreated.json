@@ -1,0 +1,24 @@
+{
+  "eventId": "00000001-0000-4000-8000-000000000001",
+  "eventType": "DisclosureCreated",
+  "eventVersion": 1,
+  "tenantId": "T1",
+  "seq": 1001,
+  "occurredAt": "2026-09-23T10:01:00+09:00",
+  "aggregateType": "Disclosure",
+  "aggregateId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "version": 1,
+    "agentId": "AGENT-0007",
+    "customerRef": "C-000123",
+    "groupCode": "PG-HEALTH-SIMPLE-NR",
+    "consultDate": "2026-09-23",
+    "template": {
+      "templateId": "STANDARD",
+      "version": 1
+    },
+    "issuerMode": "SELF",
+    "supersedesId": null
+  }
+}

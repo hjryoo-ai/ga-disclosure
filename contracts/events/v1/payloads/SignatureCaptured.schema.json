@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/SignatureCaptured.schema.json",
+  "title": "SignatureCaptured payload (v1)",
+  "description": "서명 1건 수집. 서명은 signedDocHash(= 확인서 canonicalHash)에 귀속된다. 포털은 role=CUSTOMER를 알림으로 파생한다.",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "disclosureNo",
+    "signerRole",
+    "channel",
+    "signedDocHash",
+    "signedAt",
+    "pendingRoles"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "$ref": "../defs.schema.json#/$defs/disclosureNo"
+    },
+    "signerRole": {
+      "$ref": "../defs.schema.json#/$defs/signerRole"
+    },
+    "channel": {
+      "$ref": "../defs.schema.json#/$defs/signatureChannel"
+    },
+    "signedDocHash": {
+      "$ref": "../defs.schema.json#/$defs/sha256"
+    },
+    "signedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    },
+    "pendingRoles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../defs.schema.json#/$defs/signerRole"
+      }
+    }
+  }
+}

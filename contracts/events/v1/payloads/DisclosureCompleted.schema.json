@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureCompleted.schema.json",
+  "title": "DisclosureCompleted payload (v1)",
+  "description": "서명자 집합 충족으로 완료.",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "disclosureNo",
+    "completedAt",
+    "retentionUntil"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "$ref": "../defs.schema.json#/$defs/disclosureNo"
+    },
+    "completedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    },
+    "retentionUntil": {
+      "$ref": "../defs.schema.json#/$defs/date"
+    }
+  }
+}

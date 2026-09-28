@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureCreated.schema.json",
+  "title": "DisclosureCreated payload (v1)",
+  "description": "확인서 초안 생성.",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "version",
+    "agentId",
+    "customerRef",
+    "groupCode",
+    "consultDate",
+    "template",
+    "issuerMode"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agentId": {
+      "$ref": "../defs.schema.json#/$defs/agentId"
+    },
+    "customerRef": {
+      "$ref": "../defs.schema.json#/$defs/customerRef"
+    },
+    "groupCode": {
+      "$ref": "../defs.schema.json#/$defs/code"
+    },
+    "consultDate": {
+      "$ref": "../defs.schema.json#/$defs/date"
+    },
+    "template": {
+      "type": "object",
+      "required": [
+        "templateId",
+        "version"
+      ],
+      "properties": {
+        "templateId": {
+          "$ref": "../defs.schema.json#/$defs/code"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "issuerMode": {
+      "$ref": "../defs.schema.json#/$defs/issuerMode"
+    },
+    "supersedesId": {
+      "oneOf": [
+        {
+          "$ref": "../defs.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,115 @@
+openapi: 3.1.0
+info:
+  title: ga-disclosure — 내부 API(청약 게이트·증권 연결·이벤트 피드)
+  version: 1.0.0
+  description: |
+    설계서 §4.4·§4.5. 내부망 전용(서비스 토큰). 구현은 Phase 6.
+    본 시스템은 답만 하고, 청약 진행을 막는 것은 호출자다(D-8).
+servers:
+  - url: https://disclosure.internal
+paths:
+  /internal/v1/disclosures/gate:
+    get:
+      operationId: getSubscriptionGate
+      summary: 청약 게이트 조회 — 대상 여부와 확인서 완료 상태
+      security:
+        - serviceToken: []
+      parameters:
+        - { name: customerRef, in: query, required: true, schema: { type: string } }
+        - { name: productKey, in: query, required: true, schema: { type: string } }
+        - { name: asOf, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: 게이트 판정
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateResponse'
+              example:
+                required: true
+                status: PENDING
+                pendingRoles: [MANAGER]
+                gateSatisfied: false
+                disclosureNo: T1-2026-000481
+                completedAt: null
+                gateMode: BLOCK
+                ruleVersionId: DISC-2026-07
+  /internal/v1/disclosures/{no}/policy-link:
+    post:
+      operationId: linkPolicy
+      summary: 계약 체결 후 증권번호 연결(메타데이터 — 봉인 본문 불변과 무관)
+      security:
+        - serviceToken: []
+      parameters:
+        - { name: no, in: path, required: true, schema: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [policyNo, contractDate]
+              properties:
+                policyNo: { type: string, minLength: 1 }
+                contractDate: { type: string, format: date }
+      responses:
+        '204': { description: '연결됨(PolicyLinked 이벤트 발행)' }
+        '404':
+          description: 확인서 없음
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '409':
+          description: 이미 다른 증권번호가 연결됨 또는 COMPLETED가 아님
+          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+  /internal/v1/events:
+    get:
+      operationId: getEventFeed
+      summary: 아웃박스 이벤트 피드(pull). 포털 알림·CRM이 소비한다.
+      security:
+        - serviceToken: []
+      parameters:
+        - { name: tenantId, in: query, required: true, schema: { type: string } }
+        - { name: afterSeq, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        '200':
+          description: seq 오름차순 이벤트 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, nextSeq]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '../../events/v1/envelope.schema.json'
+                  nextSeq: { type: integer, minimum: 0, description: '다음 호출의 afterSeq' }
+components:
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+  schemas:
+    GateResponse:
+      type: object
+      required: [required, status, pendingRoles, gateSatisfied, gateMode, ruleVersionId]
+      properties:
+        required: { type: boolean, description: '대상 계약 판정(subjectRule 데이터)' }
+        status: { type: string, enum: [COMPLETED, PENDING, NONE] }
+        pendingRoles:
+          type: array
+          items: { type: string, enum: [CUSTOMER, AGENT, MANAGER] }
+        gateSatisfied:
+          type: boolean
+          description: gateRequiresManager=true면 COMPLETED일 때만, false면 고객·설계사 서명 완료 시점부터 true(관리자 미완료는 LATE 플래그)
+        disclosureNo: { type: [string, 'null'] }
+        completedAt: { type: [string, 'null'], format: date-time }
+        gateMode: { type: string, enum: [BLOCK, WARN, OFF] }
+        ruleVersionId: { type: string }
+    Problem:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: object }

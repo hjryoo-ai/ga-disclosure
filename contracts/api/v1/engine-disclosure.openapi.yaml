@@ -1,0 +1,145 @@
+openapi: 3.1.0
+info:
+  title: ga-commission-engine — 비교설명 확인서용 판매수수료 등급·순위 API
+  version: 1.0.0
+  description: |
+    설계서 §4.1. 서버 구현은 ga-commission-engine 저장소 Phase E3, 소비자는 ga-disclosure(disclosure-infra 엔진 클라이언트, Phase 3).
+    - 등급은 유사상품군 전체 대비, 순위는 요청 세트 안에서 매긴다(1순위가 가장 저렴).
+    - gradeOrdinal은 엔진 정책 데이터가 정하는 정수(수수료가 낮을수록 작다). 소비자는 등급 코드의 의미·개수를 모른다.
+    - ratioToAvg는 표시·보관용 불투명 문자열이다. 소비자는 숫자로 바꾸거나 비교하지 않는다.
+    - 수수료율 원 수치는 응답에 없다. 필요 시 snapshotId로 엔진에서 준법 권한자가 조회한다.
+servers:
+  - url: https://engine.{tenant}.internal
+    variables:
+      tenant:
+        default: t1
+paths:
+  /internal/v1/disclosure/commission-grades:
+    post:
+      operationId: computeCommissionGrades
+      summary: 요청 상품 세트의 판매수수료 등급·순위 산출(동기, 스냅샷 발급)
+      security:
+        - serviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommissionGradesRequest'
+            example:
+              tenantId: T1
+              asOfDate: '2026-09-23'
+              productGroupCode: PG-HEALTH-SIMPLE-NR
+              products:
+                - { productKey: 'INS-A:PRD-1001', insurerCode: INS-A }
+                - { productKey: 'INS-B:PRD-2044', insurerCode: INS-B }
+                - { productKey: 'INS-C:PRD-3120', insurerCode: INS-C }
+      responses:
+        '200':
+          description: 산출 결과 스냅샷
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionGradesResponse'
+              example:
+                snapshotId: GRD-20260923-000481
+                gradingPolicyVersionId: GRADING-2026-07
+                rankingPolicyVersionId: RANK-2026-07
+                basis: { groupAvgSource: ASSOC_DISCLOSURE, period: 2026Q2, groupPopulation: 27 }
+                results:
+                  - { productKey: 'INS-A:PRD-1001', status: OK, ratioToAvg: '0.84', grade: LOW, gradeLabel: 낮음, gradeOrdinal: 2, rankInSet: 1, tie: false }
+                  - { productKey: 'INS-C:PRD-3120', status: OK, ratioToAvg: '1.02', grade: MID, gradeLabel: 보통, gradeOrdinal: 3, rankInSet: 2, tie: false }
+                  - { productKey: 'INS-B:PRD-2044', status: OK, ratioToAvg: '1.37', grade: VERY_HIGH, gradeLabel: 매우높음, gradeOrdinal: 5, rankInSet: 3, tie: false }
+                  - { productKey: 'INS-D:TEMP-7', status: UNAVAILABLE, reason: NO_RATE_DATA }
+                generatedAt: '2026-09-23T10:15:30+09:00'
+        '400':
+          description: 요청 오류(상품군·기준일 누락 등)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 기준일에 적용할 정책 버전이 모호함(2건 이상 매칭, fail-fast)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: 서비스 간 토큰(운영은 mTLS 병행, 설계서 §9)
+  schemas:
+    CommissionGradesRequest:
+      type: object
+      required: [tenantId, asOfDate, productGroupCode, products]
+      properties:
+        tenantId: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}$' }
+        asOfDate: { type: string, format: date, description: '기준일 = 상담일(consult_date)' }
+        productGroupCode: { type: string, description: '유사상품군(외부 코드 체계, 설계서 §14 #1)' }
+        products:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [productKey, insurerCode]
+            properties:
+              productKey: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' }
+              insurerCode: { type: string }
+    CommissionGradesResponse:
+      type: object
+      required: [snapshotId, gradingPolicyVersionId, rankingPolicyVersionId, basis, results, generatedAt]
+      properties:
+        snapshotId: { type: string }
+        gradingPolicyVersionId: { type: string, description: '등급 임계치·모수·기간 정의 버전' }
+        rankingPolicyVersionId: { type: string, description: '세트 내 순위·동점 규칙 버전' }
+        basis:
+          type: object
+          required: [groupAvgSource, period, groupPopulation]
+          properties:
+            groupAvgSource: { type: string, enum: [ASSOC_DISCLOSURE, ENGINE_LEDGER] }
+            period: { type: string }
+            groupPopulation: { type: integer, minimum: 0 }
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/GradeResult'
+        generatedAt: { type: string, format: date-time }
+    GradeResult:
+      oneOf:
+        - $ref: '#/components/schemas/GradeResultOk'
+        - $ref: '#/components/schemas/GradeResultUnavailable'
+      discriminator:
+        propertyName: status
+        mapping:
+          OK: '#/components/schemas/GradeResultOk'
+          UNAVAILABLE: '#/components/schemas/GradeResultUnavailable'
+    GradeResultOk:
+      type: object
+      required: [productKey, status, ratioToAvg, grade, gradeLabel, gradeOrdinal, rankInSet, tie]
+      properties:
+        productKey: { type: string }
+        status: { const: OK }
+        ratioToAvg:
+          type: string
+          description: 유사상품군 평균 대비 비율. 불투명 문자열 — 소비자는 숫자 변환·비교·정규화하지 않는다.
+        grade: { type: string, description: '등급 코드(엔진 정책 데이터)' }
+        gradeLabel: { type: string, description: '인쇄용 라벨' }
+        gradeOrdinal: { type: integer, minimum: 1, description: '수수료가 낮을수록 작은 정수(정책 데이터)' }
+        rankInSet: { type: integer, minimum: 1, description: '요청 세트 내 순위(1순위가 가장 저렴)' }
+        tie: { type: boolean, description: '동점 여부(표기는 rankingPolicy 데이터)' }
+    GradeResultUnavailable:
+      type: object
+      required: [productKey, status, reason]
+      properties:
+        productKey: { type: string }
+        status: { const: UNAVAILABLE }
+        reason: { type: string, description: '산출 불가 사유 코드(예: NO_RATE_DATA)' }
+    Problem:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: object }

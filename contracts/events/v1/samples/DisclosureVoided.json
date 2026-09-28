@@ -1,0 +1,16 @@
+{
+  "eventId": "00000005-0000-4000-8000-000000000005",
+  "eventType": "DisclosureVoided",
+  "eventVersion": 1,
+  "tenantId": "T1",
+  "seq": 1005,
+  "occurredAt": "2026-09-23T10:05:00+09:00",
+  "aggregateType": "Disclosure",
+  "aggregateId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "disclosureNo": null,
+    "previousStatus": "GRADED",
+    "voidedAt": "2026-09-23T12:00:00+09:00"
+  }
+}

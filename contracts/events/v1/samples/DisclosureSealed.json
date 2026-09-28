@@ -1,0 +1,22 @@
+{
+  "eventId": "00000002-0000-4000-8000-000000000002",
+  "eventType": "DisclosureSealed",
+  "eventVersion": 1,
+  "tenantId": "T1",
+  "seq": 1002,
+  "occurredAt": "2026-09-23T10:02:00+09:00",
+  "aggregateType": "Disclosure",
+  "aggregateId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "disclosureNo": "T1-2026-000481",
+    "version": 1,
+    "ruleVersionId": "DISC-2026-07",
+    "gradeSnapshotId": "GRD-20260923-000481",
+    "canonicalHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pdfHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "chainHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "chainSeq": 481,
+    "sealedAt": "2026-09-23T10:20:00+09:00"
+  }
+}

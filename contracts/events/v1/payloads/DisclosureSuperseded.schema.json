@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureSuperseded.schema.json",
+  "title": "DisclosureSuperseded payload (v1)",
+  "description": "정정: 이전 버전은 SUPERSEDED로 보관되고 새 버전 DRAFT가 생성된다.",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "disclosureNo",
+    "supersededById",
+    "newVersion",
+    "supersededAt"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "$ref": "../defs.schema.json#/$defs/disclosureNo"
+    },
+    "supersededById": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "newVersion": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "supersededAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    }
+  }
+}

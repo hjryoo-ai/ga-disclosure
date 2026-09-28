@@ -1,0 +1,16 @@
+{
+  "eventId": "00000007-0000-4000-8000-000000000007",
+  "eventType": "PolicyLinked",
+  "eventVersion": 1,
+  "tenantId": "T1",
+  "seq": 1007,
+  "occurredAt": "2026-09-23T10:07:00+09:00",
+  "aggregateType": "Disclosure",
+  "aggregateId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "disclosureNo": "T1-2026-000481",
+    "policyNo": "POL-2026-0099812",
+    "contractDate": "2026-09-30"
+  }
+}

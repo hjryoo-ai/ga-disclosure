@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/PolicyLinked.schema.json",
+  "title": "PolicyLinked payload (v1)",
+  "description": "계약 체결 후 증권번호 연결(메타데이터, 봉인 본문 불변과 무관).",
+  "type": "object",
+  "required": [
+    "disclosureId",
+    "disclosureNo",
+    "policyNo",
+    "contractDate"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "$ref": "../defs.schema.json#/$defs/disclosureNo"
+    },
+    "policyNo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contractDate": {
+      "$ref": "../defs.schema.json#/$defs/date"
+    }
+  }
+}

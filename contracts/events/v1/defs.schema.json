@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/defs.schema.json",
+  "title": "공통 정의 (events v1)",
+  "description": "이벤트 계약의 공통 타입. 이벤트에는 고객 개인정보(이름·연락처·생년월일)를 싣지 않는다 — 고객은 customerRef로만 식별한다.",
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "tenantId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}$" },
+    "agentId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "customerRef": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" },
+    "code": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+    "disclosureNo": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-\\d{4}-\\d{6}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "instant": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$" },
+    "date": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "signerRole": { "enum": ["CUSTOMER", "AGENT", "MANAGER"] },
+    "signatureChannel": { "enum": ["TOUCH_PAD", "REMOTE_LINK", "PAPER_SCAN", "CERTIFIED_ESIGN"] },
+    "issuerMode": { "enum": ["SELF", "ASSOC"] },
+    "disclosureStatus": { "enum": ["DRAFT", "COMPARED", "GRADED", "REASONED", "SEALED", "PARTIALLY_SIGNED", "COMPLETED", "VOID", "SUPERSEDED", "EXPIRED"] }
+  }
+}
