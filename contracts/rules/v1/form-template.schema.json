@@ -1,35 +1,54 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ga.example/contracts/rules/v1/form-template.schema.json",
-  "title": "form_template (v1)",
-  "description": "확인서 서식 템플릿. 항목명·필수 여부·배치는 데이터다(CLAUDE.md 절대 규칙 4). 협회 표준서식이 정본이며(설계서 §14 #2), 확인되지 않은 항목명은 넣지 않고 pendingConfirmation에 자리만 둔다.",
+  "title": "form_template 본문 (v1)",
+  "description": "확인서 서식 템플릿 본문 = 번들 body = DB의 fields·layout·pending_confirmation. 항목명·필수 여부·배치는 데이터다(CLAUDE.md 절대 규칙 4). 협회 표준서식이 정본이며(설계서 §14 #2), 확인되지 않은 항목명은 넣지 않고 pendingConfirmation에 자리만 둔다. 템플릿 ID·유형·버전·적용일은 번들(rule-bundle.schema.json)이 가진다.",
   "type": "object",
-  "required": ["templateId", "templateType", "version", "applyFrom", "fields", "layout"],
+  "required": [
+    "fields",
+    "layout",
+    "pendingConfirmation"
+  ],
   "properties": {
-    "templateId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
-    "templateType": { "enum": ["STANDARD", "AUTO"], "description": "AUTO(자동차보험)는 예약" },
-    "version": { "type": "integer", "minimum": 1 },
-    "applyFrom": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-    "applyTo": { "type": ["string", "null"], "format": "date" },
     "fields": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/field" }
+      "items": {
+        "$ref": "#/$defs/field"
+      }
     },
     "layout": {
       "type": "object",
-      "required": ["sections"],
+      "required": [
+        "sections"
+      ],
       "properties": {
         "sections": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["code", "fields"],
+            "required": [
+              "code",
+              "fields"
+            ],
             "properties": {
-              "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
-              "orientation": { "enum": ["COLUMN_PER_ITEM", "DOCUMENT"] },
-              "fields": { "type": "array", "items": { "type": "string" } }
+              "code": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              },
+              "orientation": {
+                "enum": [
+                  "COLUMN_PER_ITEM",
+                  "DOCUMENT"
+                ]
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
         }
@@ -40,10 +59,18 @@
       "description": "정본 확인 전이라 항목명을 넣지 않은 자리(예: TODO(confirm#2)). 렌더러는 이 목록을 인쇄하지 않는다.",
       "items": {
         "type": "object",
-        "required": ["ref", "note"],
+        "required": [
+          "ref",
+          "note"
+        ],
         "properties": {
-          "ref": { "type": "string", "pattern": "^TODO\\(confirm#\\d+\\)$" },
-          "note": { "type": "string" }
+          "ref": {
+            "type": "string",
+            "pattern": "^TODO\\(confirm#\\d+\\)$"
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     }
@@ -51,22 +78,62 @@
   "$defs": {
     "field": {
       "type": "object",
-      "required": ["code", "label", "required", "source", "order", "render"],
+      "required": [
+        "code",
+        "label",
+        "required",
+        "source",
+        "order",
+        "render"
+      ],
       "properties": {
-        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
-        "label": { "type": "string", "minLength": 1 },
-        "required": { "type": "boolean" },
-        "source": { "enum": ["CATALOG", "ENGINE", "AGENT", "SYSTEM"] },
-        "order": { "type": "integer", "minimum": 1 },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "description": "true면 R-FIELD-REQUIRED가 값 존재를 요구한다"
+        },
+        "source": {
+          "enum": [
+            "CATALOG",
+            "ENGINE",
+            "AGENT",
+            "SYSTEM"
+          ]
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
         "render": {
           "type": "object",
           "properties": {
-            "scope": { "enum": ["PER_ITEM", "PER_DOCUMENT"] },
-            "readOnly": { "type": "boolean" },
-            "unavailableText": { "type": "string" }
-          }
+            "scope": {
+              "enum": [
+                "PER_ITEM",
+                "PER_DOCUMENT"
+              ],
+              "description": "PER_ITEM이면 항목(열)마다, PER_DOCUMENT면 확인서당 한 값. R-FIELD-REQUIRED가 값 위치를 고르는 기준"
+            },
+            "readOnly": {
+              "type": "boolean"
+            },
+            "unavailableText": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope"
+          ]
         }
       }
     }
-  }
+  },
+  "additionalProperties": false
 }

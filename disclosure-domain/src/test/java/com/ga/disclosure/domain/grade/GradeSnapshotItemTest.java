@@ -24,11 +24,12 @@ class GradeSnapshotItemTest {
 
     @Test
     void unavailableItemCarriesNothing() {
-        GradeSnapshotItem item = GradeSnapshotItem.unavailable(ProductKey.parse("INS-D:TEMP-7"));
+        GradeSnapshotItem item = GradeSnapshotItem.unavailable(ProductKey.parse("INS-D:TEMP-7"), "NO_RATE_DATA");
         assertThat(item.status()).isEqualTo(GradeStatus.UNAVAILABLE);
         assertThat(item.isAvailable()).isFalse();
         assertThat(item.gradeCode()).isNull();
         assertThat(item.ratioToAvg()).isNull();
+        assertThat(item.unavailableReason()).isEqualTo("NO_RATE_DATA");
     }
 
     @Test
@@ -37,7 +38,10 @@ class GradeSnapshotItemTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> GradeSnapshotItem.ok(KEY, "LOW", "낮음", 2, 1, false, null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new GradeSnapshotItem(KEY, GradeStatus.UNAVAILABLE, null, null, 0, 3, false, null))
+        assertThatThrownBy(() -> new GradeSnapshotItem(KEY, GradeStatus.UNAVAILABLE, null, null, 0, 3, false, null, "X"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> GradeSnapshotItem.unavailable(KEY, " ")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new GradeSnapshotItem(KEY, GradeStatus.OK, "LOW", "낮음", 2, 1, false, new RatioLabel("0.84"), "X"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new RatioLabel(null)).isInstanceOf(NullPointerException.class);
     }

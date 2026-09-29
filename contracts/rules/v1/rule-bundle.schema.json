@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/rules/v1/rule-bundle.schema.json",
+  "title": "규제 룰·서식 번들 (v1)",
+  "description": "GLOBAL(규제) 룰과 표준 서식의 정본 파일. 배포 명령이 각 테넌트에 같은 ID로 복제하고 source_bundle_id·bundle_hash를 남긴다(설계서 §5·§6.2). bundle_hash = SHA-256(JCS(body)). bundleId는 룰이면 {ruleVersionId}@{hash 앞 12자}, 서식이면 {templateId}.v{version}@{hash 앞 12자}이며 로더가 재계산해 다르면 거부한다. 같은 ID로 내용이 바뀐 번들은 존재하지 않는다 — 규제가 바뀌면 새 ID다.",
+  "type": "object",
+  "required": ["bundleId", "kind", "scope", "applyFrom", "body"],
+  "properties": {
+    "bundleId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}(\\.v[1-9][0-9]*)?@[0-9a-f]{12}$" },
+    "kind": { "enum": ["RULE", "TEMPLATE"] },
+    "scope": { "const": "GLOBAL" },
+    "ruleVersionId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+    "templateId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+    "templateType": { "enum": ["STANDARD", "AUTO"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "applyFrom": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "applyTo": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "supersedes": { "type": "object" },
+    "body": { "type": "object" }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "RULE" } }, "required": ["kind"] },
+      "then": {
+        "required": ["ruleVersionId"],
+        "not": { "anyOf": [{ "required": ["templateId"] }, { "required": ["templateType"] }, { "required": ["version"] }] },
+        "properties": {
+          "body": { "$ref": "rule-version.schema.json" },
+          "supersedes": {
+            "type": "object",
+            "required": ["ruleVersionId"],
+            "properties": { "ruleVersionId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" } },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "TEMPLATE" } }, "required": ["kind"] },
+      "then": {
+        "required": ["templateId", "templateType", "version"],
+        "not": { "required": ["ruleVersionId"] },
+        "properties": {
+          "body": { "$ref": "form-template.schema.json" },
+          "supersedes": {
+            "type": "object",
+            "required": ["templateId", "version"],
+            "properties": {
+              "templateId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+              "version": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
+}

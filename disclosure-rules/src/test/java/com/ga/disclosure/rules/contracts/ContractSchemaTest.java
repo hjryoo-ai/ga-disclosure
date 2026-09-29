@@ -249,57 +249,63 @@ class ContractSchemaTest {
 
     // ------------------------------------------------------------------ 룰·서식
 
-    static Stream<Arguments> ruleAndTemplateSamples() {
-        return Stream.of(
-                Arguments.of("rules/v1/rule-version.schema.json", "rules/v1/DISC-2026-07.json"),
-                Arguments.of("rules/v1/form-template.schema.json", "rules/v1/STANDARD-v1.json"));
+    static final String DISC_2026_07 = "rules/bundles/rules/DISC-2026-07.bundle.json";
+    static final String DISC_2027_01 = "rules/bundles/rules/DISC-2027-01.bundle.json";
+    static final String STANDARD_V1 = "rules/bundles/templates/STANDARD-v1.bundle.json";
+
+    static Stream<String> bundles() {
+        return Stream.of(DISC_2026_07, DISC_2027_01, STANDARD_V1);
     }
 
     @ParameterizedTest
-    @MethodSource("ruleAndTemplateSamples")
-    void ruleAndTemplateSamplesPass(String schemaPath, String samplePath) {
-        assertThat(schema(schemaPath).validate(read(samplePath))).isEmpty();
+    @MethodSource("bundles")
+    void bundleFilesPassTheBundleSchema(String bundle) {
+        assertThat(schema("rules/v1/rule-bundle.schema.json").validate(read(bundle))).isEmpty();
     }
 
-    static Stream<Arguments> ruleAndTemplateRequiredFieldRemovals() {
-        return ruleAndTemplateSamples().flatMap(a -> {
-            String schemaPath = (String) a.get()[0];
-            String samplePath = (String) a.get()[1];
-            return required(read(schemaPath)).stream().map(f -> Arguments.of(schemaPath, samplePath, f));
-        });
+    static Stream<Arguments> bodyRequiredFieldRemovals() {
+        return Stream.of(
+                        Arguments.of("rules/v1/rule-version.schema.json", DISC_2026_07),
+                        Arguments.of("rules/v1/form-template.schema.json", STANDARD_V1))
+                .flatMap(a -> required(read((String) a.get()[0])).stream().map(f -> Arguments.of(a.get()[0], a.get()[1], f)));
     }
 
-    @ParameterizedTest(name = "{1} without {2} fails")
-    @MethodSource("ruleAndTemplateRequiredFieldRemovals")
-    void ruleAndTemplateMissingRequiredFieldFails(String schemaPath, String samplePath, String field) {
-        ObjectNode sample = (ObjectNode) read(samplePath);
-        assertThat(sample.has(field)).isTrue();
-        sample.remove(field);
-        assertThat(schema(schemaPath).validate(sample)).isNotEmpty();
+    @ParameterizedTest(name = "{1} body without {2} fails")
+    @MethodSource("bodyRequiredFieldRemovals")
+    void bundleBodyMissingRequiredFieldFails(String schemaPath, String bundlePath, String field) {
+        ObjectNode body = (ObjectNode) read(bundlePath).get("body");
+        assertThat(schema(schemaPath).validate(body)).isEmpty();
+        assertThat(body.has(field)).isTrue();
+        body.remove(field);
+        assertThat(schema(schemaPath).validate(body)).isNotEmpty();
     }
 
     @Test
-    void ruleSampleIsAppendixDVerbatim() {
-        JsonNode rule = read("rules/v1/DISC-2026-07.json");
+    void ruleBundleBodyIsAppendixD() {
+        JsonNode rule = read(DISC_2026_07).get("body");
         assertThat(rule.path("minCompare").asInt()).isEqualTo(3);
         assertThat(rule.path("signerSet")).extracting(JsonNode::asString).containsExactly("CUSTOMER", "AGENT", "MANAGER");
         assertThat(rule.path("validations")).hasSize(12);
         assertThat(rule.path("reasonCodes")).hasSize(5);
+        assertThat(rule.path("tenantOverridable")).extracting(JsonNode::asString).containsExactly(
+                "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "anchor", "kpi",
+                "retainUnlinked");
+        assertThat(rule.path("allowedTieBreaks")).extracting(JsonNode::asString).containsExactly("SHARED_RANK", "STRICT");
     }
 
     @Test
     void templateFieldMissingRequiredAttributeFails() {
         JsonNode schemaNode = read("rules/v1/form-template.schema.json").path("$defs").path("field");
         for (String attribute : required(schemaNode)) {
-            ObjectNode sample = (ObjectNode) read("rules/v1/STANDARD-v1.json");
-            ((ObjectNode) sample.get("fields").get(0)).remove(attribute);
-            assertThat(schema("rules/v1/form-template.schema.json").validate(sample)).as("field without %s", attribute).isNotEmpty();
+            ObjectNode body = (ObjectNode) read(STANDARD_V1).get("body");
+            ((ObjectNode) body.get("fields").get(0)).remove(attribute);
+            assertThat(schema("rules/v1/form-template.schema.json").validate(body)).as("field without %s", attribute).isNotEmpty();
         }
     }
 
     @Test
     void templateCarriesOnlyPressReleaseLabelsAndTodoPlaceholder() {
-        JsonNode template = read("rules/v1/STANDARD-v1.json");
+        JsonNode template = read(STANDARD_V1).get("body");
         assertThat(template.path("fields")).extracting(f -> f.path("label").asString()).containsExactly(
                 "보험회사명", "비교상품군", "상품명", "보험료", "해약환급예시", "판매수수료등급", "판매수수료순위", "추천사유", "추천가능보험사");
         assertThat(template.path("pendingConfirmation")).extracting(p -> p.path("ref").asString()).containsExactly("TODO(confirm#2)");
