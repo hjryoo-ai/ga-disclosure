@@ -1,5 +1,6 @@
 package com.ga.disclosure.infra.persistence;
 
+import com.ga.disclosure.compliance.rules.RuleVersionStore;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.vo.RuleVersionId;
@@ -23,11 +24,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 룰 버전 저장소. 해석기용 조회 포트({@link RuleVersionPort})와 룰 거버넌스(배포·승인·활성화·대사)가 쓰는 변경을 구현한다.
+ * 룰 버전 저장소. 해석기용 조회 포트({@link RuleVersionPort})와 룰 거버넌스 포트({@link RuleVersionStore})를 구현한다.
  * 불변 규칙은 DB 트리거(V4)가 강제한다 — 이 클래스에는 GLOBAL body를 바꾸는 메서드 자체가 없다. 겹침은 DB 배타 제약이 막는다.
  */
 @Repository
-public class RuleVersionRepository extends TenantScopedRepository implements RuleVersionPort {
+public class RuleVersionRepository extends TenantScopedRepository implements RuleVersionPort, RuleVersionStore {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -51,6 +52,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
     }
 
     /** 삽입. GLOBAL은 APPROVED(번들 복제본), TENANT는 DRAFT로만 들어간다(V4 GD040). */
+    @Override
     public void insert(RuleVersion rule) {
         Map<String, Object> params = new HashMap<>();
         params.put("ruleVersionId", rule.id().value());
@@ -71,6 +73,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
                 """, params);
     }
 
+    @Override
     public Optional<RuleVersion> find(RuleVersionId id) {
         return queryAtMostOne("""
                 SELECT rule_version_id, scope, apply_from, apply_to, status, approved_by, approved_at, body::text AS body,
@@ -100,6 +103,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
                 """, Map.of("scope", scope.name(), "asOf", asOf), MAPPER);
     }
 
+    @Override
     public List<RuleVersion> findByStatus(RuleStatus status) {
         return query("""
                 SELECT rule_version_id, scope, apply_from, apply_to, status, approved_by, approved_at, body::text AS body,
@@ -112,6 +116,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
     }
 
     /** 번들 대사 대상: 이 테넌트의 GLOBAL 복제본 전부(상태 무관). */
+    @Override
     public List<RuleVersion> findGlobalReplicas() {
         return query("""
                 SELECT rule_version_id, scope, apply_from, apply_to, status, approved_by, approved_at, body::text AS body,
@@ -124,6 +129,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
     }
 
     /** 선행 룰 닫기: {@code apply_to}가 NULL일 때만 쓴다(V4 GD042가 재기록을 막는다). 갱신 행 수를 돌려준다. */
+    @Override
     public int closeApplyTo(RuleVersionId id, LocalDate applyTo) {
         return update("""
                 UPDATE rule_version
@@ -135,6 +141,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
     }
 
     /** DRAFT → APPROVED(승인 기록 동시 기록). 갱신 행 수를 돌려준다(0이면 DRAFT가 아니었음). */
+    @Override
     public int approve(RuleVersionId id, String approvedBy, Instant approvedAt) {
         return update("""
                 UPDATE rule_version
@@ -146,6 +153,7 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
     }
 
     /** {@code from} 상태일 때만 {@code to}로 전이한다(한 단계 전진만 허용 — V4 GD043). 갱신 행 수를 돌려준다. */
+    @Override
     public int transition(RuleVersionId id, RuleStatus from, RuleStatus to) {
         return update("""
                 UPDATE rule_version

@@ -1,0 +1,128 @@
+{
+  "bundleId": "DISC-TEST-REASON@2691be545b97",
+  "kind": "RULE",
+  "scope": "GLOBAL",
+  "ruleVersionId": "DISC-TEST-REASON",
+  "applyFrom": "2027-01-01",
+  "supersedes": {
+    "ruleVersionId": "DISC-2026-07"
+  },
+  "body": {
+    "minCompare": 3,
+    "distinctInsurer": true,
+    "gradeRequired": {
+      "whenLargeGa": true
+    },
+    "allowedGradingPolicies": [
+      "GRADING-2026-07"
+    ],
+    "allowedRankingPolicies": [
+      "RANK-2026-07"
+    ],
+    "allowedTieBreaks": [
+      "SHARED_RANK",
+      "STRICT"
+    ],
+    "snapshotMaxAgeDays": 7,
+    "reasonCodes": [
+      {
+        "code": "COVERAGE",
+        "label": "보장수준"
+      },
+      {
+        "code": "PREMIUM",
+        "label": "보험료"
+      },
+      {
+        "code": "PURPOSE",
+        "label": "가입목적"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      },
+      {
+        "code": "CUSTOMER_REQUEST",
+        "label": "고객 요청 보험사",
+        "auto": true
+      },
+      {
+        "code": "TEST_ONLY_REASON",
+        "label": "테스트 전용 사유(가상)"
+      }
+    ],
+    "reasonTextMaxLength": 500,
+    "signerSet": [
+      "CUSTOMER",
+      "AGENT",
+      "MANAGER"
+    ],
+    "signOrder": "SEQUENTIAL",
+    "managerConfirmMode": "REQUIRED",
+    "signDeadlineDays": 7,
+    "gateRequiresManager": true,
+    "remoteLinkTtlHours": 72,
+    "channels": {
+      "TOUCH_PAD": true,
+      "REMOTE_LINK": true,
+      "PAPER_SCAN": true,
+      "CERTIFIED_ESIGN": false
+    },
+    "identityCheck": {
+      "REMOTE_LINK": [
+        "LINK_POSSESSION",
+        "BIRTH_DATE"
+      ],
+      "TOUCH_PAD": [
+        "AGENT_FACE_TO_FACE",
+        "SCROLL_COMPLETE"
+      ],
+      "maxFailures": 5
+    },
+    "proxySignatureDetection": {
+      "sameDeviceDistinctCustomersPerDay": 2,
+      "minSecondsFromSendToSign": 60
+    },
+    "anchor": {
+      "externalTimestamp": true,
+      "tsaProfile": "RFC3161"
+    },
+    "subjectRule": {
+      "largeGaOnly": true,
+      "excludedGroups": [
+        "PG-AUTO"
+      ],
+      "contractDateFrom": "2026-07-01"
+    },
+    "kpi": {
+      "collectionRate": "COMPLETED_LINKED / SUBJECT"
+    },
+    "retentionYears": 5,
+    "retainUnlinked": true,
+    "tenantOverridable": [
+      "signDeadlineDays",
+      "remoteLinkTtlHours",
+      "channels",
+      "identityCheck",
+      "proxySignatureDetection",
+      "anchor",
+      "kpi",
+      "retainUnlinked"
+    ],
+    "validations": [
+      "R-MIN-COMPARE",
+      "R-DISTINCT-INSURER",
+      "R-SAME-GROUP",
+      "R-PANEL",
+      "R-GRADE-REQUIRED",
+      "R-GRADE-UNAVAILABLE",
+      "R-RANK-MONOTONIC",
+      "R-REASON",
+      "R-TEMP-PRODUCT",
+      "R-REQUESTED",
+      "R-SIGNER-SET",
+      "R-FIELD-REQUIRED"
+    ]
+  }
+}

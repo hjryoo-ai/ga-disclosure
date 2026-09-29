@@ -47,7 +47,10 @@ class ArchitectureRulesTest {
             new Allowed("com.ga.platform.spring.jdbc.TenantSessionBinder",
                     "트랜잭션 시작 시 set_config('app.tenant_id')로 RLS 세션 값을 넣는 트랜잭션 매니저"),
             new Allowed("com.ga.platform.spring.jdbc.PlatformJdbcAutoConfiguration",
-                    "애플리케이션 DataSource로 위 두 빈을 조립하는 자동 구성"));
+                    "애플리케이션 DataSource로 위 두 빈을 조립하는 자동 구성"),
+            new Allowed("com.ga.platform.spring.jdbc.TenantDirectoryReader",
+                    "운영자 CLI --tenants all 전용 테넌트 ID 목록 — tenant.tenant_id만 읽을 수 있는 disclosure_operator 롤로 별도 접속"
+                            + "(Phase 1 계획 D4, 설계서 §9)"));
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(
