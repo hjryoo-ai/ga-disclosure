@@ -11,6 +11,7 @@ dependencies {
     implementation(project(":disclosure-domain"))
     // 포트-어댑터: rules·audit·compliance가 선언한 포트를 구현한다(설계서 §3.3).
     implementation(project(":disclosure-rules"))
+    implementation(project(":disclosure-audit"))
     implementation("org.springframework:spring-context")
     runtimeOnly(libs.postgresql)
 
@@ -31,6 +32,8 @@ testing {
                 implementation(project(":platform-spring"))
                 implementation(project(":disclosure-domain"))
                 implementation(project(":disclosure-rules"))
+                implementation(project(":disclosure-audit"))
+                implementation(testFixtures(project(":disclosure-rules")))
                 implementation(platform(libs.spring.boot.bom))
                 implementation(libs.junit.jupiter)
                 implementation(libs.assertj.core)
