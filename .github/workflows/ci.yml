@@ -43,3 +43,46 @@ jobs:
         with:
           name: test-reports
           path: '**/build/reports/tests/**'
+
+  no-docker:
+    # CLAUDE.md: Docker가 없으면 통합 테스트는 스킵이 아니라 실패해야 한다. 이 잡은 "실패해야 성공"이다(Phase 1 선행 소과제 C).
+    # container 잡에는 Docker 소켓이 마운트되지 않는다. 성공 조건: 종료 코드 ≠ 0, 스킵 0건, Testcontainers의 Docker 미발견 오류.
+    runs-on: ubuntu-latest
+    container: eclipse-temurin:25-jdk
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: No Docker socket in this container
+        run: test ! -S /var/run/docker.sock
+
+      - name: disclosure-infra integrationTest must FAIL without Docker
+        shell: bash
+        run: |
+          set +e
+          ./gradlew :disclosure-infra:integrationTest --no-daemon --console=plain > it.log 2>&1
+          code=$?
+          set -e
+          echo "gradle exit code: $code"
+          tail -n 80 it.log
+          if [ "$code" -eq 0 ]; then echo 'FAIL: integrationTest passed without Docker'; exit 1; fi
+          if ! grep -q 'Could not find a valid Docker environment' it.log; then echo 'FAIL: no Testcontainers Docker-missing error in the log'; exit 1; fi
+          results=$(ls disclosure-infra/build/test-results/integrationTest/*.xml 2>/dev/null | wc -l)
+          if [ "$results" -eq 0 ]; then echo 'FAIL: no test results — the tests did not run'; exit 1; fi
+          if grep -h -o 'skipped="[0-9]*"' disclosure-infra/build/test-results/integrationTest/*.xml | grep -v -q 'skipped="0"'; then
+            echo 'FAIL: some integration tests were skipped'; exit 1
+          fi
+          failed=$(grep -l -E '(failures|errors)="[1-9]' disclosure-infra/build/test-results/integrationTest/*.xml | wc -l)
+          echo "result files: $results, with failures/errors: $failed, skipped: 0"
+          if [ "$failed" -eq 0 ]; then echo 'FAIL: no failing test suite'; exit 1; fi
+          echo 'OK: integration tests failed (not skipped) because Docker is missing'
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: no-docker-log
+          path: |
+            it.log
+            disclosure-infra/build/test-results/integrationTest/*.xml
