@@ -25,14 +25,17 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * C10: 계약 샘플(이벤트 8종·룰 1종·서식 1종)이 스키마를 통과하고, 필수 필드를 하나씩 제거한 변형은 전부 실패한다.
- * 스키마 $id(https://ga.example/contracts/…)는 저장소의 contracts/ 디렉터리로 매핑한다(원격 조회 없음).
+ * 계약 샘플(이벤트 8종·룰·서식)이 스키마를 통과하고, 필수 필드를 하나씩 제거한 변형은 전부 실패한다(Phase 0 C10).
+ * Phase 1 C14: 엔진 응답의 UNAVAILABLE 항목은 등급·순위·비율 필드를 가질 수 없고, Envelope·피드는 포털 §4.1 규약과 같다.
+ * 스키마 $id(https://ga.example/contracts/…)는 저장소의 contracts/ 디렉터리로 매핑한다(원격 조회 없음). OpenAPI 문서(YAML)는
+ * JSON으로 바꿔 등록하고 {@code #/components/schemas/…} 포인터로 검증한다.
  */
 class ContractSchemaTest {
 
     private static final String BASE = "https://ga.example/contracts/";
     private static final Path CONTRACTS = Path.of(System.getProperty("ga.repoRoot"), "contracts");
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final YAMLMapper YAML = YAMLMapper.builder().build();
 
     static final List<String> EVENT_TYPES = List.of(
             "DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted",
@@ -44,11 +47,16 @@ class ContractSchemaTest {
     static void registry() {
         // $id → 저장소 파일 내용. 매핑되지 않는 IRI는 null(원격 조회하지 않는다).
         registry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12,
-                b -> b.schemas(iri -> iri.startsWith(BASE) ? readString(iri.substring(BASE.length())) : null));
+                b -> b.schemas(iri -> iri.startsWith(BASE) ? schemaText(iri.substring(BASE.length())) : null));
     }
 
     private static Schema schema(String relative) {
         return registry.getSchema(SchemaLocation.of(BASE + relative));
+    }
+
+    private static String schemaText(String relative) {
+        String text = readString(relative);
+        return relative.endsWith(".yaml") ? JSON.writeValueAsString(YAML.readTree(text)) : text;
     }
 
     private static String readString(String relative) {
@@ -81,7 +89,7 @@ class ContractSchemaTest {
             assertThat(CONTRACTS.resolve("events/v1/payloads/" + type + ".schema.json")).isRegularFile();
             assertThat(CONTRACTS.resolve("events/v1/samples/" + type + ".json")).isRegularFile();
         }
-        assertThat(read("events/v1/envelope.schema.json").path("properties").path("eventType").path("enum"))
+        assertThat(read("events/v1/envelope.schema.json").path("properties").path("type").path("enum"))
                 .extracting(JsonNode::asString).containsExactlyInAnyOrderElementsOf(EVENT_TYPES);
     }
 
@@ -93,7 +101,7 @@ class ContractSchemaTest {
     @MethodSource("eventTypes")
     void eventSamplePassesEnvelopeAndPayloadSchemas(String type) {
         JsonNode sample = read("events/v1/samples/" + type + ".json");
-        assertThat(sample.path("eventType").asString()).isEqualTo(type);
+        assertThat(sample.path("type").asString()).isEqualTo(type);
         assertThat(schema("events/v1/envelope.schema.json").validate(sample)).isEmpty();
         assertThat(schema("events/v1/payloads/" + type + ".schema.json").validate(sample.path("payload"))).isEmpty();
     }
@@ -121,6 +129,122 @@ class ContractSchemaTest {
         ObjectNode sample = (ObjectNode) read("events/v1/samples/DisclosureSealed.json");
         sample.set("payload", read("events/v1/samples/PolicyLinked.json").get("payload"));
         assertThat(schema("events/v1/envelope.schema.json").validate(sample)).isNotEmpty();
+    }
+
+    /** 포털 설계서 v1.1 §4.1 Envelope의 필드 집합과 같다(tenantId 없음 — 발행자가 테넌트). */
+    @Test
+    void envelopeFollowsPortalConvention() {
+        JsonNode envelope = read("events/v1/envelope.schema.json");
+        assertThat(required(envelope)).containsExactly("eventId", "seq", "type", "version", "occurredAt", "aggregate", "payload");
+        assertThat(envelope.path("properties").propertyNames()).containsExactlyInAnyOrder(
+                "eventId", "seq", "type", "version", "occurredAt", "aggregate", "payload");
+        assertThat(required(envelope.at("/properties/aggregate"))).containsExactly("kind", "id");
+        assertThat(envelope.toString()).doesNotContain("TODO(confirm-portal-4.1)");
+    }
+
+    @Test
+    void envelopeWithAggregateMissingKindOrUnknownVersionPayloadMismatchFails() {
+        ObjectNode sample = (ObjectNode) read("events/v1/samples/DisclosureSealed.json");
+        ((ObjectNode) sample.get("aggregate")).remove("kind");
+        assertThat(schema("events/v1/envelope.schema.json").validate(sample)).isNotEmpty();
+
+        ObjectNode legacy = (ObjectNode) read("events/v1/samples/DisclosureSealed.json");
+        legacy.put("eventType", "DisclosureSealed");
+        legacy.remove("type");
+        assertThat(schema("events/v1/envelope.schema.json").validate(legacy)).as("Phase 0 초안 필드명은 거부").isNotEmpty();
+    }
+
+    private static final String FEED_RESPONSE = "api/v1/disclosure-internal.openapi.yaml"
+            + "#/paths/~1internal~1v1~1events/get/responses/200/content/application~1json/schema";
+
+    @Test
+    void eventFeedResponseFollowsPortalConvention() {
+        ObjectNode feed = JSON.createObjectNode();
+        var events = feed.putArray("events");
+        EVENT_TYPES.forEach(type -> events.add(read("events/v1/samples/" + type + ".json")));
+        feed.put("nextSeq", 1008).put("headSeq", 1010).put("schemaVersion", 1);
+        assertThat(schema(FEED_RESPONSE).validate(feed)).isEmpty();
+
+        for (String field : List.of("events", "nextSeq", "headSeq", "schemaVersion")) {
+            ObjectNode missing = feed.deepCopy();
+            missing.remove(field);
+            assertThat(schema(FEED_RESPONSE).validate(missing)).as("feed without %s", field).isNotEmpty();
+        }
+    }
+
+    // ------------------------------------------------------------------ 엔진 등급·순위 응답 (설계서 §4.1)
+
+    private static final String ENGINE = "api/v1/engine-disclosure.openapi.yaml";
+    private static final String GRADES_RESPONSE = ENGINE + "#/components/schemas/CommissionGradesResponse";
+
+    private static ObjectNode engineExample() {
+        return (ObjectNode) YAML.readTree(readString(ENGINE))
+                .at("/paths/~1internal~1v1~1disclosure~1commission-grades/post/responses/200/content/application~1json/example");
+    }
+
+    private static ObjectNode result(ObjectNode response, String status) {
+        for (JsonNode r : response.get("results")) {
+            if (r.path("status").asString().equals(status)) {
+                return (ObjectNode) r;
+            }
+        }
+        throw new IllegalStateException("example has no " + status + " result");
+    }
+
+    @Test
+    void engineExamplePassesResponseSchema() {
+        assertThat(schema(GRADES_RESPONSE).validate(engineExample())).isEmpty();
+    }
+
+    static Stream<String> gradeFields() {
+        return Stream.of("ratioToAvg", "grade", "gradeLabel", "gradeOrdinal", "rankInSet", "tie");
+    }
+
+    @ParameterizedTest(name = "UNAVAILABLE with {0} fails")
+    @MethodSource("gradeFields")
+    void unavailableResultCarryingGradeFieldFails(String field) {
+        ObjectNode response = engineExample();
+        ObjectNode ok = result(response, "OK");
+        result(response, "UNAVAILABLE").set(field, ok.get(field));
+        assertThat(schema(GRADES_RESPONSE).validate(response)).isNotEmpty();
+
+        ObjectNode nulled = engineExample();
+        result(nulled, "UNAVAILABLE").putNull(field);
+        assertThat(schema(GRADES_RESPONSE).validate(nulled)).as("null이 아니라 부재여야 한다").isNotEmpty();
+    }
+
+    @ParameterizedTest(name = "OK without {0} fails")
+    @MethodSource("gradeFields")
+    void okResultMissingGradeFieldFails(String field) {
+        ObjectNode response = engineExample();
+        result(response, "OK").remove(field);
+        assertThat(schema(GRADES_RESPONSE).validate(response)).isNotEmpty();
+    }
+
+    @Test
+    void unavailableWithoutReasonOrWithUnknownFieldFails() {
+        ObjectNode noReason = engineExample();
+        result(noReason, "UNAVAILABLE").remove("reason");
+        assertThat(schema(GRADES_RESPONSE).validate(noReason)).isNotEmpty();
+
+        ObjectNode extra = engineExample();
+        result(extra, "OK").put("commissionRate", "0.12");
+        assertThat(schema(GRADES_RESPONSE).validate(extra)).as("수수료율 원 수치는 응답에 없다").isNotEmpty();
+    }
+
+    @Test
+    void tieBreakIsRequiredAndClosed() {
+        ObjectNode missing = engineExample();
+        missing.remove("tieBreak");
+        assertThat(schema(GRADES_RESPONSE).validate(missing)).isNotEmpty();
+
+        ObjectNode unknown = engineExample();
+        unknown.put("tieBreak", "DENSE_RANK");
+        assertThat(schema(GRADES_RESPONSE).validate(unknown)).isNotEmpty();
+
+        ObjectNode strict = engineExample();
+        strict.put("tieBreak", "STRICT");
+        assertThat(schema(GRADES_RESPONSE).validate(strict)).isEmpty();
     }
 
     // ------------------------------------------------------------------ 룰·서식
@@ -185,12 +309,13 @@ class ContractSchemaTest {
 
     @Test
     void openApiDocumentsParseAndDeclareExpectedOperations() throws IOException {
-        YAMLMapper yaml = YAMLMapper.builder().build();
-        JsonNode engine = yaml.readTree(Files.readString(CONTRACTS.resolve("api/v1/engine-disclosure.openapi.yaml")));
-        JsonNode internal = yaml.readTree(Files.readString(CONTRACTS.resolve("api/v1/disclosure-internal.openapi.yaml")));
+        JsonNode engine = YAML.readTree(Files.readString(CONTRACTS.resolve("api/v1/engine-disclosure.openapi.yaml")));
+        JsonNode internal = YAML.readTree(Files.readString(CONTRACTS.resolve("api/v1/disclosure-internal.openapi.yaml")));
         assertThat(engine.path("openapi").asString()).startsWith("3.1");
         assertThat(internal.path("openapi").asString()).startsWith("3.1");
         assertThat(engine.path("paths").has("/internal/v1/disclosure/commission-grades")).isTrue();
+        assertThat(engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/operationId").asString())
+                .isEqualTo("getCommissionGradesSnapshot");
         assertThat(internal.path("paths").has("/internal/v1/disclosures/gate")).isTrue();
         assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isTrue();
         assertThat(internal.path("paths").has("/internal/v1/events")).isTrue();

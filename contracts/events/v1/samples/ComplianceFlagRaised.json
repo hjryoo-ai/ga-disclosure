@@ -1,12 +1,13 @@
 {
   "eventId": "00000008-0000-4000-8000-000000000008",
-  "eventType": "ComplianceFlagRaised",
-  "eventVersion": 1,
-  "tenantId": "T1",
   "seq": 1008,
+  "type": "ComplianceFlagRaised",
+  "version": 1,
   "occurredAt": "2026-09-23T10:08:00+09:00",
-  "aggregateType": "ComplianceFlag",
-  "aggregateId": "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
+  "aggregate": {
+    "kind": "COMPLIANCE_FLAG",
+    "id": "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a"
+  },
   "payload": {
     "flagId": "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
     "flagType": "GRADE_UNAVAILABLE",
