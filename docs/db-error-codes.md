@@ -20,7 +20,7 @@ DB 트리거가 불변식 위반을 거부할 때 올리는 사용자 정의 SQL
 | GD043 | V4 | `rule_version` UPDATE | `status`가 `DRAFT→APPROVED→ACTIVE→RETIRED` 한 단계 전진이 아님 |
 | GD044 | V4 | `rule_version` UPDATE | `approved_by`·`approved_at`을 DRAFT→APPROVED 전이 밖에서 변경 |
 | GD045 | V4 | `rule_version`·`form_template` | DELETE·TRUNCATE |
-| GD050 | V4 | `form_template` UPDATE | 번들 출처 행의 `apply_to` 외 컬럼 변경 |
+| GD050 | V4 | `form_template` UPDATE | 식별자(`tenant_id`, `template_id`, `version`)·출처(`source_bundle_id`, `bundle_hash`) 변경, 또는 번들 출처 행의 `apply_to` 외 컬럼 변경 |
 | GD051 | V4 | `form_template` UPDATE | 테넌트 작성본을 `apply_from ≤ 오늘(Asia/Seoul)` 이후 변경(`apply_to` 외) |
 | GD052 | V4 | `form_template` UPDATE | `apply_to` 재기록(값→다른 값, 값→NULL) |
 

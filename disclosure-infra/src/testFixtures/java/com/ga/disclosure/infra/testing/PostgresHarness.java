@@ -19,7 +19,7 @@ import java.sql.SQLException;
  * <ol>
  *   <li>{@value #IMAGE} 컨테이너를 {@code POSTGRES_DB=disclosure}로 띄우고 {@code docker/postgres/init-roles.sql}을
  *       초기화 스크립트로 실행한다(docker-compose와 같은 파일).</li>
- *   <li>{@code disclosure_migrator}로 Flyway 마이그레이션(V1~V3).</li>
+ *   <li>{@code disclosure_migrator}로 Flyway 마이그레이션(V1~).</li>
  *   <li>테스트 데이터소스는 {@code disclosure_app}(RLS 대상). 시드는 {@code disclosure_migrator}(FORCE RLS라 테넌트 설정 필요).</li>
  * </ol>
  * Docker가 없으면 {@link #get()}이 예외를 던져 테스트가 <b>실패</b>한다(스킵하지 않는다).
@@ -30,15 +30,18 @@ public final class PostgresHarness {
     public static final String DATABASE = "disclosure";
     public static final String MIGRATOR = "disclosure_migrator";
     public static final String APP = "disclosure_app";
+    public static final String OPERATOR = "disclosure_operator";
     // init-roles.sql과 짝을 이루는 로컬 전용 자격 증명
     static final String MIGRATOR_PASSWORD = "migrator_local_only";
     static final String APP_PASSWORD = "app_local_only";
+    public static final String OPERATOR_PASSWORD = "operator_local_only";
 
     private static PostgresHarness instance;
 
     private final PostgreSQLContainer container;
     private final DataSource app;
     private final DataSource migrator;
+    private final DataSource operator;
     private final DataSource superuser;
 
     private PostgresHarness() {
@@ -56,6 +59,7 @@ public final class PostgresHarness {
         superuser = dataSource("postgres", "postgres");
         migrator = dataSource(MIGRATOR, MIGRATOR_PASSWORD);
         app = dataSource(APP, APP_PASSWORD);
+        operator = dataSource(OPERATOR, OPERATOR_PASSWORD);
 
         Flyway.configure()
                 .dataSource(migrator)
@@ -77,6 +81,11 @@ public final class PostgresHarness {
 
     public DataSource migratorDataSource() {
         return migrator;
+    }
+
+    /** 테넌트 디렉터리 전용 롤({@code tenant.tenant_id}만 읽는다, V4). */
+    public DataSource operatorDataSource() {
+        return operator;
     }
 
     public DataSource superuserDataSource() {
