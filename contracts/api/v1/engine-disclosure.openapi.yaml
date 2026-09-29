@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-commission-engine — 비교설명 확인서용 판매수수료 등급·순위 API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     설계서 §4.1. 서버 구현은 ga-commission-engine 저장소 Phase E3, 소비자는 ga-disclosure(disclosure-infra 엔진 클라이언트, Phase 3).
     - 등급은 유사상품군 전체 대비, 순위는 요청 세트 안에서 매긴다(1순위가 가장 저렴).
@@ -12,6 +12,7 @@ info:
       순위는 OK 항목만으로 매긴다. tieBreak=STRICT면 OK 항목 m개의 rankInSet이 1..m 순열, SHARED_RANK면 경쟁 순위(1-2-2-4)이고 동순위 항목은 전부 tie=true.
     - ratioToAvg 불변 약속: 엔진은 snapshotId별 결과를 영속 저장하고, 같은 snapshotId 재조회 시 ratioToAvg를 포함한 모든 문자열 필드를
       바이트 단위로 동일하게 돌려준다(정책 버전이 바뀌어도 재포맷하지 않음). provider 계약 테스트로 고정한다(설계서 §4.1).
+    - 1.1.0(Phase E3 계획, 추가만): 401(토큰)·403(테넌트 불일치) 응답, POST 422(정책 0건·자기 검증 실패 — 500이 아니라 스냅샷 미발급 명시 오류).
 servers:
   - url: https://engine.{tenant}.internal
     variables:
@@ -69,6 +70,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '401':
+          description: '서비스 토큰 없음·불일치(code=UNAUTHENTICATED)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: '요청 tenantId가 이 엔진 인스턴스의 테넌트와 다름(code=TENANT_MISMATCH) — 엔진은 테넌트별 인스턴스'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: '스냅샷을 만들지 않은 명시 오류(code=NO_POLICY: 기준일에 적용할 정책 0건 / POLICY_SELF_CHECK_FAILED: 순위-등급 자기 검증 실패, 정책 데이터 모순 신호)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /internal/v1/disclosure/commission-grades/{snapshotId}:
     get:
       operationId: getCommissionGradesSnapshot
@@ -87,6 +106,18 @@ paths:
                 $ref: '#/components/schemas/CommissionGradesResponse'
         '404':
           description: 해당 테넌트에 없는 snapshotId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: '서비스 토큰 없음·불일치(code=UNAUTHENTICATED)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: '이 엔진 인스턴스의 테넌트가 아닌 요청(code=TENANT_MISMATCH)'
           content:
             application/json:
               schema:
