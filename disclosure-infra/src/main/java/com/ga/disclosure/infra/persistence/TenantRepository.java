@@ -3,6 +3,7 @@ package com.ga.disclosure.infra.persistence;
 import com.ga.disclosure.domain.enums.GateMode;
 import com.ga.disclosure.domain.enums.IssuerMode;
 import com.ga.platform.core.tenant.TenantId;
+import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -24,7 +25,7 @@ public class TenantRepository extends TenantScopedRepository {
             GateMode.valueOf(rs.getString("gate_mode")),
             rs.getString("params"));
 
-    public TenantRepository(Gateway gateway) {
+    public TenantRepository(TenantJdbcGateway gateway) {
         super(gateway);
     }
 

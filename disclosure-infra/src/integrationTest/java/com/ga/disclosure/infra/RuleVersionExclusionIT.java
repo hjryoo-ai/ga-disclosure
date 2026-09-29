@@ -8,6 +8,7 @@ import com.ga.disclosure.infra.testing.PostgresHarness;
 import com.ga.disclosure.infra.testing.SeedData;
 import com.ga.platform.core.tenant.TenantContext;
 import com.ga.platform.core.tenant.TenantId;
+import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import com.ga.platform.spring.jdbc.TenantSessionBinder;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,7 @@ class RuleVersionExclusionIT {
     private static final PostgresHarness DB = PostgresHarness.get();
     private static final AtomicInteger IDS = new AtomicInteger();
 
-    private final RuleVersionRepository repository = new RuleVersionRepository(new TenantScopedRepository.Gateway(DB.appDataSource()));
+    private final RuleVersionRepository repository = new RuleVersionRepository(new TenantJdbcGateway(DB.appDataSource()));
     private final TransactionTemplate tx = new TransactionTemplate(new TenantSessionBinder(DB.appDataSource()));
 
     private static TenantId freshTenant() {

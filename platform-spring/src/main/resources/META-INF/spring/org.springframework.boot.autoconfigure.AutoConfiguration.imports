@@ -1,1 +1,1 @@
-com.ga.platform.spring.jdbc.TenantSessionBinder$PlatformJdbcAutoConfiguration
+com.ga.platform.spring.jdbc.PlatformJdbcAutoConfiguration

@@ -2,9 +2,6 @@ package com.ga.platform.spring.jdbc;
 
 import com.ga.platform.core.tenant.TenantContext;
 import com.ga.platform.core.tenant.TenantId;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate;
-import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -107,27 +104,5 @@ public class TenantSessionBinder extends JdbcTransactionManager {
     }
 
     private record Suspended(Object connection, TenantId tenant) {
-    }
-
-    /**
-     * 조립: 애플리케이션 {@code DataSource}(= {@code disclosure_app} 롤)에 대해 이 매니저를
-     * 유일한 트랜잭션 매니저로, {@link TenantScopedRepository.Gateway}를 저장소 공용 운반체로 등록한다.
-     * Boot 기본 {@code DataSourceTransactionManagerAutoConfiguration}보다 먼저 적용되어 그쪽 조건부 빈을 대체한다.
-     */
-    @AutoConfiguration(
-            afterName = "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
-            beforeName = "org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration")
-    @ConditionalOnSingleCandidate(DataSource.class)
-    public static class PlatformJdbcAutoConfiguration {
-
-        @Bean
-        public TenantSessionBinder transactionManager(DataSource dataSource) {
-            return new TenantSessionBinder(dataSource);
-        }
-
-        @Bean
-        public TenantScopedRepository.Gateway tenantScopedRepositoryGateway(DataSource dataSource) {
-            return new TenantScopedRepository.Gateway(dataSource);
-        }
     }
 }

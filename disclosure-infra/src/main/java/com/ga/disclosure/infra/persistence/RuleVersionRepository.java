@@ -2,6 +2,7 @@ package com.ga.disclosure.infra.persistence;
 
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.vo.RuleVersionId;
+import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -34,7 +35,7 @@ public class RuleVersionRepository extends TenantScopedRepository {
                 rs.getString("body"));
     };
 
-    public RuleVersionRepository(Gateway gateway) {
+    public RuleVersionRepository(TenantJdbcGateway gateway) {
         super(gateway);
     }
 

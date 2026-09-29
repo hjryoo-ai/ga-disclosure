@@ -1,6 +1,6 @@
 package com.ga.platform.core.arch;
 
-import com.ga.platform.core.arch.fixtures.db.DbFixtures;
+import com.ga.platform.core.arch.ArchRules.Allowed;
 import com.ga.platform.core.arch.fixtures.ordering.OrderingFixtures;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -13,6 +13,7 @@ import java.math.BigInteger;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 규칙 라이브러리 자체의 음성·양성 테스트. 표본(fixtures)은 의도적 위반을 영구 보존한 것이다 —
@@ -47,13 +48,15 @@ class ArchRulesTest {
     void orderingIsForbiddenNextToElementTypesExceptAllowedClass() {
         ArchRule rule = ArchRules.noOrderingInClassesUsing(
                 List.of(OrderingFixtures.Item.class, OrderingFixtures.Label.class),
-                OrderingFixtures.AllowedChecker.class);
+                List.of(new Allowed(OrderingFixtures.AllowedChecker.class.getName(), "fixture")));
         String report = report(rule, importPackage("ordering"));
         assertThat(report)
                 .contains("SortsItemsByComparator")
                 .contains("MaxOfItems")
                 .contains("SortsLabelStrings")
-                .doesNotContain("AllowedChecker")
+                .contains("AllowedChecker$PublicHelper")
+                .doesNotContain("AllowedChecker.monotonic")
+                .doesNotContain("PrivateHelper")
                 .doesNotContain("UnrelatedSorter");
     }
 
@@ -67,23 +70,28 @@ class ArchRulesTest {
 
     @Test
     void methodOnlyInvokedFromCatchesCallsAndMethodReferences() {
-        ArchRule rule = ArchRules.methodOnlyInvokedFrom(OrderingFixtures.Label.class, "value", FIX + ".ordering.allowed..");
+        ArchRule rule = ArchRules.methodOnlyInvokedFrom(OrderingFixtures.Label.class, "value",
+                List.of(new Allowed(FIX + ".ordering.allowed", "fixture")));
         String report = report(rule, importPackage("ordering"));
         assertThat(report)
                 .contains("SortsLabelStrings")
                 .contains("ReadsLabelByReference")
+                .as("패키지 허용은 하위 패키지를 포함하지 않는다").contains("NestedPackageReader")
                 .doesNotContain("LabelRenderer");
     }
 
     @Test
     void dbAccessOnlyViaRepositoryBase() {
-        ArchRule rule = ArchRules.dbAccessOnlyVia(DbFixtures.BaseRepository.class, DbFixtures.Binder.class);
+        ArchRule rule = ArchRules.dbAccessOnlyVia(FIX + ".db.BaseRepository",
+                List.of(new Allowed(FIX + ".db.Gateway", "fixture"), new Allowed(FIX + ".db.Binder", "fixture")));
         String report = report(rule, importPackage("db"));
         assertThat(report)
                 .contains("RogueDao")
                 .contains("SneakyRepository")
+                .as("허용 클래스의 public 중첩 클래스는 위반").contains("Binder$LeakyNested")
                 .doesNotContain("GoodRepository")
-                .doesNotContain("$Binder")
+                .doesNotContain("HiddenHelper")
+                .doesNotContain("Class <" + FIX + ".db.Binder>")
                 .doesNotContain("Gateway.<init>(javax.sql.DataSource)")
                 .doesNotContain("Gateway.dataSource");
     }
@@ -100,7 +108,8 @@ class ArchRulesTest {
 
     @Test
     void typesOnlyUsedInAllowsOnlyListedPackages() {
-        String report = report(ArchRules.typesOnlyUsedIn(List.of(BigDecimal.class, BigInteger.class), FIX + ".misc.json.."),
+        String report = report(ArchRules.typesOnlyUsedIn(List.of(BigDecimal.class, BigInteger.class),
+                        List.of(new Allowed(FIX + ".misc.json", "fixture"))),
                 importPackage("misc"));
         assertThat(report).contains("UsesBigDecimal").doesNotContain("JsonMapper");
     }
@@ -109,6 +118,30 @@ class ArchRulesTest {
     void noClassNameContainingForbiddenFragments() {
         String report = report(ArchRules.noClassNameContaining("Grading", "Ranking", "CommissionRate"), importPackage("misc"));
         assertThat(report).contains("CommissionRateCalculator").contains("RankingHelper").doesNotContain("UsesBigDecimal");
+    }
+
+    @Test
+    void allowlistEntriesMustBeExactFqnsWithReasons() {
+        assertThatThrownBy(() -> new Allowed(FIX + ".db..", "pattern")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Allowed(FIX + ".db.*", "pattern")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Allowed(FIX + ".db.Binder", " ")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void staleAllowlistEntriesAreReported() {
+        JavaClasses db = importPackage("db");
+        assertThat(ArchRules.staleClasses(db, List.of(
+                new Allowed(FIX + ".db.Binder", "exists"),
+                new Allowed(FIX + ".db.Binder$HiddenHelper", "exists (nested)"),
+                new Allowed(FIX + ".db.RemovedGateway", "stale"))))
+                .containsExactly(FIX + ".db.RemovedGateway");
+
+        JavaClasses ordering = importPackage("ordering");
+        assertThat(ArchRules.stalePackages(ordering, List.of(
+                new Allowed(FIX + ".ordering.allowed", "exists"),
+                new Allowed(FIX + ".ordering", "exists"),
+                new Allowed(FIX + ".ordering.renamed", "stale"))))
+                .containsExactly(FIX + ".ordering.renamed");
     }
 
     @Test

@@ -26,7 +26,7 @@ class TenantSessionBinderTest {
     private static final TenantId TB = TenantId.of("TB");
 
     private final FakeJdbc jdbc = new FakeJdbc();
-    private final ProbeRepository repository = new ProbeRepository(new TenantScopedRepository.Gateway(jdbc.dataSource));
+    private final ProbeRepository repository = new ProbeRepository(new TenantJdbcGateway(jdbc.dataSource));
     private final TenantSessionBinder binder = new TenantSessionBinder(jdbc.dataSource);
     private final TransactionTemplate tx = new TransactionTemplate(binder);
 
@@ -104,18 +104,18 @@ class TenantSessionBinderTest {
     void autoConfigurationRegistersBinderAsTheTransactionManager() throws IOException {
         new ApplicationContextRunner()
                 .withBean(DataSource.class, () -> jdbc.dataSource)
-                .withConfiguration(AutoConfigurations.of(TenantSessionBinder.PlatformJdbcAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(PlatformJdbcAutoConfiguration.class))
                 .run(context -> {
                     assertThat(context).hasSingleBean(PlatformTransactionManager.class);
                     assertThat(context.getBean(PlatformTransactionManager.class)).isInstanceOf(TenantSessionBinder.class);
-                    assertThat(context).hasSingleBean(TenantScopedRepository.Gateway.class);
+                    assertThat(context).hasSingleBean(TenantJdbcGateway.class);
                 });
 
         try (InputStream in = getClass().getResourceAsStream(
                 "/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports")) {
             assertThat(in).isNotNull();
             assertThat(new String(in.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains(TenantSessionBinder.PlatformJdbcAutoConfiguration.class.getName());
+                    .contains(PlatformJdbcAutoConfiguration.class.getName());
         }
     }
 }

@@ -62,9 +62,11 @@ subprojects {
         }
     }
 
+    // -Xpkginfo:always: 아직 코드가 없는 패키지도 package-info.class가 생겨, 아키텍처 규칙 허용 목록의 폐기 항목 검사가
+    // 그 패키지의 존재를 확인할 수 있다(ArchRules.stalePackages).
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        options.compilerArgs.addAll(listOf("-Xlint:all,-processing,-serial", "-Werror", "-parameters"))
+        options.compilerArgs.addAll(listOf("-Xlint:all,-processing,-serial", "-Werror", "-parameters", "-Xpkginfo:always"))
     }
 
     tasks.withType<Javadoc>().configureEach {
