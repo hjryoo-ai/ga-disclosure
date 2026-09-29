@@ -2,32 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ga.example/contracts/events/v1/envelope.schema.json",
   "title": "이벤트 Envelope (v1)",
-  "description": "아웃박스 이벤트 공통 봉투(설계서 §4.5). GET /internal/v1/events 피드가 이 형태로 내준다. $comment 참조: 포털 설계서 §4.1 규약과 필드 대조가 남아 있다.",
-  "$comment": "TODO(confirm-portal-4.1): 포털 설계서 §4.1 Envelope 규약 원문을 확인하지 못한 상태에서 작성한 초안이다. 필드명·seq 의미·버전 규칙을 포털 계약과 대조해 맞춘다.",
+  "description": "아웃박스 이벤트 공통 봉투(설계서 §4.5). 포털 설계서 v1.1 §4.1 Envelope 규약과 필드·의미가 같다(Phase 1에서 대조·정렬, 차이는 docs/phase-01-보고서.md). 호환성: 소비자는 모르는 필드를 무시한다. 지원하는 최대 version보다 큰 이벤트를 만나면 그 테넌트의 소비를 정지하고 운영 알림. seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적용, 크면(갭) 정지.",
   "type": "object",
-  "required": ["eventId", "eventType", "eventVersion", "tenantId", "seq", "occurredAt", "aggregateType", "aggregateId", "payload"],
+  "required": ["eventId", "seq", "type", "version", "occurredAt", "aggregate", "payload"],
   "properties": {
-    "eventId": { "$ref": "defs.schema.json#/$defs/uuid" },
-    "eventType": {
-      "enum": ["DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted",
-               "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised"]
+    "eventId": { "$ref": "defs.schema.json#/$defs/uuid", "description": "멱등키(UNIQUE)" },
+    "seq": { "type": "integer", "minimum": 1, "description": "발행자(테넌트) 내 단조 증가 정수. 피드는 seq 오름차순·갭 없음" },
+    "type": {
+      "description": "이벤트 타입명",
+      "enum": ["DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted", "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised"]
     },
-    "eventVersion": { "const": 1, "description": "payload 스키마 버전. 필드 추가는 호환, 삭제·의미 변경은 증가. 소비자는 모르는 상위 버전을 받으면 정지한다." },
-    "tenantId": { "$ref": "defs.schema.json#/$defs/tenantId" },
-    "seq": { "type": "integer", "minimum": 1, "description": "테넌트별 피드 단조 증가 위치(소비자 커서)" },
-    "occurredAt": { "$ref": "defs.schema.json#/$defs/instant" },
-    "aggregateType": { "enum": ["Disclosure", "ComplianceFlag"] },
-    "aggregateId": { "$ref": "defs.schema.json#/$defs/uuid" },
+    "version": { "type": "integer", "minimum": 1, "description": "payload 스키마 버전(정수). 필드 추가는 호환, 삭제·의미 변경·타입 변경은 version 증가" },
+    "occurredAt": { "$ref": "defs.schema.json#/$defs/instant", "description": "ISO-8601, 오프셋 포함" },
+    "aggregate": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["DISCLOSURE", "COMPLIANCE_FLAG"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
     "payload": { "type": "object" }
   },
   "allOf": [
-    { "if": { "properties": { "eventType": { "const": "DisclosureCreated" } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureCreated.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "DisclosureSealed" } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSealed.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "SignatureCaptured" } } }, "then": { "properties": { "payload": { "$ref": "payloads/SignatureCaptured.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "DisclosureCompleted" } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureCompleted.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "DisclosureVoided" } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureVoided.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "DisclosureSuperseded" } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSuperseded.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "PolicyLinked" } } }, "then": { "properties": { "payload": { "$ref": "payloads/PolicyLinked.schema.json" } } } },
-    { "if": { "properties": { "eventType": { "const": "ComplianceFlagRaised" } } }, "then": { "properties": { "payload": { "$ref": "payloads/ComplianceFlagRaised.schema.json" } } } }
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureCreated" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureCreated.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureSealed" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSealed.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "SignatureCaptured" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/SignatureCaptured.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureCompleted" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureCompleted.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureVoided" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureVoided.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureSuperseded" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSuperseded.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "PolicyLinked" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/PolicyLinked.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "ComplianceFlagRaised" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/ComplianceFlagRaised.schema.json" } } } }
   ]
 }

@@ -21,6 +21,9 @@ public final class SeedData {
             "sign_session", "signature", "audit_log", "audit_anchor",
             "subject_policy", "compliance_flag");
 
+    /** SHA-256(JCS({})) = SHA-256("{}"). */
+    public static final String EMPTY_OBJECT_HASH = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+
     public static final List<String> MUTABLE_STATUSES = List.of("DRAFT", "COMPARED", "GRADED", "REASONED");
     public static final List<String> SEALED_STATUSES = List.of("SEALED", "PARTIALLY_SIGNED", "COMPLETED", "VOID", "SUPERSEDED", "EXPIRED");
     public static final List<String> ALL_STATUSES = List.of(
@@ -104,14 +107,61 @@ public final class SeedData {
                 """, tenant, hash('1'));
     }
 
+    /**
+     * 룰 버전 1건을 정상 경로로 만든다(V4 트리거가 허용하는 순서): GLOBAL은 APPROVED로 삽입(번들 복제본), TENANT는 DRAFT로
+     * 삽입 후 승인. 그 뒤 ACTIVE·RETIRED로 한 단계씩 전진한다. GLOBAL·DRAFT는 존재할 수 없다.
+     */
+    public static void ruleVersion(Connection c, String tenant, String id, String scope, String status,
+                                   String applyFrom, String applyToOrNull) throws SQLException {
+        List<String> order = List.of("DRAFT", "APPROVED", "ACTIVE", "RETIRED");
+        if (scope.equals("GLOBAL") && status.equals("DRAFT")) {
+            throw new IllegalArgumentException("a GLOBAL rule is never DRAFT");
+        }
+        boolean global = scope.equals("GLOBAL");
+        exec(c, """
+                INSERT INTO rule_version (tenant_id, rule_version_id, scope, apply_from, apply_to, status, approved_by, approved_at,
+                                          body, source_bundle_id, bundle_hash)
+                VALUES (?, ?, ?, CAST(? AS date), CAST(? AS date), ?, ?, CASE WHEN ? THEN TIMESTAMPTZ '2026-06-30 09:00:00+09' END,
+                        '{}'::jsonb, ?, ?)
+                """, tenant, id, scope, applyFrom, applyToOrNull, global ? "APPROVED" : "DRAFT",
+                global ? "OPERATOR:seed" : null, global, global ? id + "@44136fa355b3" : null, global ? EMPTY_OBJECT_HASH : null);
+        for (int i = order.indexOf(global ? "APPROVED" : "DRAFT") + 1; i <= order.indexOf(status); i++) {
+            String next = order.get(i);
+            if (next.equals("APPROVED")) {
+                exec(c, """
+                        UPDATE rule_version SET status = 'APPROVED', approved_by = 'COMPLIANCE:seed',
+                                                approved_at = TIMESTAMPTZ '2026-06-30 10:00:00+09'
+                         WHERE tenant_id = ? AND rule_version_id = ?
+                        """, tenant, id);
+            } else {
+                exec(c, "UPDATE rule_version SET status = ? WHERE tenant_id = ? AND rule_version_id = ?", next, tenant, id);
+            }
+        }
+    }
+
+    /** 서식 템플릿 1건. {@code bundleIdOrNull}이 있으면 번들 출처(해시는 빈 객체 해시 자리값). */
+    public static void formTemplate(Connection c, String tenant, String templateId, int version, String applyFrom,
+                                    String applyToOrNull, String bundleIdOrNull) throws SQLException {
+        exec(c, """
+                INSERT INTO form_template (tenant_id, template_id, template_type, version, apply_from, apply_to, fields, layout,
+                                           source_bundle_id, bundle_hash)
+                VALUES (?, ?, 'STANDARD', ?, CAST(? AS date), CAST(? AS date), '[]'::jsonb, '{}'::jsonb, ?, ?)
+                """, tenant, templateId, version, applyFrom, applyToOrNull, bundleIdOrNull,
+                bundleIdOrNull == null ? null : EMPTY_OBJECT_HASH);
+    }
+
     /** 18개 테넌트 테이블 전부에 한 행 이상을 넣는다(RLS 격리 검증용). */
     public static void everyTable(Connection c, String tenant) throws SQLException {
         tenant(c, tenant);
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'sub-1', 'AGENT-1', ARRAY['AGENT'], '/HQ/B1')", tenant);
         exec(c, """
-                INSERT INTO rule_version (tenant_id, rule_version_id, scope, apply_from, status, body)
-                VALUES (?, 'DISC-2026-07', 'GLOBAL', DATE '2026-07-01', 'ACTIVE', '{}'::jsonb)
-                """, tenant);
+                INSERT INTO rule_version (tenant_id, rule_version_id, scope, apply_from, status, approved_by, approved_at, body,
+                                          source_bundle_id, bundle_hash)
+                VALUES (?, 'DISC-2026-07', 'GLOBAL', DATE '2026-07-01', 'APPROVED', 'OPERATOR:seed', TIMESTAMPTZ '2026-06-30 09:00:00+09',
+                        '{}'::jsonb, 'DISC-2026-07@44136fa355b3', ?)
+                """, tenant, EMPTY_OBJECT_HASH);
+        // GLOBAL 복제본은 APPROVED로만 들어가고(V4 GD040) 활성화는 한 단계 전진이다.
+        exec(c, "UPDATE rule_version SET status = 'ACTIVE' WHERE tenant_id = ? AND rule_version_id = 'DISC-2026-07'", tenant);
         exec(c, """
                 INSERT INTO form_template (tenant_id, template_id, template_type, version, apply_from, fields, layout)
                 VALUES (?, 'STANDARD', 'STANDARD', 1, DATE '2026-07-01', '[]'::jsonb, '{}'::jsonb)

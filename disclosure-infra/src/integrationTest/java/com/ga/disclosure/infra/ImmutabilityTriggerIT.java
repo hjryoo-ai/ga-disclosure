@@ -59,6 +59,7 @@ class ImmutabilityTriggerIT {
         BODY.put("pdf_hash", "repeat('8', 64)");
         BODY.put("chain_hash", "repeat('7', 64)");
         BODY.put("chain_seq", "coalesce(chain_seq, 0) + 1");
+        BODY.put("tenant_rule_version_id", "'HOUSE-X'");                       // V4: 메타 목록에 없으므로 자동으로 본문(Phase 1 C13)
 
         META.put("superseded_by_id", "gen_random_uuid()");
         META.put("completed_at", "TIMESTAMPTZ '2026-09-24 00:00:00+09'");
@@ -72,6 +73,30 @@ class ImmutabilityTriggerIT {
     @BeforeAll
     static void seedTenant() {
         DB.seed(T, c -> SeedData.tenant(c, T));
+    }
+
+    /**
+     * disclosure의 모든 컬럼이 본문(BODY) 또는 메타(META·status)로 분류돼 있다. 마이그레이션이 컬럼을 추가하면(V4 이후) 이 테스트가
+     * 분류를 강제한다 — 트리거는 메타 허용 목록 방식이라 새 컬럼이 기본 불변이지만, 매트릭스가 그 컬럼을 실제로 검사하게 한다.
+     */
+    @Test
+    void everyDisclosureColumnIsCoveredByTheMatrix() {
+        java.util.List<String> columns = DB.asApp(T, c -> {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            try (var ps = c.prepareStatement("""
+                    SELECT column_name FROM information_schema.columns
+                     WHERE table_schema = 'public' AND table_name = 'disclosure' ORDER BY ordinal_position
+                    """); var rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    names.add(rs.getString(1));
+                }
+            }
+            return names;
+        });
+        java.util.Set<String> classified = new java.util.HashSet<>(BODY.keySet());
+        classified.addAll(META.keySet());
+        classified.addAll(java.util.List.of("tenant_id", "status"));
+        assertThat(columns).contains("tenant_rule_version_id").allSatisfy(col -> assertThat(classified).contains(col));
     }
 
     static Stream<Arguments> statusTimesBody() {

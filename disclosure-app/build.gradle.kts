@@ -7,7 +7,7 @@ plugins {
 }
 
 val allModules = listOf(
-    ":platform-core", ":platform-spring",
+    ":platform-core", ":platform-spring", ":platform-canonical",
     ":disclosure-domain", ":disclosure-rules", ":disclosure-workflow", ":disclosure-seal", ":disclosure-sign",
     ":disclosure-audit", ":disclosure-compliance", ":disclosure-api", ":disclosure-infra", ":disclosure-demo",
 )
@@ -20,6 +20,10 @@ dependencies {
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(libs.spring.boot.starter.flyway)
+    implementation(project(":disclosure-rules"))
+    implementation(project(":disclosure-audit"))
+    implementation(project(":disclosure-compliance"))
+    implementation(project(":platform-spring"))
     runtimeOnly(libs.flyway.postgresql)
     runtimeOnly(libs.postgresql)
 }
@@ -66,4 +70,9 @@ testing {
 
 tasks.named("check") {
     dependsOn(testing.suites.named("archTest"), testing.suites.named("integrationTest"))
+}
+
+// 운영자 CLI(bootRun --args="--spring.profiles.active=cli ...")의 상대 경로(contracts/rules/bundles 등)는 저장소 루트 기준이다.
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    workingDir = rootProject.projectDir
 }

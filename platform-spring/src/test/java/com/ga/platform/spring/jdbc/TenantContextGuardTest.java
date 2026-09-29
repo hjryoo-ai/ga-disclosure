@@ -15,7 +15,7 @@ class TenantContextGuardTest {
     private static final TenantId TA = TenantId.of("TA");
 
     private final FakeJdbc jdbc = new FakeJdbc();
-    private final ProbeRepository repository = new ProbeRepository(new TenantScopedRepository.Gateway(jdbc.dataSource));
+    private final ProbeRepository repository = new ProbeRepository(new TenantJdbcGateway(jdbc.dataSource));
     private final TransactionTemplate tx = new TransactionTemplate(new TenantSessionBinder(jdbc.dataSource));
 
     @Test

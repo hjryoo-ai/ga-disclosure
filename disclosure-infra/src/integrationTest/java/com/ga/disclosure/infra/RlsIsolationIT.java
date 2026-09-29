@@ -90,6 +90,48 @@ class RlsIsolationIT {
         });
     }
 
+    /**
+     * 정책은 테이블마다 tenant_isolation 하나뿐이다. 유일한 예외는 tenant 테이블의 tenant_directory(V4, disclosure_operator 전용
+     * SELECT) — 허용 목록을 명시해 새 정책이 조용히 추가되지 않게 한다.
+     */
+    @Test
+    void policiesAreExactlyTenantIsolationPlusTheDirectoryException() {
+        List<String> policies = new ArrayList<>();
+        DB.seed(A, c -> {
+            try (Statement s = c.createStatement(); ResultSet rs = s.executeQuery("""
+                    SELECT tablename || ':' || policyname || ':' || cmd || ':' || array_to_string(roles, ',')
+                      FROM pg_policies WHERE schemaname = 'public' ORDER BY 1
+                    """)) {
+                while (rs.next()) {
+                    policies.add(rs.getString(1));
+                }
+            }
+        });
+        List<String> expected = new ArrayList<>();
+        TABLES.forEach(t -> expected.add(t + ":tenant_isolation:ALL:public"));
+        expected.add("tenant:tenant_directory:SELECT:disclosure_operator");
+        assertThat(policies).containsExactlyInAnyOrderElementsOf(expected);
+    }
+
+    @Test
+    void operatorSeesEveryTenantIdAndNothingElse() throws SQLException {
+        try (Connection c = DB.operatorDataSource().getConnection(); Statement s = c.createStatement()) {
+            List<String> ids = new ArrayList<>();
+            try (ResultSet rs = s.executeQuery("SELECT tenant_id FROM tenant")) {
+                while (rs.next()) {
+                    ids.add(rs.getString(1));
+                }
+            }
+            assertThat(ids).contains(A, B);
+            for (String sql : List.of("SELECT name FROM tenant", "SELECT * FROM tenant", "SELECT tenant_id FROM rule_version",
+                    "SELECT count(*) FROM audit_log", "UPDATE tenant SET tenant_id = tenant_id")) {
+                assertThatThrownBy(() -> s.executeQuery(sql)).as(sql)
+                        .isInstanceOf(SQLException.class)
+                        .satisfies(e -> assertThat(((SQLException) e).getSQLState()).isEqualTo("42501"));
+            }
+        }
+    }
+
     @Test
     void cannotWriteRowsOfAnotherTenant() {
         assertThatThrownBy(() -> DB.asApp(A, c -> SeedData.exec(c,

@@ -1,0 +1,139 @@
+{
+  "bundleId": "STANDARD.v1@f850a2f9b53e",
+  "kind": "TEMPLATE",
+  "scope": "GLOBAL",
+  "templateId": "STANDARD",
+  "templateType": "STANDARD",
+  "version": 1,
+  "applyFrom": "2026-07-01",
+  "body": {
+    "fields": [
+      {
+        "code": "INSURER_NAME",
+        "label": "보험회사명",
+        "required": true,
+        "source": "CATALOG",
+        "order": 1,
+        "render": {
+          "scope": "PER_ITEM"
+        }
+      },
+      {
+        "code": "PRODUCT_GROUP",
+        "label": "비교상품군",
+        "required": true,
+        "source": "CATALOG",
+        "order": 2,
+        "render": {
+          "scope": "PER_DOCUMENT"
+        }
+      },
+      {
+        "code": "PRODUCT_NAME",
+        "label": "상품명",
+        "required": true,
+        "source": "CATALOG",
+        "order": 3,
+        "render": {
+          "scope": "PER_ITEM"
+        }
+      },
+      {
+        "code": "PREMIUM",
+        "label": "보험료",
+        "required": true,
+        "source": "CATALOG",
+        "order": 4,
+        "render": {
+          "scope": "PER_ITEM"
+        }
+      },
+      {
+        "code": "SURRENDER_VALUE_EXAMPLE",
+        "label": "해약환급예시",
+        "required": true,
+        "source": "CATALOG",
+        "order": 5,
+        "render": {
+          "scope": "PER_ITEM"
+        }
+      },
+      {
+        "code": "COMMISSION_GRADE",
+        "label": "판매수수료등급",
+        "required": true,
+        "source": "ENGINE",
+        "order": 6,
+        "render": {
+          "scope": "PER_ITEM",
+          "readOnly": true,
+          "unavailableText": "산출불가"
+        }
+      },
+      {
+        "code": "COMMISSION_RANK",
+        "label": "판매수수료순위",
+        "required": true,
+        "source": "ENGINE",
+        "order": 7,
+        "render": {
+          "scope": "PER_ITEM",
+          "readOnly": true,
+          "unavailableText": "산출불가"
+        }
+      },
+      {
+        "code": "RECOMMENDATION_REASON",
+        "label": "추천사유",
+        "required": true,
+        "source": "AGENT",
+        "order": 8,
+        "render": {
+          "scope": "PER_ITEM"
+        }
+      },
+      {
+        "code": "RECOMMENDABLE_INSURERS",
+        "label": "추천가능보험사",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 9,
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "readOnly": true
+        }
+      }
+    ],
+    "layout": {
+      "sections": [
+        {
+          "code": "COMPARISON",
+          "orientation": "COLUMN_PER_ITEM",
+          "fields": [
+            "INSURER_NAME",
+            "PRODUCT_NAME",
+            "PREMIUM",
+            "SURRENDER_VALUE_EXAMPLE",
+            "COMMISSION_GRADE",
+            "COMMISSION_RANK",
+            "RECOMMENDATION_REASON"
+          ]
+        },
+        {
+          "code": "HEADER",
+          "orientation": "DOCUMENT",
+          "fields": [
+            "PRODUCT_GROUP",
+            "RECOMMENDABLE_INSURERS"
+          ]
+        }
+      ]
+    },
+    "pendingConfirmation": [
+      {
+        "ref": "TODO(confirm#2)",
+        "note": "협회 표준확인서(2026.7 개정판) 필수 항목 중 위 9개(금융위 보도자료 예시 항목) 외의 항목 — 정본 목록·문구·배치 확인 후 fields에 추가한다. 항목명을 지어 넣지 않는다."
+      }
+    ]
+  }
+}

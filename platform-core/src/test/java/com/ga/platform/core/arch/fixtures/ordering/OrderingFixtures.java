@@ -42,7 +42,22 @@ public final class OrderingFixtures {
 
     public static final class AllowedChecker {
         boolean monotonic(List<Item> items) {
-            return items.stream().sorted(Comparator.comparingInt(Item::rank)).count() == items.size();
+            return items.stream().sorted(Comparator.comparingInt(Item::rank)).count() == items.size()
+                    && new PrivateHelper().first(items) != null;
+        }
+
+        /** 허용 클래스의 private 중첩 클래스: 허용 범위. */
+        private static final class PrivateHelper {
+            Item first(List<Item> items) {
+                return items.stream().min(Comparator.comparingInt(Item::rank)).orElse(null);
+            }
+        }
+
+        /** 허용 클래스의 public 중첩 클래스: 위반(허용 통로 노출). */
+        public static final class PublicHelper {
+            public Item last(List<Item> items) {
+                return items.stream().max(Comparator.comparingInt(Item::rank)).orElse(null);
+            }
         }
     }
 

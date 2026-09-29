@@ -62,9 +62,11 @@ subprojects {
         }
     }
 
+    // -Xpkginfo:always: 아직 코드가 없는 패키지도 package-info.class가 생겨, 아키텍처 규칙 허용 목록의 폐기 항목 검사가
+    // 그 패키지의 존재를 확인할 수 있다(ArchRules.stalePackages).
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        options.compilerArgs.addAll(listOf("-Xlint:all,-processing,-serial", "-Werror", "-parameters"))
+        options.compilerArgs.addAll(listOf("-Xlint:all,-processing,-serial", "-Werror", "-parameters", "-Xpkginfo:always"))
     }
 
     tasks.withType<Javadoc>().configureEach {
@@ -94,7 +96,7 @@ subprojects {
 // Spring·DB 무의존 모듈: 컴파일·런타임 클래스패스에 org.springframework 그룹이 없어야 한다.
 // (java.sql / javax.sql 은 JDK 모듈이라 클래스패스로 막을 수 없으므로 ArchUnit이 막는다.)
 // ---------------------------------------------------------------------------------------------
-val springFreeModules = listOf("platform-core", "disclosure-domain", "disclosure-rules", "disclosure-seal")
+val springFreeModules = listOf("platform-core", "platform-canonical", "disclosure-domain", "disclosure-rules", "disclosure-seal")
 
 // Boot BOM(spring-boot-dependencies)은 버전 제약만 담은 POM이라 클래스가 없다 — 검사에서 제외한다.
 val constraintOnlyPlatforms = setOf("org.springframework.boot:spring-boot-dependencies")
@@ -132,6 +134,23 @@ springFreeModules.forEach { path ->
         }
         tasks.named("check") { dependsOn(verify) }
     }
+}
+
+// platform-core는 런타임 의존이 0이다(ArchUnit·BOM은 compileOnly). 포털과 공유하는 최하층이 무엇도 끌고 오지 않게 한다.
+// platform-canonical이 생기면서(Phase 1) JSON·해시 의존은 그쪽에만 둔다 — platform-core로 새어 들어오면 여기서 실패한다.
+project(":platform-core") {
+    val verify = tasks.register("verifyNoRuntimeDependencies") {
+        group = "verification"
+        description = "Fails when platform-core has any runtime dependency."
+        val root = configurations.named("runtimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }
+        doLast {
+            val external = collectGroups(root.get()) - setOf("com.ga.platform", "com.ga.disclosure")
+            if (external.isNotEmpty()) {
+                throw GradleException("platform-core must have no runtime dependencies, found groups: ${external.sorted()}")
+            }
+        }
+    }
+    tasks.named("check") { dependsOn(verify) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -181,12 +200,12 @@ tasks.named("check") { dependsOn(verifyContractChecksums) }
 tasks.register<Exec>("verifyPublishedPlatform") {
     group = "verification"
     description = "Publishes platform modules to mavenLocal and compiles disclosure-domain against them only."
-    dependsOn(":platform-core:publishToMavenLocal", ":platform-spring:publishToMavenLocal")
+    dependsOn(":platform-core:publishToMavenLocal", ":platform-canonical:publishToMavenLocal", ":platform-spring:publishToMavenLocal")
     workingDir = rootDir
     commandLine(
         rootDir.resolve("gradlew").absolutePath,
         "--project-dir", "verification/published-consumer",
         "--no-configuration-cache",
-        "clean", "compileJava", "verifyPlatformSpringResolves",
+        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
     )
 }

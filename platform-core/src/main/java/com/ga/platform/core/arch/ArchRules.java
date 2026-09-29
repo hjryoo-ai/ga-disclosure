@@ -5,6 +5,8 @@ import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
@@ -33,10 +35,44 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  * <p>규칙 객체를 코드로 공유해 두 저장소가 같은 정의로 검사받게 하는 것이 목적이다. 이 클래스는 ArchUnit을
  * {@code compileOnly}로만 참조하므로 소비자(아키텍처 테스트 소스셋)가 {@code com.tngtech.archunit:archunit}을 직접 선언한다.
  * Spring 타입은 이름(문자열)으로만 다룬다 — platform-core는 Spring 무의존이다.
+ *
+ * <p><b>허용 목록은 패턴이 아니라 FQN 열거다</b>(CLAUDE.md 작업 방식). 클래스 허용은 정확한 클래스 이름, 패키지 허용은 정확한
+ * 패키지 이름(하위 패키지 불포함)이며, 항목마다 사유를 {@link Allowed}에 적는다. 허용 클래스 안의 중첩 클래스는 허용 범위에
+ * 포함되지만 public·protected일 수 없다(밖에서 쓸 수 있는 통로가 되지 않게). 항목이 실제로 존재하는지는
+ * {@link #staleClasses}·{@link #stalePackages}로 검사한다 — 폐기된 항목이 남아 있으면 소비자 테스트가 실패해야 한다.
  */
 public final class ArchRules {
 
     private ArchRules() {
+    }
+
+    /**
+     * 허용 목록 항목 하나: 정확한 FQN(클래스는 {@code $}로 중첩 표기, 패키지는 하위 패키지 불포함)과 허용 사유.
+     */
+    public record Allowed(String fqn, String reason) {
+        public Allowed {
+            if (fqn == null || fqn.isBlank() || fqn.contains("..") || fqn.contains("*") || fqn.endsWith(".")) {
+                throw new IllegalArgumentException("allowlist entry must be an exact FQN, not a pattern: " + fqn);
+            }
+            if (reason == null || reason.isBlank()) {
+                throw new IllegalArgumentException("allowlist entry needs a reason: " + fqn);
+            }
+        }
+    }
+
+    /** 가져온 클래스 중에 없는 클래스 허용 항목(폐기 항목). 비어 있어야 한다. */
+    public static List<String> staleClasses(JavaClasses imported, Collection<Allowed> allowlist) {
+        return allowlist.stream().map(Allowed::fqn).filter(fqn -> !imported.contain(fqn)).toList();
+    }
+
+    /**
+     * 가져온 클래스 중에 직접 속한 클래스가 하나도 없는 패키지 허용 항목(폐기 항목). 비어 있어야 한다.
+     * 아직 코드가 없는 패키지는 {@code package-info.java}로 존재를 표시한다(javac {@code -Xpkginfo:always}).
+     */
+    public static List<String> stalePackages(JavaClasses imported, Collection<Allowed> allowlist) {
+        return allowlist.stream().map(Allowed::fqn)
+                .filter(fqn -> imported.stream().noneMatch(c -> c.getPackageName().equals(fqn)))
+                .toList();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -127,32 +163,42 @@ public final class ArchRules {
      * DB 접근은 {@code repositoryBase}를 상속한 클래스에서만 한다.
      * <ol>
      *   <li>JDBC 계열 패키지({@code java.sql}, {@code javax.sql}, {@code org.springframework.jdbc})에 의존하는 클래스는
-     *       {@code repositoryBase}의 하위 클래스이거나 {@code infrastructure}(및 그 중첩 클래스)여야 한다.</li>
+     *       {@code repositoryBase}의 하위 클래스이거나 {@code repositoryBase}·{@code infrastructure}(FQN 열거) 자신 또는 그 중첩
+     *       클래스여야 한다.</li>
      *   <li>원시 접근 진입점({@code DataSource}, {@code JdbcClient}, {@code JdbcTemplate} 등)을 직접 참조하는 클래스는
-     *       {@code repositoryBase} 자신(및 중첩 클래스)과 {@code infrastructure}(및 중첩 클래스)뿐이다 —
-     *       하위 저장소도 원시 진입점을 만질 수 없고 기반 클래스의 테넌트 주입 경로만 쓴다.</li>
+     *       {@code repositoryBase}와 {@code infrastructure}(및 그 중첩 클래스)뿐이다 — 하위 저장소도 원시 진입점을 만질 수 없고
+     *       기반 클래스의 테넌트 주입 경로만 쓴다.</li>
+     *   <li>허용 클래스의 중첩 클래스는 public·protected일 수 없다.</li>
      * </ol>
      */
-    public static ArchRule dbAccessOnlyVia(Class<?> repositoryBase, Class<?>... infrastructure) {
-        List<Class<?>> infra = List.of(infrastructure);
+    public static ArchRule dbAccessOnlyVia(String repositoryBase, Collection<Allowed> infrastructure) {
+        List<String> anchors = Stream.concat(Stream.of(repositoryBase), infrastructure.stream().map(Allowed::fqn)).toList();
         DescribedPredicate<JavaClass> repositoryOrInfra = DescribedPredicate.describe(
-                "a subclass of " + repositoryBase.getSimpleName() + " (or nested in it) or " + names(infra),
-                c -> c.isAssignableTo(repositoryBase) || isOrNestedIn(c, List.of(repositoryBase)) || isOrNestedIn(c, infra));
+                "a subclass of " + repositoryBase + " or one of " + anchors,
+                c -> c.isAssignableTo(repositoryBase) || isOrNestedIn(c, anchors));
         DescribedPredicate<JavaClass> baseOrInfra = DescribedPredicate.describe(
-                repositoryBase.getSimpleName() + " itself or " + names(infra),
-                c -> isOrNestedIn(c, List.of(repositoryBase)) || isOrNestedIn(c, infra));
+                "one of " + anchors, c -> isOrNestedIn(c, anchors));
 
         ArchRule jdbcPackages = noClasses().that(DescribedPredicate.not(repositoryOrInfra))
                 .should().dependOnClassesThat().resideInAnyPackage("java.sql..", "javax.sql..", "org.springframework.jdbc..")
                 .allowEmptyShould(true)
-                .as("JDBC packages are used only by " + repositoryBase.getSimpleName() + " subclasses and " + names(infra));
+                .as("JDBC packages are used only by subclasses of " + repositoryBase + " and " + anchors);
         ArchRule rawEntries = noClasses().that(DescribedPredicate.not(baseOrInfra))
                 .should().dependOnClassesThat(DescribedPredicate.describe(
                         "raw JDBC entry points " + RAW_JDBC_ENTRY_TYPES,
                         (JavaClass t) -> RAW_JDBC_ENTRY_TYPES.contains(t.getName())))
                 .allowEmptyShould(true)
-                .as("DataSource/JdbcClient/JdbcTemplate are referenced only by " + repositoryBase.getSimpleName() + " and " + names(infra));
-        return CompositeArchRule.of(jdbcPackages).and(rawEntries);
+                .as("DataSource/JdbcClient/JdbcTemplate are referenced only by " + anchors);
+        return CompositeArchRule.of(jdbcPackages).and(rawEntries).and(nestedClassesAreNotExposed(anchors));
+    }
+
+    /** {@code anchors}(정확한 FQN) 안에 중첩된 클래스는 public·protected가 아니어야 한다. */
+    private static ArchRule nestedClassesAreNotExposed(List<String> anchors) {
+        return noClasses().that(DescribedPredicate.describe("are nested in one of " + anchors,
+                        (JavaClass c) -> !anchors.contains(c.getName()) && isOrNestedIn(c, anchors)))
+                .should().haveModifier(JavaModifier.PUBLIC).orShould().haveModifier(JavaModifier.PROTECTED)
+                .allowEmptyShould(true)
+                .as("classes nested in allowlisted " + anchors + " are private or package-private");
     }
 
     // -----------------------------------------------------------------------------------------
@@ -197,19 +243,21 @@ public final class ArchRules {
     // 타입·메서드 사용 범위 제한 (수수료율 연산 금지 등 도메인 규칙의 재료)
     // -----------------------------------------------------------------------------------------
 
-    /** {@code types}는 {@code allowedPackages} 안에서만 참조할 수 있다. */
-    public static ArchRule typesOnlyUsedIn(Collection<Class<?>> types, String... allowedPackages) {
-        return noClasses().that().resideOutsideOfPackages(allowedPackages)
+    /** {@code types}는 {@code allowedPackages}(정확한 패키지, 하위 패키지 불포함) 안에서만 참조할 수 있다. */
+    public static ArchRule typesOnlyUsedIn(Collection<Class<?>> types, Collection<Allowed> allowedPackages) {
+        String[] packages = fqns(allowedPackages);
+        return noClasses().that().resideOutsideOfPackages(packages)
                 .should().dependOnClassesThat().belongToAnyOf(types.toArray(Class<?>[]::new))
                 .allowEmptyShould(true)
-                .as(names(types) + " may be referenced only in " + Arrays.toString(allowedPackages));
+                .as(names(types) + " may be referenced only in " + Arrays.toString(packages));
     }
 
     /**
-     * {@code owner#methodName}의 호출과 메서드 참조({@code Owner::method})는 {@code allowedPackages} 안에서만 허용한다
-     * ({@code owner} 자신은 제외).
+     * {@code owner#methodName}의 호출과 메서드 참조({@code Owner::method})는 {@code allowedPackages}(정확한 패키지,
+     * 하위 패키지 불포함) 안에서만 허용한다({@code owner} 자신은 제외).
      */
-    public static ArchRule methodOnlyInvokedFrom(Class<?> owner, String methodName, String... allowedPackages) {
+    public static ArchRule methodOnlyInvokedFrom(Class<?> owner, String methodName, Collection<Allowed> allowed) {
+        String[] allowedPackages = fqns(allowed);
         ArchCondition<JavaClass> condition = new ArchCondition<>(
                 "not invoke or reference " + owner.getSimpleName() + "." + methodName + "()") {
             @Override
@@ -258,14 +306,16 @@ public final class ArchRules {
 
     /**
      * {@code elementTypes}를 참조하는 클래스는 순서를 매기는 API({@code Comparator}·{@code sorted}·{@code max}·{@code min}·
-     * {@code sort}·{@code compare}·정렬 컬렉션)를 호출·참조할 수 없다. 단 {@code allowedClasses}(및 중첩 클래스)는 예외다.
+     * {@code sort}·{@code compare}·정렬 컬렉션)를 호출·참조할 수 없다. 단 {@code allowedClasses}(정확한 FQN, 및 그 private·
+     * package-private 중첩 클래스)는 예외다.
      *
      * <p>스트림 원소의 제네릭 타입은 바이트코드에서 사라지므로 "이 타입을 원소로 하는 정렬"을 정확히 판정할 수 없다.
      * 그래서 한 클래스 안에서 두 가지가 함께 나타나는지(동시 사용)로 판정한다 — 의도보다 넓게 잡는 보수적 근사다.
      * 람다 본문은 같은 클래스의 합성 메서드이므로 함께 검사된다.
      */
-    public static ArchRule noOrderingInClassesUsing(Collection<Class<?>> elementTypes, Class<?>... allowedClasses) {
-        List<Class<?>> allowed = List.of(allowedClasses);
+    public static ArchRule noOrderingInClassesUsing(Collection<Class<?>> elementTypes, Collection<Allowed> allowedClasses) {
+        List<String> allowed = allowedClasses.stream().map(Allowed::fqn).toList();
+        List<String> elements = elementTypes.stream().map(Class::getName).toList();
         ArchCondition<JavaClass> condition = new ArchCondition<>(
                 "not use ordering APIs while referencing " + names(elementTypes)) {
             @Override
@@ -284,12 +334,13 @@ public final class ArchRules {
                 }
             }
         };
-        return classes().that(DescribedPredicate.describe(
-                        "are not " + names(elementTypes) + " or " + names(allowed),
-                        (JavaClass c) -> !isOrNestedIn(c, List.copyOf(elementTypes)) && !isOrNestedIn(c, allowed)))
+        ArchRule ordering = classes().that(DescribedPredicate.describe(
+                        "are not " + names(elementTypes) + " or " + allowed,
+                        (JavaClass c) -> !isOrNestedIn(c, elements) && !isOrNestedIn(c, allowed)))
                 .should(condition)
                 .allowEmptyShould(true)
-                .as("ordering of " + names(elementTypes) + " only in " + names(allowed));
+                .as("ordering of " + names(elementTypes) + " only in " + allowed);
+        return CompositeArchRule.of(ordering).and(nestedClassesAreNotExposed(allowed));
     }
 
     /** 단순 이름에 {@code fragments} 중 하나라도 포함한 클래스를 금지한다. */
@@ -328,14 +379,17 @@ public final class ArchRules {
                 .toList();
     }
 
-    private static boolean isOrNestedIn(JavaClass candidate, Collection<Class<?>> anchors) {
+    private static boolean isOrNestedIn(JavaClass candidate, Collection<String> anchors) {
         for (Optional<JavaClass> c = Optional.of(candidate); c.isPresent(); c = c.get().getEnclosingClass()) {
-            JavaClass current = c.get();
-            if (anchors.stream().anyMatch(current::isEquivalentTo)) {
+            if (anchors.contains(c.get().getName())) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static String[] fqns(Collection<Allowed> allowed) {
+        return allowed.stream().map(Allowed::fqn).toArray(String[]::new);
     }
 
     private static String names(Collection<? extends Class<?>> types) {

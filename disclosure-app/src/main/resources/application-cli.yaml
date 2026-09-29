@@ -1,0 +1,5 @@
+# 운영자 CLI 프로파일: 웹 서버 없이 명령 하나를 실행하고 종료한다(OperatorCli).
+spring:
+  main:
+    web-application-type: none
+    banner-mode: off

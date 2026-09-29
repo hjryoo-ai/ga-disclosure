@@ -7,7 +7,7 @@ import java.util.Optional;
 /** 테스트용 저장소. 운영 저장소와 같은 경로(기반 클래스의 보호 메서드)만 쓴다. */
 final class ProbeRepository extends TenantScopedRepository {
 
-    ProbeRepository(Gateway gateway) {
+    ProbeRepository(TenantJdbcGateway gateway) {
         super(gateway);
     }
 

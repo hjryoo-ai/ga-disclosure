@@ -5,7 +5,6 @@ import com.ga.platform.core.tenant.TenantId;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -35,8 +34,8 @@ public abstract class TenantScopedRepository {
 
     private final JdbcClient jdbc;
 
-    protected TenantScopedRepository(Gateway gateway) {
-        this.jdbc = Objects.requireNonNull(gateway, "gateway").client;
+    protected TenantScopedRepository(TenantJdbcGateway gateway) {
+        this.jdbc = Objects.requireNonNull(gateway, "gateway").client();
     }
 
     protected final <T> List<T> query(String sql, Map<String, ?> params, RowMapper<T> mapper) {
@@ -66,18 +65,5 @@ public abstract class TenantScopedRepository {
         }
         TenantSessionBinder.requireBoundTransaction(tenant);
         return jdbc.sql(sql).params(params).param(TENANT_PARAM, tenant.value());
-    }
-
-    /**
-     * 저장소가 쓰는 JDBC 클라이언트의 운반체. 원시 {@code DataSource}/{@code JdbcClient}를 저장소 하위 클래스에 노출하지
-     * 않기 위한 봉투다 — 하위 클래스는 이 객체를 생성자로 받아 {@code super(gateway)}에 넘기기만 한다.
-     */
-    public static final class Gateway {
-
-        private final JdbcClient client;
-
-        public Gateway(DataSource dataSource) {
-            this.client = JdbcClient.create(Objects.requireNonNull(dataSource, "dataSource"));
-        }
     }
 }

@@ -3,6 +3,7 @@ package com.ga.disclosure.infra.persistence;
 import com.ga.disclosure.domain.enums.GateMode;
 import com.ga.disclosure.domain.enums.IssuerMode;
 import com.ga.platform.core.tenant.TenantId;
+import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -24,8 +25,20 @@ public class TenantRepository extends TenantScopedRepository {
             GateMode.valueOf(rs.getString("gate_mode")),
             rs.getString("params"));
 
-    public TenantRepository(Gateway gateway) {
+    public TenantRepository(TenantJdbcGateway gateway) {
         super(gateway);
+    }
+
+    /**
+     * 바인딩된 테넌트의 행을 만든다(운영·데모 시드용). issuer_mode·gate_mode·params는 DB 기본값(V1)을 따른다.
+     * 이미 있으면 0을 돌려준다.
+     */
+    public int insertCurrentIfAbsent(String name, String engineBaseUrl, boolean largeGa) {
+        return update("""
+                INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga)
+                VALUES (:tenantId, :name, :engineBaseUrl, 'ACTIVE', :largeGa)
+                ON CONFLICT (tenant_id) DO NOTHING
+                """, Map.of("name", name, "engineBaseUrl", engineBaseUrl, "largeGa", largeGa));
     }
 
     public Optional<TenantRecord> findCurrent() {

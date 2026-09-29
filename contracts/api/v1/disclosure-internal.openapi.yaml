@@ -64,12 +64,17 @@ paths:
     get:
       operationId: getEventFeed
       summary: 아웃박스 이벤트 피드(pull). 포털 알림·CRM이 소비한다.
+      description: |
+        포털 설계서 v1.1 §4.1 이벤트 피드 규약과 같다.
+        - 응답 순서는 seq 오름차순, 갭 없음. headSeq − nextSeq가 소비자의 지연 지표.
+        - 인증: 서비스 토큰. 사용자 토큰으로는 접근 불가. 테넌트 범위는 서비스 토큰이 정한다(발행자 = 테넌트, 인가 구현은 Phase 6).
+        - 호환성: 소비자는 모르는 필드를 무시한다. 지원하는 최대 version보다 큰 이벤트를 만나면 그 테넌트의 소비를 정지하고 운영 알림.
+        - seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적용, 크면(갭) 정지.
       security:
         - serviceToken: []
       parameters:
-        - { name: tenantId, in: query, required: true, schema: { type: string } }
         - { name: afterSeq, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
-        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
         '200':
           description: seq 오름차순 이벤트 목록
@@ -77,13 +82,15 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [events, nextSeq]
+                required: [events, nextSeq, headSeq, schemaVersion]
                 properties:
                   events:
                     type: array
                     items:
                       $ref: '../../events/v1/envelope.schema.json'
                   nextSeq: { type: integer, minimum: 0, description: '다음 호출의 afterSeq' }
+                  headSeq: { type: integer, minimum: 0, description: '발행자의 현재 최대 seq' }
+                  schemaVersion: { const: 1 }
 components:
   securitySchemes:
     serviceToken:

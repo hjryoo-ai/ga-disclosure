@@ -1,0 +1,17 @@
+{
+  "tenants": [
+    { "tenantId": "DEMO1", "name": "데모GA 1(대형)", "engineBaseUrl": "http://engine-stub.local/demo1", "largeGa": true },
+    { "tenantId": "DEMO2", "name": "데모GA 2", "engineBaseUrl": "http://engine-stub.local/demo2", "largeGa": false }
+  ],
+  "tenantRules": [
+    {
+      "tenantId": "DEMO1",
+      "ruleVersionId": "DEMO1-HOUSE-2026",
+      "applyFrom": "2026-07-01",
+      "body": {
+        "signDeadlineDays": 10,
+        "channels": { "TOUCH_PAD": true, "REMOTE_LINK": true, "PAPER_SCAN": false, "CERTIFIED_ESIGN": false }
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import com.ga.platform.core.tenant.TenantId;
 import com.ga.platform.core.tenant.TenantNotBoundException;
 import com.ga.platform.spring.jdbc.AmbiguousResultException;
 import com.ga.platform.spring.jdbc.OutsideTenantTransactionException;
+import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import com.ga.platform.spring.jdbc.TenantSessionBinder;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,7 +37,7 @@ class TenantRepositoryIT {
     private static final TenantId A = TenantId.of(SeedData.uniqueTenant("TR_A"));
     private static final TenantId B = TenantId.of(SeedData.uniqueTenant("TR_B"));
 
-    private final TenantScopedRepository.Gateway gateway = new TenantScopedRepository.Gateway(DB.appDataSource());
+    private final TenantJdbcGateway gateway = new TenantJdbcGateway(DB.appDataSource());
     private final TenantRepository repository = new TenantRepository(gateway);
     private final TransactionTemplate tx = new TransactionTemplate(new TenantSessionBinder(DB.appDataSource()));
 
@@ -96,7 +97,7 @@ class TenantRepositoryIT {
 
     /** 테스트 전용 저장소: 같은 테넌트에 2건 있는 조건으로 단건 조회를 시도한다. */
     static final class ProbeRepository extends TenantScopedRepository {
-        ProbeRepository(Gateway gateway) {
+        ProbeRepository(TenantJdbcGateway gateway) {
             super(gateway);
         }
 

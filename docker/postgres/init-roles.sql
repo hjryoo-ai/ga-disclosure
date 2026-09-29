@@ -14,9 +14,14 @@ CREATE ROLE disclosure_migrator LOGIN PASSWORD 'migrator_local_only'
 CREATE ROLE disclosure_app LOGIN PASSWORD 'app_local_only'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 
+-- 운영자 CLI의 테넌트 목록 조회 전용(Phase 1). tenant.tenant_id 컬럼 SELECT와 전용 정책(V4)만 가진다.
+CREATE ROLE disclosure_operator LOGIN PASSWORD 'operator_local_only'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+
 ALTER DATABASE disclosure OWNER TO disclosure_migrator;
 REVOKE ALL ON DATABASE disclosure FROM PUBLIC;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_app;
+GRANT CONNECT ON DATABASE disclosure TO disclosure_operator;
 
 ALTER SCHEMA public OWNER TO disclosure_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;

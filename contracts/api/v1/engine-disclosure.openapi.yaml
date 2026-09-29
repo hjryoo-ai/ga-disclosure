@@ -8,6 +8,10 @@ info:
     - gradeOrdinal은 엔진 정책 데이터가 정하는 정수(수수료가 낮을수록 작다). 소비자는 등급 코드의 의미·개수를 모른다.
     - ratioToAvg는 표시·보관용 불투명 문자열이다. 소비자는 숫자로 바꾸거나 비교하지 않는다.
     - 수수료율 원 수치는 응답에 없다. 필요 시 snapshotId로 엔진에서 준법 권한자가 조회한다.
+    - results[]는 status로 분기한다. OK는 등급·순위·비율 6개 필드 필수, UNAVAILABLE은 reason만 — 6개 필드는 null이 아니라 부재(additionalProperties: false).
+      순위는 OK 항목만으로 매긴다. tieBreak=STRICT면 OK 항목 m개의 rankInSet이 1..m 순열, SHARED_RANK면 경쟁 순위(1-2-2-4)이고 동순위 항목은 전부 tie=true.
+    - ratioToAvg 불변 약속: 엔진은 snapshotId별 결과를 영속 저장하고, 같은 snapshotId 재조회 시 ratioToAvg를 포함한 모든 문자열 필드를
+      바이트 단위로 동일하게 돌려준다(정책 버전이 바뀌어도 재포맷하지 않음). provider 계약 테스트로 고정한다(설계서 §4.1).
 servers:
   - url: https://engine.{tenant}.internal
     variables:
@@ -45,6 +49,7 @@ paths:
                 snapshotId: GRD-20260923-000481
                 gradingPolicyVersionId: GRADING-2026-07
                 rankingPolicyVersionId: RANK-2026-07
+                tieBreak: SHARED_RANK
                 basis: { groupAvgSource: ASSOC_DISCLOSURE, period: 2026Q2, groupPopulation: 27 }
                 results:
                   - { productKey: 'INS-A:PRD-1001', status: OK, ratioToAvg: '0.84', grade: LOW, gradeLabel: 낮음, gradeOrdinal: 2, rankInSet: 1, tie: false }
@@ -60,6 +65,28 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '409':
           description: 기준일에 적용할 정책 버전이 모호함(2건 이상 매칭, fail-fast)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /internal/v1/disclosure/commission-grades/{snapshotId}:
+    get:
+      operationId: getCommissionGradesSnapshot
+      summary: 발급된 스냅샷 재조회(바이트 동일 — ratioToAvg 불변 약속)
+      description: POST가 반환한 것과 같은 응답을 돌려준다. 문자열 필드는 바이트 단위로 동일하며 정책 변경 후에도 재포맷하지 않는다.
+      security:
+        - serviceToken: []
+      parameters:
+        - { name: snapshotId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 스냅샷(발급 시점 응답과 동일)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionGradesResponse'
+        '404':
+          description: 해당 테넌트에 없는 snapshotId
           content:
             application/json:
               schema:
@@ -89,11 +116,15 @@ components:
               insurerCode: { type: string }
     CommissionGradesResponse:
       type: object
-      required: [snapshotId, gradingPolicyVersionId, rankingPolicyVersionId, basis, results, generatedAt]
+      required: [snapshotId, gradingPolicyVersionId, rankingPolicyVersionId, tieBreak, basis, results, generatedAt]
       properties:
         snapshotId: { type: string }
         gradingPolicyVersionId: { type: string, description: '등급 임계치·모수·기간 정의 버전' }
         rankingPolicyVersionId: { type: string, description: '세트 내 순위·동점 규칙 버전' }
+        tieBreak:
+          type: string
+          enum: [SHARED_RANK, STRICT]
+          description: 'rankingPolicy가 정한 동점 처리. SHARED_RANK = 동순위 병기(1-2-2-4), STRICT = 정책의 2차 기준으로 분리(1..m 유일)'
         basis:
           type: object
           required: [groupAvgSource, period, groupPopulation]
@@ -117,6 +148,7 @@ components:
           UNAVAILABLE: '#/components/schemas/GradeResultUnavailable'
     GradeResultOk:
       type: object
+      additionalProperties: false
       required: [productKey, status, ratioToAvg, grade, gradeLabel, gradeOrdinal, rankInSet, tie]
       properties:
         productKey: { type: string }
@@ -131,11 +163,13 @@ components:
         tie: { type: boolean, description: '동점 여부(표기는 rankingPolicy 데이터)' }
     GradeResultUnavailable:
       type: object
+      additionalProperties: false
+      description: 등급·순위·비율 필드는 null이 아니라 부재다.
       required: [productKey, status, reason]
       properties:
         productKey: { type: string }
         status: { const: UNAVAILABLE }
-        reason: { type: string, description: '산출 불가 사유 코드(예: NO_RATE_DATA)' }
+        reason: { type: string, minLength: 1, description: '산출 불가 사유(엔진 데이터, 예: NO_RATE_DATA·NOT_IN_GROUP·TEMP_PRODUCT). 소비자는 문자열로 보관·표시만 한다' }
     Problem:
       type: object
       required: [code, message]
