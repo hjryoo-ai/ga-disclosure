@@ -29,6 +29,18 @@ public class TenantRepository extends TenantScopedRepository {
         super(gateway);
     }
 
+    /**
+     * 바인딩된 테넌트의 행을 만든다(운영·데모 시드용). issuer_mode·gate_mode·params는 DB 기본값(V1)을 따른다.
+     * 이미 있으면 0을 돌려준다.
+     */
+    public int insertCurrentIfAbsent(String name, String engineBaseUrl, boolean largeGa) {
+        return update("""
+                INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga)
+                VALUES (:tenantId, :name, :engineBaseUrl, 'ACTIVE', :largeGa)
+                ON CONFLICT (tenant_id) DO NOTHING
+                """, Map.of("name", name, "engineBaseUrl", engineBaseUrl, "largeGa", largeGa));
+    }
+
     public Optional<TenantRecord> findCurrent() {
         return queryAtMostOne("""
                 SELECT tenant_id, name, engine_base_url, status, large_ga, issuer_mode, gate_mode, params::text AS params

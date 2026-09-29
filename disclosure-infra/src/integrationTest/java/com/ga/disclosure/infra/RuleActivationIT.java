@@ -128,6 +128,12 @@ class RuleActivationIT {
                 .contains("DISC-2026-07", "DISC-2027-01");
 
         at("2026-09-23").activation.run(t, Governance.OPERATOR);
+        int auditRows = setup.auditOf(t).size();
+        assertThat(setup.approval.approve(t, RuleVersionId.of("HOUSE-2026"), Governance.OPERATOR)).as("re-approval is a no-op")
+                .isEqualTo(RuleStatus.ACTIVE);
+        assertThat(setup.auditOf(t)).hasSize(auditRows);
+        assertThatThrownBy(() -> setup.approval.approve(t, RuleVersionId.of("DISC-2026-07"), Governance.OPERATOR))
+                .isInstanceOf(GovernanceRejectedException.class).hasMessageContaining("only a TENANT rule");
         EffectiveRule rule = setup.in(t, () -> setup.resolver.resolve(t, LocalDate.parse("2026-09-23")));
         assertThat(rule.tenantRuleVersion()).hasValueSatisfying(id -> assertThat(id.value()).isEqualTo("HOUSE-2026"));
         assertThat(rule.signDeadlineDays()).isEqualTo(10);

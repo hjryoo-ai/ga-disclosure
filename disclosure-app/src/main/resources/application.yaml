@@ -13,6 +13,13 @@ spring:
     password: ${DISCLOSURE_MIGRATOR_PASSWORD:migrator_local_only}
     locations: classpath:db/migration
 
+# 테넌트 디렉터리(운영자 CLI --tenants all 전용): tenant.tenant_id만 읽을 수 있는 disclosure_operator 롤(V4, 설계서 §9).
+ga:
+  tenant-directory:
+    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
+    username: ${DISCLOSURE_OPERATOR_USER:disclosure_operator}
+    password: ${DISCLOSURE_OPERATOR_PASSWORD:operator_local_only}
+
 management:
   endpoints:
     web:

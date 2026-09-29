@@ -25,6 +25,7 @@ import java.util.Objects;
  * 사규(TENANT) 룰 승인: DRAFT → APPROVED. 승인 전에 사규의 적용 구간과 겹치는 모든 GLOBAL 복제본 각각에 대해
  * ① 사규 키가 그 GLOBAL의 {@code tenantOverridable} 안에 있고 ② 병합 결과가 룰 스키마를 통과하는지 검사한다. 하나라도 어기면 거부.
  * 해석기도 해석 시점에 같은 규칙을 다시 적용한다(이후 배포된 GLOBAL이 키를 닫을 수 있으므로).
+ * 이미 승인된(APPROVED·ACTIVE·RETIRED) 사규에 대한 재요청은 아무것도 바꾸지 않는 no-op이다(배포 재실행과 같은 멱등성).
  */
 public final class RuleApprovalService {
 
@@ -42,13 +43,16 @@ public final class RuleApprovalService {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    public void approve(TenantId tenant, RuleVersionId id, Operator operator) {
-        transactions.inTenant(tenant, () -> {
+    /** 승인했으면 APPROVED, 이미 승인 이후 상태였으면 그 상태를 돌려준다(no-op). */
+    public RuleStatus approve(TenantId tenant, RuleVersionId id, Operator operator) {
+        return transactions.inTenant(tenant, () -> {
             RuleVersion draft = rules.find(id)
                     .orElseThrow(() -> new GovernanceRejectedException(tenant + ": rule " + id + " does not exist"));
-            if (draft.scope() != RuleScope.TENANT || draft.status() != RuleStatus.DRAFT) {
-                throw new GovernanceRejectedException(tenant + ": only a TENANT rule in DRAFT can be approved (" + draft.scope() + " "
-                        + draft.status() + ")");
+            if (draft.scope() != RuleScope.TENANT) {
+                throw new GovernanceRejectedException(tenant + ": only a TENANT rule can be approved (" + id + " is " + draft.scope() + ")");
+            }
+            if (draft.status() != RuleStatus.DRAFT) {
+                return draft.status();
             }
             List<RuleVersion> globals = rules.findGlobalReplicas().stream().filter(g -> overlaps(g, draft)).toList();
             if (globals.isEmpty()) {
@@ -77,7 +81,7 @@ public final class RuleApprovalService {
             detail.set("checkedAgainst", checked);
             audit.append(new AuditEntry(clock.instant(), operator.subject(), Operator.ROLE, AuditAction.RULE_APPROVE, "RULE_VERSION",
                     id.value(), detail));
-            return null;
+            return RuleStatus.APPROVED;
         });
     }
 
