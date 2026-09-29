@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: ga-disclosure
+  # 애플리케이션 데이터소스: disclosure_app (NOBYPASSRLS, DML만). 테넌트는 트랜잭션마다 TenantSessionBinder가 설정한다.
+  datasource:
+    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
+    username: ${DISCLOSURE_APP_USER:disclosure_app}
+    password: ${DISCLOSURE_APP_PASSWORD:app_local_only}
+  # 마이그레이션: disclosure_migrator (스키마 소유자). 애플리케이션 데이터소스와 분리된 접속.
+  flyway:
+    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
+    user: ${DISCLOSURE_MIGRATOR_USER:disclosure_migrator}
+    password: ${DISCLOSURE_MIGRATOR_PASSWORD:migrator_local_only}
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  health:
+    # 트랜잭션 밖 DB 접근 금지(CLAUDE.md 절대 규칙 5) — DB 헬스 지표는 테넌트 없이 커넥션을 쓰므로 끈다.
+    db:
+      enabled: false
