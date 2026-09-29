@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['phase-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # ubuntu 러너에는 Docker가 있다. 통합 테스트(Testcontainers)는 Docker가 없으면 실패한다(스킵 금지).
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'   # SeededCases는 CI에서 시드 덮어쓰기를 무시한다
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Docker available
+        run: docker info --format '{{.ServerVersion}}'
+
+      - name: net.jqwik must not appear in any dependency graph (CLAUDE.md 절대 규칙 9)
+        run: |
+          ./gradlew allDependencies --console=plain > deps.txt
+          if grep -q 'net\.jqwik' deps.txt; then echo 'net.jqwik found'; exit 1; fi
+
+      - name: Build (unit + archTest + integrationTest + checksums)
+        run: ./gradlew build --console=plain
+
+      - name: C11 — publish platform modules and compile disclosure-domain against published artifacts only
+        run: ./gradlew verifyPublishedPlatform --console=plain
+
+      - name: Test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: '**/build/reports/tests/**'
