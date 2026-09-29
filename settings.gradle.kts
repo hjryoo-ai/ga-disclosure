@@ -22,6 +22,7 @@ dependencyResolutionManagement {
 include(
     "platform-core",
     "platform-spring",
+    "platform-canonical",
     "disclosure-domain",
     "disclosure-rules",
     "disclosure-workflow",

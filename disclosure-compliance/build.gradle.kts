@@ -2,4 +2,5 @@
 dependencies {
     api(project(":disclosure-rules"))
     api(project(":disclosure-audit"))
+    api(project(":platform-canonical"))
 }

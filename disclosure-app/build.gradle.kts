@@ -7,7 +7,7 @@ plugins {
 }
 
 val allModules = listOf(
-    ":platform-core", ":platform-spring",
+    ":platform-core", ":platform-spring", ":platform-canonical",
     ":disclosure-domain", ":disclosure-rules", ":disclosure-workflow", ":disclosure-seal", ":disclosure-sign",
     ":disclosure-audit", ":disclosure-compliance", ":disclosure-api", ":disclosure-infra", ":disclosure-demo",
 )

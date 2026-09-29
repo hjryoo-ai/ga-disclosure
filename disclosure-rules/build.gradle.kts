@@ -2,6 +2,7 @@
 // Phase 0: GradeConsistencyCheck 자리 + contracts/ 스키마 검증 테스트(ContractSchemaTest).
 dependencies {
     api(project(":disclosure-domain"))
+    api(project(":platform-canonical"))
 
     testImplementation(libs.json.schema.validator)
     testImplementation(libs.jackson.databind)

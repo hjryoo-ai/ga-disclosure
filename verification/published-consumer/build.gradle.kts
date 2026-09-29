@@ -49,3 +49,23 @@ tasks.named("compileJava") {
         println("compiling disclosure-domain against ${core.map { it.path }}")
     }
 }
+
+// platform-canonical이 발행 메타데이터만으로 해석되고, JCS 라이브러리·Jackson(BOM 버전)이 전이로 따라오는지 확인한다.
+val platformCanonical = configurations.create("platformCanonical") {
+    isCanBeConsumed = false
+}
+
+dependencies {
+    platformCanonical("com.ga.platform:platform-canonical:0.1.0")
+}
+
+tasks.register("verifyPlatformCanonical") {
+    val files = platformCanonical
+    doLast {
+        val names = files.resolve().map { it.name }.sorted()
+        require(names.any { it.startsWith("platform-canonical-0.1.0") }) { "platform-canonical not resolved: $names" }
+        require(names.any { it.startsWith("java-json-canonicalization-1.1") }) { "JCS library (transitive) not resolved: $names" }
+        require(names.any { it.startsWith("jackson-databind-3.") }) { "jackson-databind 3 (transitive) not resolved: $names" }
+        println("platform-canonical resolves from mavenLocal with ${names.size} artifacts: $names")
+    }
+}

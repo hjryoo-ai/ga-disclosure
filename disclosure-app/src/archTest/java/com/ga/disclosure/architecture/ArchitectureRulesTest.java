@@ -86,6 +86,7 @@ class ArchitectureRulesTest {
         assertThat(classes.contain(TenantScopedRepository.class)).isTrue();
         assertThat(classes.contain(GradeSnapshotItem.class)).isTrue();
         assertThat(classes.contain(GradeConsistencyCheck.class)).isTrue();
+        assertThat(classes.containPackage("com.ga.platform.canonical")).isTrue();
         assertThat(classes.containPackage(P + "infra.persistence")).isTrue();
         assertThat(classes.containPackage(P + "app")).isTrue();
         assertThat(classes.stream().map(c -> c.getName()))
@@ -93,7 +94,8 @@ class ArchitectureRulesTest {
     }
 
     // (a) 모듈 의존 방향: app → api → workflow/compliance → rules/seal/sign/audit → domain → platform-core
-    //     platform-spring은 infra·api·app만, infra는 app만 접근한다.
+    //     platform-spring은 infra·api·app만, platform-canonical은 rules·seal·audit·compliance(와 상위)만, infra는 app만 접근한다.
+    //     infra는 포트-어댑터 방향으로 workflow·rules·sign·audit·compliance의 포트를 구현한다(설계서 §3.3).
     @Test
     void layeredModuleDependencies() {
         List<String> belowDomain = List.of("Rules", "Seal", "Sign", "Audit", "Workflow", "Compliance", "Api", "Infra", "App", "Demo");
@@ -101,6 +103,9 @@ class ArchitectureRulesTest {
                 new Layer("PlatformCore", List.of("com.ga.platform.core.."), java.util.Set.of(
                         "PlatformSpring", "Domain", "Rules", "Seal", "Sign", "Audit", "Workflow", "Compliance", "Api", "Infra", "App", "Demo")),
                 Layer.of("PlatformSpring", "com.ga.platform.spring..", "Infra", "Api", "App"),
+                // Phase 1: rules·seal·audit·compliance(와 그 위 레이어)만 JCS·해시를 쓴다. domain·sign은 쓰지 않는다.
+                Layer.of("PlatformCanonical", "com.ga.platform.canonical..",
+                        "Rules", "Seal", "Audit", "Compliance", "Workflow", "Api", "Infra", "App", "Demo"),
                 new Layer("Domain", List.of(P + "domain.."), java.util.Set.copyOf(belowDomain)),
                 Layer.of("Rules", P + "rules..", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),
                 Layer.of("Seal", P + "seal..", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),

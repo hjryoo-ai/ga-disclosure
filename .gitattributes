@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.jar binary
+# RFC 8785 테스트 벡터는 바이트 단위로 비교하므로 줄끝 변환을 하지 않는다.
+platform-canonical/src/test/resources/jcs/** -text

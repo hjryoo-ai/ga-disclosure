@@ -1,0 +1,26 @@
+JCS test vectors - provenance (retrieved 2026-09-29)
+
+input/{arrays,french,structures,unicode,values,weird}.json
+output/{same}.json, outhex/{same}.txt
+  https://github.com/cyberphone/json-canonicalization/tree/19d51d7fe467d4706a3ff08adf8a748f29fc21e0/testdata
+  raw: https://raw.githubusercontent.com/cyberphone/json-canonicalization/19d51d7fe467d4706a3ff08adf8a748f29fc21e0/testdata/{input,output,outhex}/<name>
+  (license of that repo: Apache-2.0 per its LICENSE file; GitHub reports NOASSERTION)
+
+input/rfc8785-3.2.2.json        RFC 8785 section 3.2.2 sample object (verbatim, 5-space RFC indent removed)
+output/rfc8785-3.2.2.json       RFC 8785 section 3.2.3 canonical form (display line wrap removed)
+outhex/rfc8785-3.2.2.txt        RFC 8785 section 3.2.4 UTF-8 bytes (hex) - verified identical to output/rfc8785-3.2.2.json
+input/rfc8785-3.2.3-sorting.json  RFC 8785 section 3.2.3 sorting test data (verbatim)
+rfc8785-3.2.3-sorting.order.txt   RFC 8785 section 3.2.3 "Expected argument order" (verbatim)
+output/rfc8785-3.2.3-sorting.json DERIVED (not printed in the RFC): full canonical text implied by the order + section 3.2.2.2 string rules
+numbers-rfc8785-appendix-b.txt  RFC 8785 Appendix B Table 1 (26 rows; NaN/Infinity rows -> expected ERROR)
+  source: https://www.rfc-editor.org/rfc/rfc8785.txt
+
+es6testfile-1k.txt              first 1000 lines of es6testfile100m.txt
+  https://github.com/cyberphone/json-canonicalization/releases/download/es6testfile/es6testfile100m.txt.gz
+  sha256 be18b62b6f69cdab33a7e0dae0d9cfa869fda80ddc712221570f9f40a5878687 (matches testdata/README.md table)
+  (1M-line sample in ../es6/es6testfile1m.txt, sha256 49415fee2c56c77864931bd3624faad425c3c577d6d74e89a83bc725506dad16, also matches)
+
+invalid/*.json                  NOT from a published vector set. Negative cases written for this evaluation from RFC 8785 MUSTs:
+  lone-surrogate-*.json  section 3.2.2.2 ("lone surrogates (e.g., U+DEAD) ... MUST cause ... error")
+  duplicate-property.json section 3.1 ("JSON objects MUST NOT exhibit duplicate property names")
+  number-overflow-*.json  section 3.2.2.3 / Appendix B note 3 (value parses to +/-Infinity -> MUST error)
