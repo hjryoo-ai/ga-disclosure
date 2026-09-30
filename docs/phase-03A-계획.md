@@ -1,7 +1,7 @@
-# Phase 3A 계획 — 워크플로 코어 (승인 요청)
+# Phase 3A 계획 — 워크플로 코어 (승인됨, 보강 반영)
 
 > 지시문 `docs/phase-03A-지시문.md` v1.0, 심사 회신 `docs/phase-02-수용심사.md`. 브랜치 `work/phase-3A`(main `43b2f80`에서 분기), 태그 `phase-3A`.
-> 판단이 필요한 항목은 §10에 모았다(Q1~Q7). 나머지는 이 계획대로 진행한다.
+> **승인 2026-09-30** (`docs/phase-03A-계획승인.md`): Q1~Q7 권장안 채택, 보강 B1~B4 반영(§3·§4·§5·§12), 3B PDF 변환기 = openhtmltopdf(§7). 결정 내용은 §10, 완료 기준 조정은 §12.
 
 ## 1. 선행 소과제 A~D
 
@@ -9,12 +9,12 @@
 
 | 파일 | 변경 |
 |---|---|
-| `contracts/api/v1/engine-disclosure.openapi.yaml` → **1.2.0** | 요청 `productKey`에 `maxLength: 40`과 패턴(Q1), `insurerCode`에 같은 보험사 코드 패턴. E3 요청 §6-1·2·3(추가형): 422 `INVALID_POLICY`, GET 500 `SNAPSHOT_INTEGRITY`, 400 `AS_OF_IN_FUTURE`·`UNKNOWN_PRODUCT_GROUP`. `reason` 설명의 예시에서 `TEMP_PRODUCT`를 빼고 "임시등록 상품은 요청하지 않는다. 소비자가 로컬에서 `UNAVAILABLE(TEMP_PRODUCT, source=LOCAL)`로 표기하고, 응답 집합 = 요청 집합 검사는 요청한 항목에만 적용"을 적는다. E3 요청 §6-4(GET 403 변경)는 의미 변경이라 넣지 않는다. |
+| `contracts/api/v1/engine-disclosure.openapi.yaml` → **1.2.0** | 요청 `productKey`에 `maxLength: 40`과 패턴(Q1), `insurerCode`에 같은 보험사 코드 패턴. E3 요청 §6-1·2·3(추가형): 422 `INVALID_POLICY`, GET 500 `SNAPSHOT_INTEGRITY`, 400 `AS_OF_IN_FUTURE`·`UNKNOWN_PRODUCT_GROUP`. `reason` 설명의 예시에서 `TEMP_PRODUCT`를 빼고 "임시등록 상품은 요청하지 않는다. 소비자가 로컬에서 `UNAVAILABLE(TEMP_PRODUCT, source=LOCAL)`로 표기하고, 응답 집합 = 요청 집합 검사는 요청한 항목에만 적용"을 적는다. E3 요청 §6-4(GET 403)는 엔진 심사 §3-3에서 **설명 변경으로 승인**: "토큰은 유효하나 인가 거부(역할 없음). 다른 테넌트의 스냅샷은 404", 응답 형태는 그대로. |
 | `contracts/catalog/v1/catalog-file.schema.json` | `productKey`·`insurerCode` 같은 규칙 |
 | `contracts/CHECKSUMS`, `ContractSchemaTest` | 체크섬 재생성. 41자 키·패턴 위반 키 거부, 40자 키 통과, 새 오류 응답 존재 |
 | `docs/설계서.md` §4.1·§4.2 | 위 규칙(같은 커밋 원칙) |
 
-버전은 1.2.0으로 올린다. 요청 스키마를 좁히는 변경이지만 40자를 넘는 키를 보내는 생산자가 없다. 엔진 원장의 상품 키가 이미 40자이고(외부 키 매핑 컬럼만 129자로 잡혀 있음), 데모 키는 최대 14자다. 병합 후 엔진 쪽 후속(UPSTREAM을 이 병합 커밋으로 갱신, 40자 검증, `TEMP_PRODUCT` 데이터 제거)은 E3 보고서 §10.2에 적었고, E3 심사 뒤에 한다.
+버전은 1.2.0으로 올린다. 요청 스키마를 좁히는 변경이지만 40자를 넘는 키를 보내는 생산자가 없다. 엔진 원장의 상품 키가 이미 40자이고(외부 키 매핑 컬럼만 129자로 잡혀 있음), 데모 키는 최대 14자다. 병합 후 엔진 쪽 후속(UPSTREAM을 이 병합 커밋으로 갱신, 40자 검증, `TEMP_PRODUCT` 데이터 제거 등)은 엔진 E3.1 PR(엔진 심사 §3)이 이 병합 커밋 해시를 받아 시작한다.
 
 ### B. DEK 최초 생성 멱등화 (Phase 2 D3)
 
@@ -75,7 +75,8 @@
 | EXPIRED | VOID, SUPERSEDE("재발급만 가능") |
 | VOID, SUPERSEDED | 없음(종결) |
 
-- **W1**: `DisclosureStateTableTest`는 설계서 §6.1에 새로 넣는 표(상태 10 × 명령 10)를 **파일에서 파싱해** EnumMap과 대조한다. 그리고 표 밖 조합 전수에서 `IllegalTransition(from, command)`를 확인한다(구현된 네 명령). 문서와 코드가 따로 움직이면 테스트가 실패한다.
+- **W1**(B3): 설계서 §6.1의 표는 마크다운 표가 아니라 fenced 블록(언어 태그 `state-table`, CSV: `state,command,result`)으로 둔다. 이 블록이 정본이고, 사람이 읽는 설명 표는 그 옆에 둔다. `DisclosureStateTableTest`는 블록을 파싱해 EnumMap과 **양방향 전수 대조**한다(상태 10 × 명령 10). 블록이 없거나 줄 형식이 틀리면 실패한다.
+  - 테스트는 **구현된 명령 목록**(`REPLACE_ITEMS, COMPARE, APPLY_SNAPSHOT, SET_RECOMMENDATIONS`)을 별도로 가진다. 구현된 명령은 표 안 조합에서 전이가 성공하고 표 밖 조합 전수에서 `IllegalTransition(from, command)`가 난다. 미구현 명령(SEAL 이후)은 표 대조만 한다. 3B는 구현할 때 이 목록만 늘린다.
 - **상담일 변경 명령은 없다**: `consultDate`는 생성자에서만 정한다. 이 필드에 쓰는 메서드가 없다는 것을 리플렉션 테스트로 확인한다.
 
 ## 4. 유스케이스·트랜잭션·감사 규약 (W7)
@@ -86,19 +87,23 @@
   - 상담일로 GLOBAL·TENANT 룰과 서식을 한 번 해석한다.
   - `rule_version_id`·`tenant_rule_version_id`·`template_id`·`template_version`을 헤더에 고정한다(설계서 "봉인 시 확정" → "초안 생성 시 확정"으로 고친다).
   - 이후 유스케이스는 `RuleResolver.load(tenant, asOf, globalId, tenantId?)`·`TemplateResolver.load(tenant, templateId, version)`(새 메서드, 포트에 `findById` 추가)로 **고정 ID를 로드**하고 재해석하지 않는다.
-- **전이 조건**: `compare/applySnapshot/reason`은 해당 단계 검증 결과를 받는다. 통과하지 못한 규칙이 하나라도 있으면 전이하지 않는다. `overridable` 실패의 처리는 Q2다.
+  - **B1 예외(소급 룰 배포)**: 초안 생성 뒤 `apply_from ≤ 상담일`인 새 GLOBAL·TENANT 버전이 배포되면 고정 ID와 재해석 결과가 달라진다. 3A는 고정 ID로 **로드만** 한다. 3B의 SEAL 조건에 "상담일 재해석 결과 = 고정 ID"를 넣고, 다르면 봉인 거부 + `compliance_flag(RULE_SUPERSEDED_DRAFT)`. 재기준(rebase, COMPARED 회귀 + 새 ID 고정)은 3B가 정의한다. 설계서 §6.4 1항에 적는다.
+- **전이 조건**(Q2 결정): `compare/applySnapshot/reason`은 해당 단계 검증 결과를 받는다. `overridable=false` 실패가 하나라도 있으면 전이하지 않는다. `overridable=true` 실패는 **전이를 막지 않고** 플래그(`TEMP_PRODUCT`·`GRADE_UNAVAILABLE` 등, 코드는 룰 데이터)와 감사만 남긴다. `review` 확인은 SEAL(3B)에서 강제하며, 3A는 그 판정 함수 `SealGate.unapproved(results, reviews)`(승인 없는 overridable 실패 = 통과 불가)까지 두고 W5에서 증명한다.
 
 **감사 실패 기록 규약 (계획에서 정하라는 항목)**
 
 | 종류 | 예 | 처리 |
 |---|---|---|
 | **업무 거부** — 예상된 결과 | 단계 검증 실패, 엔진 응답의 스키마·정합성 위반 | 업무 트랜잭션이 **정상 커밋**한다. 감사 행(`VALIDATE` 결과 전체 / `GRADE_REJECTED` 위반 목록)과 플래그(`GRADE_INCONSISTENT`)가 남는다. 상태는 불변이고, 호출자에게는 결과 객체(실패 목록)를 돌려준다 |
+| **업무 거부** — 스냅샷 노후화 | 엔진 호출 중 항목이 바뀜(`GRADE_STALE`, Q6) | 위와 같다(커밋·감사, 상태 불변) |
 | **명령 거부·오류** — 예외 | `IllegalTransition`, 룰 해석 실패, 엔진 연결 실패·422·5xx, 예기치 않은 오류 | 업무 트랜잭션은 **롤백**한다. 그 뒤 **별도 트랜잭션**으로 `COMMAND_FAILED` 감사 1행을 남긴다(명령·대상·예외 종류·오류 코드). 메시지는 넣지 않는다 — 규칙 6, 예외 메시지에 입력값이 섞일 수 있다. 실패 기록 자체가 실패하면 원 예외에 suppressed로 붙이고 ERROR 로그를 남긴다 |
+| **테넌트 미바인딩** (B2) | 테넌트 컨텍스트 없이 호출된 명령 | 감사 대상이 아니다. `COMMAND_FAILED`의 별도 트랜잭션도 **원 명령과 같은 테넌트 컨텍스트** 안에서 쓴다(RLS). 컨텍스트가 없으면 실패 기록을 시도하지 않고 원 예외(401/기동 오류로 매핑)만 전파한다 |
 
 - **W7 증명**(`WorkflowAuditIT`):
   - 모든 유스케이스 성공 경로에서 업무 행과 감사 행이 같은 트랜잭션에 있다. 감사 INSERT 직후 예외를 주입하면 업무 행도 없다.
   - 거부 경로에서 상태 불변 + 감사 행이 있다.
-  - 예외 경로에서 업무 행·업무 감사 행은 없고, `COMMAND_FAILED` 1행이 있다.
+  - 예외 경로에서 업무 행·업무 감사 행은 없고, `COMMAND_FAILED` 1행이 있다(같은 테넌트, 메시지 없음).
+  - 테넌트 미바인딩 명령은 `COMMAND_FAILED`를 남기지 않는다(B2).
   - 체인 검증도 통과한다.
 
 ## 5. 엔진 클라이언트와 테스트 대역
@@ -110,12 +115,13 @@ GradeSnapshotPort (workflow)
         ├─ ② 매핑(RatioLabel로만) → GradeSnapshot
         └─ ③ GradeConsistencyCheck(임시등록 제외 집합)       ①·③ 중 하나라도 실패 → GradeRejected(위반 목록)
   EngineTransport
-        ├─ HttpEngineTransport: JDK HttpClient(추가 의존성 없음). 서비스 토큰 헤더(값은 로그·예외에 넣지 않음)
+        ├─ HttpEngineTransport: JDK HttpClient(추가 의존성 없음). 서비스 토큰은 EngineCredentialPort(B4)에서 받아 헤더로(값은 로그·예외에 넣지 않음)
         │   base URL = tenant.engine_base_url. 연결 타임아웃·요청 타임아웃·최대 시도는 설정값
         │   재시도는 ConnectException·연결 타임아웃에만. 요청 전송 후의 타임아웃·응답 수신 후 오류는 재시도하지 않는다
         └─ (testFixtures) FakeEngine
 ```
 
+- **자격 증명**(B4): `EngineCredentialPort.tokenFor(tenant)`. 3A 구현은 테넌트별 환경 설정(`ga.engine.credentials.<tenantId>` — 값은 배포 비밀로 주입, 저장소·`tenant.params`에 두지 않는다)에서 읽는다. Phase 8 운영 조립에서 Phase 2 볼트(테넌트 DEK, AAD=`tenant_id`·`engine_token`) 구현으로 교체한다. 토큰이 없는 테넌트의 산출 요청은 엔진 오류(`COMMAND_FAILED`)다.
 - **`FakeEngine`**(infra testFixtures):
   - **받은 요청을 계약 요청 스키마로 검증**한다. 임시등록 상품이나 41자 키가 오면 테스트가 실패한다.
   - 정상 응답도 계약 응답 스키마로 **자기 검증한 뒤** 돌려준다. 의도치 않게 틀린 응답을 내면 페이크가 먼저 실패한다.
@@ -207,7 +213,9 @@ CREATE UNIQUE INDEX ux_customer_ref_registration ON customer_ref (tenant_id, reg
   - `SnapshotColumnCheckIT`: 위 CHECK마다 위반 조합을 전수로 거부하고 허용 조합을 통과시킨다. 항목은 grade_status 3값 × source 3값 × temp 2값 × tie/reason 유무 조합을 생성해 기대값을 독립 계산한다. 헤더는 5개 컬럼의 부분 NULL 조합을 넣는다.
   - review는 GD030·GD080·RLS를 확인한다.
 
-## 7. PDF/A 변환기 후보 비교 (선행 D, 선택은 3B 지시문)
+## 7. PDF/A 변환기 후보 비교 (선행 D)
+
+> **3B 선결정(승인 §3): openhtmltopdf 1.1.x.** 3B 조건 — 정보 날짜·XMP 날짜·`/ID` 시드를 봉인 입력(canonical 해시·확인서 번호)에서 파생(벽시계 0), sRGB ICC·NanumGothic(OFL, 라이선스 파일 포함)을 저장소에 동봉(빌드 시 내려받지 않음), CI(Linux)와 로컬(macOS arm64) PDF SHA-256 일치를 완료 기준에 포함(실패 시 WeasyPrint 사이드카로 전환하고 결정 기록), `checkBom`으로 BOM 겹침 확인(3B 첫 커밋). 3A의 `verification/pdf-candidates/`도 **동봉 폰트·ICC**를 쓴다(아래 "내려받기" 문장은 이 결정으로 대체).
 
 **방법**
 - 같은 XHTML 1개를 쓴다: 한글 제목·표·굵은 글씨·자모 검사 문자열("똠방각하 뷁"). 폰트는 NanumGothic Regular/Bold(OFL-1.1, google/fonts)를 `@font-face`로 참조한다.
@@ -263,7 +271,19 @@ CREATE UNIQUE INDEX ux_customer_ref_registration ON customer_ref (tenant_id, reg
   - 부록 B: 엔진 스텁 표 형식(비율 해석 없음).
   - `db-error-codes.md`에 GD080을 추가한다.
 
-## 10. 판단이 필요한 질문
+## 10. 질문과 결정
+
+| # | 결정(2026-09-30) |
+|---|---|
+| Q1 | 권장 패턴. `productKey` `^[A-Z0-9][A-Z0-9-]{0,7}:[A-Za-z0-9][A-Za-z0-9._-]{0,30}$`, 40자. `InsurerCode` `^[A-Z0-9][A-Z0-9-]{0,7}$`. 엔진 E3.1 동일 |
+| Q2 | 중간 단계 overridable 실패는 플래그·감사만, `review`는 SEAL에서 강제. W5 조정(§12) |
+| Q3 | `subject_hash`(실패 대상의 JCS SHA-256). `ValidationResult`에 대상 정규 JSON 필드 추가 |
+| Q4 | 임시등록 `product_key = NULL`, CHECK, `Optional<ProductKey>` |
+| Q5 | 재산출은 COMPARED·GRADED·REASONED에서, 결과 GRADED, 추천사유 폐기(결과 동일 시 유지 변형 없음) |
+| Q6 | 엔진 호출은 트랜잭션 밖. 해석을 설계서 §6.2에 적고 `GRADE_STALE`은 업무 거부 |
+| Q7 | `customer_ref.registration_key`. 운영 API에서는 클라이언트가 보내는 불투명 문자열이고, `demo:<파일>#<id>`는 데모 생성 규칙일 뿐임을 문서에 구분 |
+
+아래는 승인 요청 당시의 질문 원문이다.
 
 **Q1. 상품 키 패턴이 모든 데모·예시 키를 거부한다.** 결정된 패턴 `^[A-Z0-9]{1,8}:[A-Za-z0-9._-]{1,31}$`은 보험사 부분에 하이픈을 허용하지 않는다. 그런데 다음이 전부 `INS-A` 형식이다.
 - 데모 카탈로그 9개 키.
@@ -318,3 +338,13 @@ CREATE UNIQUE INDEX ux_customer_ref_registration ON customer_ref (tenant_id, reg
    8. `verification/pdf-candidates`(D).
    9. 전체 `clean build`, 위반 주입, 데모 2회, 보고서.
 3. PR → CI → 보고서에 run ID를 직접 조회해 인용 → 태그 `phase-3A`. 병합은 심사 후에 한다.
+
+## 12. 완료 기준 조정 (승인 반영)
+
+| # | 조정 |
+|---|---|
+| W1 | 설계서 §6.1의 `state-table` fenced 블록(CSV)을 파싱해 대조. 구현 명령 목록은 테스트가 별도로 가진다(B3) |
+| W5 | "각 단계 검증이 룰의 `stages`대로만 실행되고 `overridable=false` 실패 시 전이 불가. `overridable=true` 실패는 중간 단계에서 전이를 막지 않고 플래그·감사만. SEAL 판정 함수가 승인(`review`, `subject_hash` 일치) 없는 overridable 실패를 통과시키지 않는다"(Q2·Q3) |
+| W7 | 추가: 테넌트 미바인딩 명령은 `COMMAND_FAILED`를 남기지 않는다(B2). `GRADE_STALE`은 업무 거부로 커밋·감사(Q6) |
+| W10-A | 계약 1.2.0에 엔진 E3 요청 1~4 포함(4는 설명 변경), 병합 커밋 해시를 엔진 E3.1에 전달 |
+| W10-D | 비교표는 완료. 하네스는 동봉 폰트·ICC 사용 |
