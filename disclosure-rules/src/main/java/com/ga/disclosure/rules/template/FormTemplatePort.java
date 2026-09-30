@@ -1,5 +1,7 @@
 package com.ga.disclosure.rules.template;
 
+import com.ga.disclosure.domain.vo.TemplateRef;
+import java.util.Optional;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.platform.core.tenant.TenantId;
 
@@ -10,4 +12,7 @@ import java.util.List;
 public interface FormTemplatePort {
 
     List<FormTemplate> findActive(TenantId tenant, TemplateType templateType, LocalDate asOf);
+
+    /** 확인서에 고정된 서식(ID·버전)으로 조회한다(3A {@code TemplateResolver.load}). */
+    Optional<FormTemplate> findByRef(TenantId tenant, TemplateRef ref);
 }

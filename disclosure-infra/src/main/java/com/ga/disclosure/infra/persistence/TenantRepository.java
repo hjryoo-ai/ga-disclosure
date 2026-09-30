@@ -1,5 +1,7 @@
 package com.ga.disclosure.infra.persistence;
 
+import com.ga.platform.core.tenant.TenantContext;
+import com.ga.disclosure.workflow.disclosure.TenantProfilePort;
 import com.ga.disclosure.domain.enums.GateMode;
 import com.ga.disclosure.domain.enums.IssuerMode;
 import com.ga.platform.core.tenant.TenantId;
@@ -13,7 +15,7 @@ import java.util.Optional;
 
 /** 자기 테넌트 행 조회. 다른 테넌트 행은 저장소 조건과 RLS 양쪽에서 보이지 않는다. */
 @Repository
-public class TenantRepository extends TenantScopedRepository {
+public class TenantRepository extends TenantScopedRepository implements TenantProfilePort {
 
     private static final RowMapper<TenantRecord> MAPPER = (rs, rowNum) -> new TenantRecord(
             TenantId.of(rs.getString("tenant_id")),
@@ -39,6 +41,15 @@ public class TenantRepository extends TenantScopedRepository {
                 VALUES (:tenantId, :name, :engineBaseUrl, 'ACTIVE', :largeGa)
                 ON CONFLICT (tenant_id) DO NOTHING
                 """, Map.of("name", name, "engineBaseUrl", engineBaseUrl, "largeGa", largeGa));
+    }
+
+    @Override
+    public TenantProfile profile(TenantId tenant) {
+        if (!TenantContext.current().equals(tenant)) {
+            throw new IllegalArgumentException("port called for " + tenant + " while bound to " + TenantContext.current());
+        }
+        TenantRecord r = findCurrent().orElseThrow(() -> new IllegalStateException("tenant " + tenant + " has no row"));
+        return new TenantProfile(r.largeGa(), r.issuerMode());
     }
 
     public Optional<TenantRecord> findCurrent() {

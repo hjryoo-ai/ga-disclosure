@@ -11,6 +11,7 @@ import com.ga.disclosure.workflow.customer.Customer;
 import com.ga.disclosure.workflow.customer.CustomerVault;
 import com.ga.disclosure.workflow.customer.KeyProviderPort;
 import com.ga.disclosure.workflow.customer.NewCustomer;
+import com.ga.disclosure.workflow.customer.RegistrationKey;
 import com.ga.platform.core.tenant.TenantContext;
 import com.ga.platform.core.tenant.TenantId;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
@@ -90,6 +91,65 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
                         Arrays.fill(dek, (byte) 0);
                     }
                 });
+    }
+
+    @Override
+    public KeyedInsert insertKeyed(CustomerRef ref, NewCustomer customer, Instant createdAt, RegistrationKey key) {
+        Optional<CustomerRef> existing = byRegistrationKey(key);
+        if (existing.isPresent()) {
+            return new KeyedInsert(existing.get(), false, null);
+        }
+        TenantId tenant = TenantContext.current();
+        StoredKey dataKey = activeKey().orElseGet(() -> createKey(createdAt));
+        byte[] dek = unwrap(tenant, dataKey);
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("customerRef", ref.value());
+            params.put("name", CustomerFieldCipher.encrypt(dek, tenant, ref, dataKey.keyId(), customer.name()));
+            params.put("phone", customer.phone().map(p -> CustomerFieldCipher.encrypt(dek, tenant, ref, dataKey.keyId(), p)).orElse(null));
+            params.put("birthDate", customer.birthDate().map(b -> CustomerFieldCipher.encrypt(dek, tenant, ref, dataKey.keyId(), b)).orElse(null));
+            params.put("keyId", dataKey.keyId());
+            params.put("createdAt", Timestamp.from(createdAt));
+            params.put("registrationKey", key.value());
+            // 같은 키의 동시 등록: 진 쪽은 부분 유일 인덱스에서 이긴 쪽의 커밋을 기다린 뒤 0행이 되고, 재조회가 이긴 쪽의 참조를 읽는다.
+            List<String> inserted = query("""
+                    INSERT INTO customer_ref (tenant_id, customer_ref, name_enc, phone_enc, birth_date_enc, enc_key_id, created_at, registration_key)
+                    VALUES (:tenantId, :customerRef, :name, :phone, :birthDate, :keyId, :createdAt, :registrationKey)
+                    ON CONFLICT (tenant_id, registration_key) WHERE registration_key IS NOT NULL DO NOTHING
+                    RETURNING customer_ref
+                    """, params, (rs, n) -> rs.getString("customer_ref"));
+            if (!inserted.isEmpty()) {
+                return new KeyedInsert(ref, true, dataKey.keyId());
+            }
+        } finally {
+            Arrays.fill(dek, (byte) 0);
+        }
+        return new KeyedInsert(byRegistrationKey(key).orElseThrow(() -> new IllegalStateException(
+                "registration key conflict without a committed row")), false, null);
+    }
+
+    @Override
+    public Optional<CustomerRef> findByRegistrationKey(RegistrationKey key) {
+        return byRegistrationKey(key);
+    }
+
+    private Optional<CustomerRef> byRegistrationKey(RegistrationKey key) {
+        return queryAtMostOne("""
+                SELECT customer_ref
+                  FROM customer_ref
+                 WHERE tenant_id = :tenantId
+                   AND registration_key = :registrationKey
+                """, Map.of("registrationKey", key.value()), (rs, n) -> CustomerRef.of(rs.getString("customer_ref")));
+    }
+
+    @Override
+    public boolean exists(CustomerRef ref) {
+        return queryAtMostOne("""
+                SELECT customer_ref
+                  FROM customer_ref
+                 WHERE tenant_id = :tenantId
+                   AND customer_ref = :customerRef
+                """, Map.of("customerRef", ref.value()), (rs, n) -> Boolean.TRUE).isPresent();
     }
 
     @Override
@@ -209,11 +269,17 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
         } finally {
             Arrays.fill(dek, (byte) 0);
         }
-        update("""
+        // 테넌트 첫 등록이 동시에 들어오면 둘 다 ACTIVE 키가 없다고 본다. 진 쪽은 유일 인덱스에서 이긴 쪽의 커밋을 기다린 뒤
+        // DO NOTHING(0행)이 되고, READ COMMITTED의 다음 문장이 커밋된 행을 읽는다. 진 쪽이 감싼 DEK는 저장되지 않고 버려진다.
+        int inserted = update("""
                 INSERT INTO customer_data_key (tenant_id, key_id, kek_id, wrapped_key, status, created_at)
                 VALUES (:tenantId, :keyId, :kekId, :wrapped, 'ACTIVE', :at)
+                ON CONFLICT (tenant_id) WHERE status = 'ACTIVE' DO NOTHING
                 """, Map.of("keyId", keyId, "kekId", kekId, "wrapped", wrapped, "at", Timestamp.from(at)));
-        return new StoredKey(keyId, kekId, wrapped, "ACTIVE");
+        if (inserted == 1) {
+            return new StoredKey(keyId, kekId, wrapped, "ACTIVE");
+        }
+        return activeKey().orElseThrow(() -> new IllegalStateException(tenant + " lost the data key race but sees no ACTIVE key"));
     }
 
     private byte[] unwrap(TenantId tenant, StoredKey key) {

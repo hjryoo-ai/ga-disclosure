@@ -39,20 +39,20 @@ final class Reason implements Validation {
             }
             List<ReasonCode> unknown = item.reasonCodes().stream().filter(c -> !known.containsKey(c)).toList();
             if (!unknown.isEmpty()) {
-                problems.add(item.productKey() + ": 룰에 없는 사유 코드 " + unknown);
+                problems.add(item.label() + ": 룰에 없는 사유 코드 " + unknown);
             }
             boolean agentChosen = item.reasonCodes().stream().anyMatch(c -> known.containsKey(c) && !known.get(c).auto());
             if (!agentChosen) {
-                problems.add(item.productKey() + ": 설계사가 고른 사유 코드가 없다");
+                problems.add(item.label() + ": 설계사가 고른 사유 코드가 없다");
             }
             boolean needsText = item.reasonCodes().stream().anyMatch(c -> known.containsKey(c) && known.get(c).requiresText());
             String text = item.reasonText().orElse("");
             if (needsText && text.isBlank()) {
-                problems.add(item.productKey() + ": 텍스트가 필요한 사유 코드인데 텍스트가 없다");
+                problems.add(item.label() + ": 텍스트가 필요한 사유 코드인데 텍스트가 없다");
             }
             int length = text.codePointCount(0, text.length());
             if (length > maxLength) {
-                problems.add(item.productKey() + ": 사유 텍스트 " + length + "자가 상한 " + maxLength + "자를 넘는다");
+                problems.add(item.label() + ": 사유 텍스트 " + length + "자가 상한 " + maxLength + "자를 넘는다");
             }
         }
         return problems.isEmpty()

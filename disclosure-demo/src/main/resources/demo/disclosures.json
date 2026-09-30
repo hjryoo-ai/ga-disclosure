@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "note": "데모 확인서 흐름(설계서 부록 A-1·A-2). 고객은 customers.json의 행 ID로 지목한다(등록 멱등 키 = customerKeyPrefix + ID). 전부 가상 데이터.",
+  "customerKeyPrefix": "demo:customers.json#",
+  "cases": [
+    {
+      "id": "A-1",
+      "customer": "C01",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "consultDate": "2026-09-23",
+      "items": [
+        { "productKey": "INS-A:PRD-1001", "recommended": true },
+        { "productKey": "INS-B:PRD-2044" },
+        { "productKey": "INS-C:PRD-3120", "recommended": true }
+      ],
+      "reasons": [
+        { "itemNo": 1, "codes": ["PREMIUM"] },
+        { "itemNo": 3, "codes": ["COVERAGE"] }
+      ]
+    },
+    {
+      "id": "A-2",
+      "customer": "C02",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "consultDate": "2026-09-24",
+      "items": [
+        { "productKey": "INS-A:PRD-1001", "recommended": true },
+        { "temp": { "insurer": "INS-B", "productName": "(가상) 다라생명 신상품", "quoteDocNo": "Q-2026-0001" }, "recommended": true,
+          "values": { "INSURER_NAME": "(가상) 다라생명", "PRODUCT_NAME": "(가상) 다라생명 신상품", "PREMIUM": 30100,
+                      "SURRENDER_VALUE_EXAMPLE": "가입설계서 Q-2026-0001 참조" } },
+        { "productKey": "INS-C:PRD-3120" }
+      ],
+      "reasons": [
+        { "itemNo": 1, "codes": ["PREMIUM"] },
+        { "itemNo": 2, "codes": ["OTHER"], "text": "고객이 지정한 보장 구성" }
+      ]
+    },
+    {
+      "id": "A-1-REQUEST",
+      "customer": "C03",
+      "groupCode": "PG-CANCER",
+      "consultDate": "2026-10-15",
+      "items": [
+        { "productKey": "INS-A:PRD-1101", "recommended": true },
+        { "productKey": "INS-D:PRD-4001", "recommended": true },
+        { "productKey": "INS-E:PRD-5001" }
+      ],
+      "reasons": [
+        { "itemNo": 1, "codes": ["COVERAGE"] },
+        { "itemNo": 2, "codes": ["PREMIUM"] }
+      ],
+      "customerRequest": {
+        "add": { "productKey": "INS-F:PRD-6001", "requestedByCustomer": true },
+        "reasons": [
+          { "itemNo": 1, "codes": ["COVERAGE"] },
+          { "itemNo": 2, "codes": ["PREMIUM"] }
+        ]
+      }
+    }
+  ]
+}

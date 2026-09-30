@@ -16,6 +16,7 @@ dependencies {
     testFixturesApi(project(":disclosure-audit"))
 
     testImplementation(testFixtures(project(":platform-core")))
+    testImplementation(testFixtures(project(":disclosure-rules")))
 }
 
 val contractResources = tasks.register<Sync>("contractResources") {

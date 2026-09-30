@@ -10,12 +10,14 @@ import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.rules.validation.ValidationSubject;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 룰 {@code gradeRequired.whenLargeGa}이고 테넌트가 대형 GA이면 모든 비교 항목에 엔진 결과가 있다. 결과가 UNAVAILABLE인 항목은
- * "결과 있음"으로 보고 R-GRADE-UNAVAILABLE이 따로 다룬다(설계서 §6.2).
+ * 룰 {@code gradeRequired.whenLargeGa}이고 테넌트가 대형 GA이면 엔진에 요청하는 모든 비교 항목(임시등록 제외)에 엔진 결과가 있다.
+ * 결과가 UNAVAILABLE인 항목은 "결과 있음"으로 보고 R-GRADE-UNAVAILABLE이 따로 다룬다(설계서 §6.2). 임시등록 항목은 엔진에 보내지 않고
+ * 로컬 산출불가로 표기되며(Phase 2 심사 §3-5) R-TEMP-PRODUCT·R-GRADE-UNAVAILABLE이 다룬다.
  */
 final class GradeRequired implements Validation {
 
@@ -36,7 +38,7 @@ final class GradeRequired implements Validation {
         }
         GradeSnapshot snapshot = subject.gradeSnapshot().get();
         Set<ProductKey> graded = snapshot.items().stream().map(GradeSnapshotItem::productKey).collect(Collectors.toSet());
-        List<ProductKey> missing = subject.items().stream().map(ValidationSubject.Item::productKey)
+        List<ProductKey> missing = subject.items().stream().map(ValidationSubject.Item::productKey).flatMap(Optional::stream)
                 .filter(k -> !graded.contains(k)).toList();
         return missing.isEmpty()
                 ? ValidationResult.pass(ID, "모든 항목에 엔진 결과가 있다(스냅샷 " + snapshot.snapshotId() + ")")

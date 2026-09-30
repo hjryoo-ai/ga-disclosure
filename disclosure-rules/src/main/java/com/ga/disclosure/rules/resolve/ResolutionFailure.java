@@ -11,5 +11,7 @@ public enum ResolutionFailure {
     /** 룰의 {@code validations}에 레지스트리에 없는 규칙 ID가 있다. */
     UNKNOWN_VALIDATION,
     /** 기준일에 적용할 서식이 없다. */
-    NO_TEMPLATE
+    NO_TEMPLATE,
+    /** 확인서에 고정된 룰·서식 버전이 저장소에 없다(3A: 초안 생성 시 고정한 ID로만 로드한다). */
+    PINNED_VERSION_MISSING
 }

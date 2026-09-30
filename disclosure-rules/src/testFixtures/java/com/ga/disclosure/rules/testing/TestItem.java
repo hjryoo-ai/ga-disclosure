@@ -12,9 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** 테스트 픽스처: 비교 항목. 메인 소스에는 구현체를 두지 않는다(Phase 3 애그리게이트가 구현). */
+/** 테스트 픽스처: 비교 항목(규칙 단위 테스트용). 운영 구현은 워크플로 애그리게이트(Phase 3A). */
 public record TestItem(
-        ProductKey productKey,
+        ProductKey key,
         InsurerCode insurerCode,
         GroupCode groupCode,
         boolean isRecommended,
@@ -30,6 +30,16 @@ public record TestItem(
         reasonCodes = List.copyOf(reasonCodes);
     }
 
+    @Override
+    public Optional<ProductKey> productKey() {
+        return Optional.ofNullable(key);
+    }
+
+    @Override
+    public String productName() {
+        return "상품 " + (key == null ? quoteDocNo.orElse("-") : key.code());
+    }
+
     /** {@code insurer}의 상품 1건, 상품군 {@code group}, 추천 아님, 사유 없음. */
     public static TestItem of(String insurer, String product, String group) {
         return new TestItem(ProductKey.parse(insurer + ":" + product), InsurerCode.of(insurer), GroupCode.of(group),
@@ -37,44 +47,45 @@ public record TestItem(
     }
 
     public TestItem recommended(String... codes) {
-        return new TestItem(productKey, insurerCode, groupCode, true, requestedByCustomer, tempProduct, quoteDocNo, fieldValues,
+        return new TestItem(key, insurerCode, groupCode, true, requestedByCustomer, tempProduct, quoteDocNo, fieldValues,
                 Arrays.stream(codes).map(ReasonCode::of).toList(), reasonText);
     }
 
     public TestItem reasons(String... codes) {
-        return new TestItem(productKey, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, fieldValues,
+        return new TestItem(key, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, fieldValues,
                 Arrays.stream(codes).map(ReasonCode::of).toList(), reasonText);
     }
 
     public TestItem text(String text) {
-        return new TestItem(productKey, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, fieldValues,
+        return new TestItem(key, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, fieldValues,
                 reasonCodes, Optional.ofNullable(text));
     }
 
     public TestItem requested() {
-        return new TestItem(productKey, insurerCode, groupCode, isRecommended, true, tempProduct, quoteDocNo, fieldValues,
+        return new TestItem(key, insurerCode, groupCode, isRecommended, true, tempProduct, quoteDocNo, fieldValues,
                 reasonCodes, reasonText);
     }
 
+    /** 임시등록으로 바꾼다: 상품키가 없어진다(3A 계획 Q4). */
     public TestItem temp(String quoteDocNoOrNull) {
-        return new TestItem(productKey, insurerCode, groupCode, isRecommended, requestedByCustomer, true,
+        return new TestItem(null, insurerCode, groupCode, isRecommended, requestedByCustomer, true,
                 Optional.ofNullable(quoteDocNoOrNull), fieldValues, reasonCodes, reasonText);
     }
 
     public TestItem group(String group) {
-        return new TestItem(productKey, insurerCode, GroupCode.of(group), isRecommended, requestedByCustomer, tempProduct, quoteDocNo,
+        return new TestItem(key, insurerCode, GroupCode.of(group), isRecommended, requestedByCustomer, tempProduct, quoteDocNo,
                 fieldValues, reasonCodes, reasonText);
     }
 
     public TestItem field(String code, String value) {
         Map<String, String> values = new HashMap<>(fieldValues);
         values.put(code, value);
-        return new TestItem(productKey, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, values,
+        return new TestItem(key, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, values,
                 reasonCodes, reasonText);
     }
 
     public TestItem fields(Map<String, String> values) {
-        return new TestItem(productKey, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, values,
+        return new TestItem(key, insurerCode, groupCode, isRecommended, requestedByCustomer, tempProduct, quoteDocNo, values,
                 reasonCodes, reasonText);
     }
 }

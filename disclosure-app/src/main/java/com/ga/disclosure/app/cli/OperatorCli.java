@@ -1,5 +1,10 @@
 package com.ga.disclosure.app.cli;
 
+import com.ga.disclosure.workflow.disclosure.DisclosureService;
+import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
+import com.ga.disclosure.workflow.customer.RegisterCustomer;
+import com.ga.disclosure.workflow.customer.CustomerVault;
+import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import com.ga.disclosure.compliance.rules.ActivationReport;
 import com.ga.disclosure.compliance.rules.DistributionOutcome;
 import com.ga.disclosure.compliance.rules.GovernanceRejectedException;
@@ -60,9 +65,12 @@ import java.util.stream.Stream;
  * demo seed        --file &lt;seed.json&gt; --operator &lt;id&gt;
  * catalog import   --tenant T1 --file &lt;catalog.json&gt; --operator &lt;id&gt;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
+ * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
+ * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
  * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
  * </pre>
- * 고객 개인정보는 CLI 인자로 받지 않는다(셸 기록·프로세스 목록에 남는다).
+ * 고객 개인정보는 CLI 인자·환경변수로 받지 않는다(셸 기록·프로세스 목록에 남는다) — 파일(허구 데이터) 또는 API로만(CLAUDE.md 규칙 6).
+ * {@code customer import}의 출력에는 고객 참조·등록 결과만 있고 이름·연락처는 없다.
  */
 @Component
 @Profile("cli")
@@ -80,11 +88,16 @@ public class OperatorCli implements ApplicationRunner {
     private final RuleVersionStore rules;
     private final CatalogImportService catalog;
     private final CustomerRekeyService rekey;
+    private final RegisterCustomer registerCustomer;
+    private final DisclosureService disclosures;
+    private final DisclosureLookup lookup;
+    private final CustomerVault customers;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
                        RuleBundleReconciler reconciler, TenantDirectory directory, TenantTransactions transactions,
-                       TenantRepository tenants, RuleVersionStore rules, CatalogImportService catalog, CustomerRekeyService rekey) {
+                       TenantRepository tenants, RuleVersionStore rules, CatalogImportService catalog, CustomerRekeyService rekey,
+                       RegisterCustomer registerCustomer, DisclosureService disclosures, DisclosureLookup lookup, CustomerVault customers) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -95,6 +108,10 @@ public class OperatorCli implements ApplicationRunner {
         this.rules = rules;
         this.catalog = catalog;
         this.rekey = rekey;
+        this.registerCustomer = registerCustomer;
+        this.disclosures = disclosures;
+        this.lookup = lookup;
+        this.customers = customers;
     }
 
     @Override
@@ -108,6 +125,8 @@ public class OperatorCli implements ApplicationRunner {
             case "demo seed" -> seed(args);
             case "catalog import" -> importCatalog(args);
             case "customer rekey" -> rekey(args);
+            case "customer import" -> importCustomers(args);
+            case "demo disclosures" -> demoDisclosures(args);
             case "crypto init-kek" -> initKek(args);
             default -> throw new CliFailure("unknown command '" + args.command() + "' — see OperatorCli javadoc");
         }
@@ -211,6 +230,32 @@ public class OperatorCli implements ApplicationRunner {
         RekeyReport r = rekey.rekey(tenant, actor, batch);
         out.println("REKEY " + tenant + " retired=" + r.retiredKeyId().orElse("-") + " active=" + r.activeKeyId() + " reencrypted="
                 + r.reencrypted() + " destroyed=" + r.destroyedKeyIds());
+    }
+
+    /** 고객 파일 등록(등록 멱등 키 — 두 번 돌려도 한 명). 개인정보는 파일에서만 읽고 출력하지 않는다. */
+    private void importCustomers(CliArguments args) {
+        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
+        TenantId tenant = TenantId.of(args.required("tenant"));
+        Path file = Path.of(args.required("file"));
+        List<CustomerFileParser.Row> rows;
+        try {
+            rows = CustomerFileParser.parse(file.getFileName().toString(), Files.readAllBytes(file));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (IllegalArgumentException e) {
+            throw new CliFailure(e.getMessage());
+        }
+        for (CustomerFileParser.Row row : rows) {
+            RegisterCustomer.Registration r = registerCustomer.execute(tenant, actor, row.key(), row.customer());
+            out.println("CUSTOMER_IMPORT " + tenant + " " + row.id() + " " + (r.created() ? "CREATED" : "NOOP") + " ref=" + r.ref());
+        }
+    }
+
+    private void demoDisclosures(CliArguments args) {
+        Actor agent = new Actor(args.optional("agent").orElse("demo-agent"), "AGENT");
+        new Operator(args.required("operator"));
+        TenantId tenant = TenantId.of(args.required("tenant"));
+        new DemoDisclosureSeeder(disclosures, lookup, customers, transactions, out).seed(tenant, agent, read(Path.of(args.required("file"))));
     }
 
     private void initKek(CliArguments args) {

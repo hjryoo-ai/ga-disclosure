@@ -34,12 +34,12 @@ final class Requested implements Validation {
             if (item.requestedByCustomer() && !codes.containsAll(auto)) {
                 Set<ReasonCode> missing = new HashSet<>(auto);
                 missing.removeAll(codes);
-                problems.add(item.productKey() + ": 고객 요청 항목에 자동 부가 코드 " + missing + "가 없다");
+                problems.add(item.label() + ": 고객 요청 항목에 자동 부가 코드 " + missing + "가 없다");
             }
             if (!item.requestedByCustomer()) {
                 codes.retainAll(auto);
                 if (!codes.isEmpty()) {
-                    problems.add(item.productKey() + ": 고객 요청이 아닌 항목에 자동 부가 코드 " + codes + "가 있다");
+                    problems.add(item.label() + ": 고객 요청이 아닌 항목에 자동 부가 코드 " + codes + "가 있다");
                 }
             }
         }

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "source": "demo",
+  "customers": [
+    { "id": "C01", "name": "가상고객01", "phone": "010-0000-0001", "birthDate": "1900-01-01" },
+    { "id": "C02", "name": "가상고객02", "phone": "010-0000-0002", "birthDate": "1900-01-02" },
+    { "id": "C03", "name": "가상고객03" }
+  ]
+}

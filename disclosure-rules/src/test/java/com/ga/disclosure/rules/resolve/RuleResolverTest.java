@@ -1,5 +1,6 @@
 package com.ga.disclosure.rules.resolve;
 
+import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.domain.enums.ManagerConfirmMode;
 import com.ga.disclosure.domain.enums.PiiField;
 import com.ga.disclosure.domain.enums.RuleStatus;
@@ -19,6 +20,7 @@ import tools.jackson.databind.node.ObjectNode;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -43,6 +45,39 @@ class RuleResolverTest {
 
     private static RuleResolutionException failure(InMemoryRuleVersionPort port) {
         return (RuleResolutionException) org.assertj.core.api.Assertions.catchThrowable(() -> new RuleResolver(port).resolve(T, D));
+    }
+
+    // ------------------------------------------------------------------ 3A: 고정 ID 로드
+
+    /** 초안에 고정한 ID로 로드하면, 이후 같은 기준일에 걸친 다른 버전이 생겨도(해석이면 Ambiguous) 고정 버전 그대로다. */
+    @Test
+    void loadUsesThePinnedIdsEvenWhenResolutionWouldNowDiffer() {
+        InMemoryRuleVersionPort port = withGlobal()
+                .add(Bundles.tenant("HOUSE", FROM, null, RuleStatus.ACTIVE, json("{\"signDeadlineDays\": 10}")));
+        EffectiveRule pinned = new RuleResolver(port).resolve(T, D);
+        port.add(Bundles.global("DISC-RETRO", LocalDate.parse("2026-09-01"), null, RuleStatus.ACTIVE, Y2026.body()));
+        assertThat(failure(port).failure()).as("재해석은 이제 모호하다").isEqualTo(ResolutionFailure.AMBIGUOUS);
+
+        EffectiveRule loaded = new RuleResolver(port).load(T, D, pinned.globalRuleVersionId(), pinned.tenantRuleVersionId());
+        assertThat(loaded.bodyHash()).isEqualTo(pinned.bodyHash());
+        assertThat(loaded.tenantRuleVersion()).contains(RuleVersionId.of("HOUSE"));
+        assertThat(loaded.signDeadlineDays()).isEqualTo(10);
+    }
+
+    @Test
+    void loadFailsExplicitlyWhenAPinnedVersionIsMissingOrWasNotInForce() {
+        InMemoryRuleVersionPort port = withGlobal();
+        assertThat(catchThrowableOfType(RuleResolutionException.class,
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-NOPE"), null)).failure())
+                .isEqualTo(ResolutionFailure.PINNED_VERSION_MISSING);
+        assertThat(catchThrowableOfType(RuleResolutionException.class,
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-NOPE"))).failure())
+                .isEqualTo(ResolutionFailure.PINNED_VERSION_MISSING);
+        port.add(Bundles.tenant("HOUSE-DRAFT", FROM, null, RuleStatus.DRAFT, json("{}")));
+        assertThatThrownBy(() -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-DRAFT")))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new RuleResolver(port).load(T, LocalDate.parse("2026-06-30"), RuleVersionId.of("DISC-2026-07"), null))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     // ------------------------------------------------------------------ C2

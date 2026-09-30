@@ -12,7 +12,19 @@
       "saleFrom": "2026-01-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 32100,
+        "INSURER_NAME": "(가상) 가나생명",
+        "PRODUCT_NAME": "(가상) 가나 간편건강 무해지",
+        "PREMIUM": 32100,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 100세만기"
       }
     },
@@ -24,7 +36,19 @@
       "saleFrom": "2026-07-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 35800,
+        "INSURER_NAME": "(가상) 가나생명",
+        "PRODUCT_NAME": "(가상) 가나 간편건강 무해지 플러스",
+        "PREMIUM": 35800,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 100세만기"
       }
     },
@@ -36,7 +60,19 @@
       "saleFrom": "2026-01-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 29400,
+        "INSURER_NAME": "(가상) 다라생명",
+        "PRODUCT_NAME": "(가상) 다라 유병자 건강",
+        "PREMIUM": 29400,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 90세만기"
       }
     },
@@ -48,7 +84,19 @@
       "saleFrom": "2025-01-01",
       "saleTo": "2026-09-01",
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 27300,
+        "INSURER_NAME": "(가상) 다라생명",
+        "PRODUCT_NAME": "(가상) 다라 유병자 건강(구형)",
+        "PREMIUM": 27300,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 90세만기"
       }
     },
@@ -60,7 +108,19 @@
       "saleFrom": "2026-03-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 30900,
+        "INSURER_NAME": "(가상) 마바생명",
+        "PRODUCT_NAME": "(가상) 마바 간편 3.5.5",
+        "PREMIUM": 30900,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "30년납 100세만기"
       }
     },
@@ -72,7 +132,19 @@
       "saleFrom": "2026-01-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 21000,
+        "INSURER_NAME": "(가상) 가나생명",
+        "PRODUCT_NAME": "(가상) 가나 암케어",
+        "PREMIUM": 21000,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 90세만기"
       }
     },
@@ -84,7 +156,19 @@
       "saleFrom": "2026-01-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 18700,
+        "INSURER_NAME": "(가상) 사아손보",
+        "PRODUCT_NAME": "(가상) 사아 암보장",
+        "PREMIUM": 18700,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 100세만기"
       }
     },
@@ -96,7 +180,19 @@
       "saleFrom": "2026-01-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 19900,
+        "INSURER_NAME": "(가상) 자차손보",
+        "PRODUCT_NAME": "(가상) 자차 암플랜",
+        "PREMIUM": 19900,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 100세만기"
       }
     },
@@ -108,7 +204,19 @@
       "saleFrom": "2026-10-01",
       "saleTo": null,
       "defaults": {
-        "PREMIUM_EXAMPLE_WON": 22500,
+        "INSURER_NAME": "(가상) 카타손보",
+        "PRODUCT_NAME": "(가상) 카타 첫 암보험",
+        "PREMIUM": 22500,
+        "SURRENDER_VALUE_EXAMPLE": [
+          {
+            "year": 10,
+            "refundWon": 0
+          },
+          {
+            "year": 20,
+            "refundWon": 0
+          }
+        ],
         "INSURANCE_PERIOD": "20년납 100세만기"
       }
     }

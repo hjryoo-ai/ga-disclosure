@@ -1,6 +1,5 @@
 package com.ga.disclosure.rules.validation.standard;
 
-import com.ga.disclosure.domain.vo.ProductKey;
 import com.ga.disclosure.rules.resolve.EffectiveRule;
 import com.ga.disclosure.rules.template.TemplateResolution;
 import com.ga.disclosure.rules.validation.Validation;
@@ -21,9 +20,9 @@ final class SameGroup implements Validation {
 
     @Override
     public ValidationResult evaluate(ValidationSubject subject, EffectiveRule rule, TemplateResolution template) {
-        List<ProductKey> outside = subject.items().stream()
+        List<String> outside = subject.items().stream()
                 .filter(i -> !i.groupCode().equals(subject.groupCode()))
-                .map(ValidationSubject.Item::productKey)
+                .map(ValidationSubject.Item::label)
                 .toList();
         return outside.isEmpty()
                 ? ValidationResult.pass(ID, "모든 항목이 상품군 " + subject.groupCode() + "에 속한다")

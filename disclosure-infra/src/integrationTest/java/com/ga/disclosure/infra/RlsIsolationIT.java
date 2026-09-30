@@ -29,8 +29,8 @@ class RlsIsolationIT {
 
     private static final PostgresHarness DB = PostgresHarness.get();
 
-    /** V5 기준 테넌트 테이블 수. 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게). */
-    private static final int EXPECTED_TABLE_COUNT = 20;
+    /** V6 기준 테넌트 테이블 수(V6 review 추가). 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게). */
+    private static final int EXPECTED_TABLE_COUNT = 21;
 
     static final List<String> TABLES = catalogTables();
 
@@ -55,7 +55,7 @@ class RlsIsolationIT {
     @Test
     void catalogListsEveryTenantTableAndTheCountIsPinned() {
         assertThat(TABLES).hasSize(EXPECTED_TABLE_COUNT)
-                .contains("tenant", "customer_ref", "customer_data_key", "catalog_import", "product_catalog", "compliance_flag");
+                .contains("tenant", "customer_ref", "customer_data_key", "catalog_import", "product_catalog", "compliance_flag", "review");
     }
 
     /** 모든 테이블의 첫 컬럼은 tenant_id다(설계서 §5). */

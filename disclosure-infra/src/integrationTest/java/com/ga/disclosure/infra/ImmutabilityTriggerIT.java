@@ -49,7 +49,9 @@ class ImmutabilityTriggerIT {
         BODY.put("template_version", "template_version + 1");
         BODY.put("rule_version_id", "'DISC-X'");
         BODY.put("consult_date", "consult_date + 1");
-        BODY.put("grade_snapshot_id", "'GRD-X'");
+        // 스냅샷 헤더 6개는 함께 있거나 함께 없다(V6). 값이 있으면 바꾸고 없으면 없는 채로 두는 식 — 산출 전(DRAFT·COMPARED) 시드는
+        // 헤더가 없으므로 이 컬럼들의 UPDATE가 무변경이 되고, 산출 이후·봉인 이후 시드에서는 실제로 값이 바뀐다.
+        BODY.put("grade_snapshot_id", "grade_snapshot_id || '-X'");
         BODY.put("issuer_mode", "'ASSOC'");
         BODY.put("version", "version + 1");
         BODY.put("supersedes_id", "gen_random_uuid()");
@@ -60,6 +62,11 @@ class ImmutabilityTriggerIT {
         BODY.put("chain_hash", "repeat('7', 64)");
         BODY.put("chain_seq", "coalesce(chain_seq, 0) + 1");
         BODY.put("tenant_rule_version_id", "'HOUSE-X'");                       // V4: 메타 목록에 없으므로 자동으로 본문(Phase 1 C13)
+        BODY.put("grading_policy_version_id", "grading_policy_version_id || '-X'");   // V6: 전부 본문(Phase 3A W8)
+        BODY.put("ranking_policy_version_id", "ranking_policy_version_id || '-X'");
+        BODY.put("tie_break", "CASE tie_break WHEN 'STRICT' THEN 'SHARED_RANK' WHEN 'SHARED_RANK' THEN 'STRICT' END");
+        BODY.put("grade_basis", "grade_basis || '{\"period\": \"2099Q1\"}'::jsonb");
+        BODY.put("snapshot_generated_at", "snapshot_generated_at + INTERVAL '1 second'");
 
         META.put("superseded_by_id", "gen_random_uuid()");
         META.put("completed_at", "TIMESTAMPTZ '2026-09-24 00:00:00+09'");
@@ -96,7 +103,8 @@ class ImmutabilityTriggerIT {
         java.util.Set<String> classified = new java.util.HashSet<>(BODY.keySet());
         classified.addAll(META.keySet());
         classified.addAll(java.util.List.of("tenant_id", "status"));
-        assertThat(columns).contains("tenant_rule_version_id").allSatisfy(col -> assertThat(classified).contains(col));
+        assertThat(columns).contains("tenant_rule_version_id", "grading_policy_version_id", "ranking_policy_version_id", "tie_break",
+                "grade_basis", "snapshot_generated_at").allSatisfy(col -> assertThat(classified).contains(col));
     }
 
     static Stream<Arguments> statusTimesBody() {
@@ -118,7 +126,7 @@ class ImmutabilityTriggerIT {
 
     static Stream<Arguments> statusTimesChildOperation() {
         return STATUSES.stream().flatMap(s -> Stream.of("disclosure_item", "recommendation")
-                .flatMap(t -> Stream.of("INSERT", "UPDATE", "DELETE").map(op -> Arguments.of(s, t, op))));
+                .flatMap(t -> Stream.of("INSERT", "UPDATE", "UPDATE_V6", "DELETE").map(op -> Arguments.of(s, t, op))));
     }
 
     private static UUID seedDisclosure(String status) {
@@ -152,9 +160,16 @@ class ImmutabilityTriggerIT {
     @FieldSource("STATUSES")
     void metaStatusChangeWithinSameClassAllowedAndAllMetaAtOnce(String status) {
         UUID id = seedDisclosure(status);
-        String next = SeedData.MUTABLE_STATUSES.contains(status)
-                ? (status.equals("DRAFT") ? "COMPARED" : "DRAFT")
-                : (status.equals("VOID") ? "EXPIRED" : "VOID");
+        // 가변 상태끼리: 산출 전(DRAFT↔COMPARED)과 산출 이후(GRADED↔REASONED) 안에서 바꾼다 — 스냅샷이 있는 행을 산출 전 상태로
+        // 되돌리는 것은 V6 ck_disclosure_snapshot_state가 막는다(스냅샷을 버리는 것은 애그리게이트의 항목 변경뿐).
+        String next = switch (status) {
+            case "DRAFT" -> "COMPARED";
+            case "COMPARED" -> "DRAFT";
+            case "GRADED" -> "REASONED";
+            case "REASONED" -> "GRADED";
+            case "VOID" -> "EXPIRED";
+            default -> "VOID";
+        };
         assertAllowed(DB, T, "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", next, T, id);
 
         StringBuilder all = new StringBuilder("UPDATE disclosure SET status = ?");
@@ -230,10 +245,14 @@ class ImmutabilityTriggerIT {
         });
         String sql = switch (table + ":" + op) {
             case "disclosure_item:INSERT" -> """
-                    INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, insurer_code, product_name, is_recommended, field_values)
-                    VALUES (?, ?, 2, 'INS-B', '끼워넣기', true, '{}'::jsonb)""";
+                    INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, product_key, insurer_code, group_code, product_name,
+                                                 is_recommended, field_values)
+                    VALUES (?, ?, 2, 'INS-B:PRD-2', 'INS-B', 'PG-HEALTH', '끼워넣기', true, '{}'::jsonb)""";
             case "disclosure_item:UPDATE" -> "UPDATE disclosure_item SET field_values = '{\"PREMIUM\": 1}'::jsonb WHERE tenant_id = ? AND disclosure_id = ?";
             case "disclosure_item:DELETE" -> "DELETE FROM disclosure_item WHERE tenant_id = ? AND disclosure_id = ?";
+            // V6 컬럼(동점·출처)도 자식 트리거가 컬럼과 무관하게 막는다(3A W8)
+            case "disclosure_item:UPDATE_V6" -> "UPDATE disclosure_item SET tie = NOT tie, group_code = group_code WHERE tenant_id = ? AND disclosure_id = ?";
+            case "recommendation:UPDATE_V6" -> "UPDATE recommendation SET reason_codes = reason_codes || ARRAY['CUSTOMER_REQUEST'] WHERE tenant_id = ? AND disclosure_id = ?";
             case "recommendation:INSERT" -> "INSERT INTO recommendation (tenant_id, disclosure_id, item_no, reason_codes) VALUES (?, ?, 2, ARRAY['OTHER'])";
             case "recommendation:UPDATE" -> "UPDATE recommendation SET reason_text = '변경' WHERE tenant_id = ? AND disclosure_id = ?";
             case "recommendation:DELETE" -> "DELETE FROM recommendation WHERE tenant_id = ? AND disclosure_id = ?";

@@ -1,5 +1,7 @@
 package com.ga.disclosure.rules.testing;
 
+import com.ga.disclosure.domain.vo.TemplateRef;
+import java.util.Optional;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.rules.template.FormTemplate;
 import com.ga.disclosure.rules.template.FormTemplatePort;
@@ -22,5 +24,10 @@ public final class InMemoryFormTemplatePort implements FormTemplatePort {
     @Override
     public List<FormTemplate> findActive(TenantId tenant, TemplateType templateType, LocalDate asOf) {
         return templates.stream().filter(t -> t.templateType() == templateType && t.covers(asOf)).toList();
+    }
+
+    @Override
+    public Optional<FormTemplate> findByRef(TenantId tenant, TemplateRef ref) {
+        return templates.stream().filter(t -> t.ref().equals(ref)).findFirst();
     }
 }

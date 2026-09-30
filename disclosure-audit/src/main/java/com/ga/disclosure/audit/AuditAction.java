@@ -30,5 +30,21 @@ public enum AuditAction {
     /** 구 키 행을 새 키로 재암호화(배치 1회). */
     CUSTOMER_REKEY,
     /** 쓰는 행이 없어진 구 키의 키 재료 파기(DESTROYED). */
-    CUSTOMER_KEY_DESTROY
+    CUSTOMER_KEY_DESTROY,
+
+    // ---------------------------------------------------------------- Phase 3A: 확인서 워크플로(대상 DISCLOSURE)
+    /** 초안 생성: 상담일로 해석한 룰·서식 버전을 고정(detail에 버전 ID·본문 해시). */
+    DISCLOSURE_CREATE,
+    /** 단계 검증 1회: 단계와 규칙별 결과(통과·오버라이드 가능·대상 해시·메시지). 전이 명령·드라이런 모두. */
+    DISCLOSURE_VALIDATE,
+    /** 명령이 적용되어 상태가 정해졌다(from → to, 명령별 부수 효과: 스냅샷·사유 폐기 등). */
+    DISCLOSURE_TRANSITION,
+    /** 업무 거부: 명령이 적용되지 않았다(검증 차단·엔진 응답 거부·산출 중 항목 변경). 상태 불변, 트랜잭션은 커밋. */
+    DISCLOSURE_REJECT,
+    /** 엔진 등급·순위 호출 1회의 결과(수락·거부·노후, 스냅샷 ID·위반 목록·요청 지문). 오류 응답은 COMMAND_FAILED. */
+    GRADE_FETCH,
+    /** 관리자 예외 승인 기록(규칙·대상 해시·승인 ID — 사유 텍스트는 review 행에만). */
+    EXCEPTION_APPROVE,
+    /** 명령 오류: 업무 트랜잭션이 롤백된 뒤 같은 테넌트의 별도 트랜잭션으로 남기는 실패 사실(명령·예외 종류·오류 코드, 메시지 없음). */
+    COMMAND_FAILED
 }
