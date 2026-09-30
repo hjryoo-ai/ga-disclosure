@@ -172,6 +172,75 @@ class CustomerEncryptionIT {
         assertThat(s.keys.unwrap(t1, k1, "KEK-TEST-1", wrapped1)).hasSize(32);
     }
 
+    // ------------------------------------------------------------------ 최초 DEK 생성 경합 (Phase 2 D3 → Phase 3A 선행 B)
+
+    /** 동시에 시작한 작업을 모두 끝까지 기다리고, 실패는 삼키지 않고 모아 돌려준다. */
+    private static List<Throwable> concurrently(int n, java.util.function.IntConsumer work) throws InterruptedException {
+        java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(n);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        List<Throwable> failures = java.util.Collections.synchronizedList(new ArrayList<>());
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(n)) {
+            for (int i = 0; i < n; i++) {
+                int index = i;
+                pool.submit(() -> {
+                    ready.countDown();
+                    try {
+                        go.await();
+                        work.accept(index);
+                    } catch (Throwable e) {
+                        failures.add(e);
+                    }
+                });
+            }
+            ready.await();
+            go.countDown();
+        }
+        return failures;
+    }
+
+    /**
+     * 새 테넌트의 첫 등록 50건을 동시에 시작한다. 테넌트 DEK는 {@code INSERT … ON CONFLICT DO NOTHING} 후 재조회로 멱등하게
+     * 만들어지므로 실패 0, ACTIVE 키 정확히 1개, 50행 모두 그 키, 감사 50행이다(호출자 재시도 없음).
+     */
+    @Test
+    void firstRegistrationsAreIdempotentUnderConcurrency() throws InterruptedException {
+        TenantId t = s.freshTenant("ENC_RACE");
+        int n = 50;
+        List<CustomerRef> refs = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<Throwable> failures = concurrently(n, i -> refs.add(register(t, "가상고객" + i, null, null)));
+
+        assertThat(failures.stream().map(e -> e.getClass().getSimpleName()).toList()).as("예외 종류만 출력(규칙 6)").isEmpty();
+        assertThat(refs).hasSize(n).doesNotHaveDuplicates();
+        assertThat(rows(t, "SELECT count(*) FROM customer_ref")).containsExactly(String.valueOf(n));
+        List<String> active = rows(t, "SELECT key_id FROM customer_data_key WHERE status = 'ACTIVE'");
+        assertThat(active).hasSize(1);
+        assertThat(rows(t, "SELECT count(*) FROM customer_data_key")).as("진 쪽의 키는 저장되지 않는다").containsExactly("1");
+        assertThat(rows(t, "SELECT DISTINCT enc_key_id FROM customer_ref")).containsExactly(active.getFirst());
+        assertThat(s.auditOf(t)).filteredOn(r -> r.entry().action() == AuditAction.CUSTOMER_REGISTER).hasSize(n);
+        refs.forEach(ref -> assertThat(lookup(t, ref).name().field()).isNotNull());
+    }
+
+    /** 순환과 등록이 겹쳐도 실패 없이 ACTIVE 키는 하나이고, 모든 행이 복호화된다(순환 경로는 ACTIVE를 먼저 RETIRED로 바꾼다). */
+    @Test
+    void registrationsDuringRotationNeverFail() throws InterruptedException {
+        TenantId t = s.freshTenant("ENC_RACE_ROT");
+        register(t, "가상고객", null, null);
+        int n = 20;
+        List<CustomerRef> refs = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<Throwable> failures = concurrently(n + 1, i -> {
+            if (i == n) {
+                s.in(t, () -> s.vault.rotate(s.clock.instant()));
+            } else {
+                refs.add(register(t, "가상고객" + i, null, null));
+            }
+        });
+
+        assertThat(failures.stream().map(e -> e.getClass().getSimpleName()).toList()).as("예외 종류만 출력(규칙 6)").isEmpty();
+        assertThat(rows(t, "SELECT count(*) FROM customer_data_key WHERE status = 'ACTIVE'")).containsExactly("1");
+        assertThat(rows(t, "SELECT count(*) FROM customer_ref")).containsExactly(String.valueOf(n + 1));
+        refs.forEach(ref -> assertThat(lookup(t, ref).name().field()).isNotNull());
+    }
+
     // ------------------------------------------------------------------ 키 순환
 
     @Test

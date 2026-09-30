@@ -209,11 +209,17 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
         } finally {
             Arrays.fill(dek, (byte) 0);
         }
-        update("""
+        // 테넌트 첫 등록이 동시에 들어오면 둘 다 ACTIVE 키가 없다고 본다. 진 쪽은 유일 인덱스에서 이긴 쪽의 커밋을 기다린 뒤
+        // DO NOTHING(0행)이 되고, READ COMMITTED의 다음 문장이 커밋된 행을 읽는다. 진 쪽이 감싼 DEK는 저장되지 않고 버려진다.
+        int inserted = update("""
                 INSERT INTO customer_data_key (tenant_id, key_id, kek_id, wrapped_key, status, created_at)
                 VALUES (:tenantId, :keyId, :kekId, :wrapped, 'ACTIVE', :at)
+                ON CONFLICT (tenant_id) WHERE status = 'ACTIVE' DO NOTHING
                 """, Map.of("keyId", keyId, "kekId", kekId, "wrapped", wrapped, "at", Timestamp.from(at)));
-        return new StoredKey(keyId, kekId, wrapped, "ACTIVE");
+        if (inserted == 1) {
+            return new StoredKey(keyId, kekId, wrapped, "ACTIVE");
+        }
+        return activeKey().orElseThrow(() -> new IllegalStateException(tenant + " lost the data key race but sees no ACTIVE key"));
     }
 
     private byte[] unwrap(TenantId tenant, StoredKey key) {
