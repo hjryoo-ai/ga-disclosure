@@ -1,6 +1,6 @@
 # Phase 2 완료 보고 — 카탈로그·패널·고객 참조
 
-작성 2026-09-30 · 대상 지시문 `docs/phase-02-지시문.md` · 계획 `docs/phase-02-계획.md`(2026-09-29 "권장승인") · 설계서 v1.6(v1.5 + Phase 1 수용 심사 §3 반영 + Phase 2) · 브랜치 `work/phase-2`
+작성 2026-09-30 · 대상 지시문 `docs/phase-02-지시문.md` · 계획 `docs/phase-02-계획.md`(2026-09-29 "권장승인") · 설계서 v1.6(v1.5 + Phase 1 수용 심사 §3 반영 + Phase 2) · 브랜치 `work/phase-2` · PR [#3](https://github.com/hjryoo-ai/ga-disclosure/pull/3)
 
 ## 요약
 
@@ -25,6 +25,7 @@
   - 직접 DB 접근 허용 목록 규약을 설계서와 CLAUDE.md에 넣었다.
   - 플랫폼 아티팩트를 GitHub Packages로 발행한다.
 - **테스트 7,281건, 실패 0, 스킵 0**(Phase 1: 7,138건).
+- GitHub CI(PR #3, run `36701264864`): `build` 잡과 `no-docker` 잡 모두 통과.
   - 규칙 테스트 위반 주입 12건은 모두 잡혔고, 제거한 뒤 전부 통과했다.
 - **플랫폼 0.1.0 발행:** `platform-v0.1.0` 태그로 GitHub Packages에 발행했다(publish-platform run `36700521819` 성공). 발행 직후 mavenLocal 없이 GitHub Packages만으로 소비 빌드가 통과했다.
 - **계약 PR #2**(엔진 오류 응답 401/403/422)는 merge commit `440a009`로 `main`에 병합했고, 이 브랜치에 반영했다(`f23cd4f`). 계약 파일을 먼저 바꾼 쪽은 이 저장소다.
@@ -40,7 +41,8 @@
 | `f23cd4f` | merge: `origin/main`(계약 PR #2, engine-disclosure 1.1.0) |
 | `db55ad7` | build(platform): GitHub Packages 발행, `checkPlatformVersion`, `verifyPublishedPlatformFromGitHub`, `publish-platform.yml`(선행 C) |
 | `5f47546` | feat: Phase 2 본체 + Phase 1 심사 항목 + 설계서 v1.5/v1.6, CLAUDE.md, `db-error-codes.md`, README |
-| (이 커밋) | docs: Phase 2 보고서 |
+| `d2efd93` | docs: Phase 2 보고서 |
+| (이 커밋) | docs: 보고서에 CI 증거 추가 |
 
 설계서와 코드 변경을 같은 커밋에 넣었다(CLAUDE.md 규칙 8). 선행 C(`db55ad7`)는 설계서 §11보다 한 커밋 앞서지만, 태그를 붙일 커밋에 발행 코드만 두려고 이렇게 나눴다.
 
@@ -193,7 +195,7 @@
 | **P8** | A: `RuleAsDataIT`(4, C1 그대로), `ValidationRegistryTest`(`stagesFollowTheRuleData`, `onlyTheRequestedStageRuns`, `sealDoesNotRunSignerSetSoAnUnsignedDocumentCanBeSealed`, `emptyStagesDuplicateIdsAndUnknownStagesAreRejected`), `ContractSchemaTest`(`validationStepsHaveExplicitClosedStages`, `exceptionApprovalIsClosedAndCannotBeOpenedToTenants`), `RuleResolverTest`(`exceptionApprovalCannotBeOverriddenButMaskingCan`, `managerConfirmOffStillRequiresManagerExceptionApproval`), `ReleasedBundlesAreFrozenTest` |
 | | B: `RuleActivationIT.approvedRuleWhoseWindowAlreadyEndedRaisesActivationMissedOnce`(재실행해도 플래그·감사가 1건), `runningTheBatchAgainOnTheSameDayChangesNothing`, `houseRuleIsApprovedOnlyWithOpenKeysThenActivated`(NOOP 감사 1행), `RuleBundleReconcilerIT` |
 | | C: publish-platform run `36700521819` |
-| **P9** | clean build 7,281건 통과. Phase 0·1 테스트는 약화 없음(바뀐 것은 §7-8 한 건으로, 더 엄격해진 방향) |
+| **P9** | clean build 7,281건 통과. GitHub `build`·`no-docker` 잡 통과(run `36701264864`). Phase 0·1 테스트는 약화 없음(바뀐 것은 §7-8 한 건으로, 더 엄격해진 방향) |
 | | `allDependencies` 8,114줄에서 `net.jqwik` 0건 |
 | | BOM: `main` 대비 락 파일의 새 좌표는 `ch.qos.logback:logback-classic`·`logback-core` 1.5.38 두 개뿐이고, Boot 4.1.1 BOM의 `logback.version` 1.5.38과 같다. 그 외 좌표는 기존 좌표가 새 구성(설정)에 추가된 것이며, Phase 1에서 전수 대조한 버전 그대로다. 불일치 0건 |
 
