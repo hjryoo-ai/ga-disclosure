@@ -82,6 +82,16 @@ class RuleFreezeIT {
         assertThat(s.in(() -> new RuleResolver(s.rules).resolve(s.tenant, EVE).tenantRuleVersion())).as("새 해석은 사규를 본다")
                 .contains(RuleVersionId.of("HOUSE-2026"));
 
+        // 기존 초안의 판정은 고정한 룰로 낸다: 검증 감사의 룰 정체 = 초안 생성 때 고정한 것(사규 없음, 같은 본문 해시)
+        String createdHash = s.auditLog().stream().filter(a -> a.entry().action().name().equals("DISCLOSURE_CREATE"))
+                .filter(a -> eve.toString().equals(a.entry().targetId())).findFirst().orElseThrow().entry().detail().get("ruleBodyHash").asString();
+        s.service.validate(s.tenant, WorkflowSetup.AGENT, eve, ValidationStage.COMPARE);
+        var validated = s.auditLog().getLast().entry().detail();
+        assertThat(validated.get("ruleVersionId").asString()).isEqualTo("DISC-2026-07");
+        assertThat(validated.get("tenantRuleVersionId").isNull()).as("뒤에 생긴 사규는 기존 초안의 판정에 쓰이지 않는다").isTrue();
+        assertThat(validated.get("ruleBodyHash").asString()).isEqualTo(createdHash);
+        assertThat(validated.get("templateVersion").asInt()).isEqualTo(1);
+
         // 새 초안은 새 데이터를, 기존 초안은 고정 버전을 쓴다
         DisclosureId later = draftOn(NEW_YEAR);
         assertThat(pinned(later)).isEqualTo("DISC-2027-01|HOUSE-2026|STANDARD v2");

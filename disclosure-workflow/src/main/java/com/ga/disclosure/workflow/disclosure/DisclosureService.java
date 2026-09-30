@@ -237,7 +237,7 @@ public final class DisclosureService {
         return runner.inTransaction(tenant, actor, "VALIDATE_" + stage.name(), id.toString(), () -> {
             Loaded l = load(tenant, id);
             List<ValidationResult> results = l.check().run(stage, l.disclosure());
-            recordValidation(actor, id, stage, results, true);
+            recordValidation(actor, l, stage, results, true);
             return results;
         });
     }
@@ -271,7 +271,7 @@ public final class DisclosureService {
         return runner.inTransaction(tenant, actor, "SEAL_GATE", id.toString(), () -> {
             Loaded l = load(tenant, id);
             List<ValidationResult> results = l.check().run(ValidationStage.SEAL, l.disclosure());
-            recordValidation(actor, id, ValidationStage.SEAL, results, true);
+            recordValidation(actor, l, ValidationStage.SEAL, results, true);
             return SealGate.unapproved(results, reviews.findFor(id));
         });
     }
@@ -344,7 +344,7 @@ public final class DisclosureService {
     private CommandResult apply(Actor actor, Loaded l, TransitionOutcome outcome, ObjectNode extra) {
         Disclosure d = l.disclosure();
         if (outcome.stage() != null) {
-            recordValidation(actor, d.id(), outcome.stage(), outcome.results(), false);
+            recordValidation(actor, l, outcome.stage(), outcome.results(), false);
         }
         return switch (outcome) {
             case TransitionOutcome.Rejected r ->
@@ -377,8 +377,14 @@ public final class DisclosureService {
         return new CommandResult(l.disclosure().id(), l.disclosure().status(), reason, results, engineViolations);
     }
 
-    private void recordValidation(Actor actor, DisclosureId id, ValidationStage stage, List<ValidationResult> results, boolean dryRun) {
-        ObjectNode detail = JSON.createObjectNode().put("stage", stage.name()).put("dryRun", dryRun);
+    /** 검증 1회: 단계·결과와 함께 판정에 쓴 룰·서식의 정체(고정 ID·본문 해시)를 남긴다 — 어떤 룰이 이 판정을 냈는지 재현할 수 있게. */
+    private void recordValidation(Actor actor, Loaded l, ValidationStage stage, List<ValidationResult> results, boolean dryRun) {
+        DisclosureId id = l.disclosure().id();
+        ObjectNode detail = JSON.createObjectNode().put("stage", stage.name()).put("dryRun", dryRun)
+                .put("ruleVersionId", l.rule().globalRuleVersionId().value()).put("ruleBodyHash", l.rule().bodyHash())
+                .put("templateId", l.template().ref().templateId()).put("templateVersion", l.template().ref().version());
+        l.rule().tenantRuleVersion().ifPresentOrElse(v -> detail.put("tenantRuleVersionId", v.value()),
+                () -> detail.putNull("tenantRuleVersionId"));
         ArrayNode rows = detail.putArray("results");
         for (ValidationResult r : results) {
             ObjectNode row = rows.addObject().put("ruleId", r.ruleId()).put("passed", r.passed()).put("overridable", r.overridable())
