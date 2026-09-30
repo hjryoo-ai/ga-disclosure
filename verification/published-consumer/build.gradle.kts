@@ -2,6 +2,9 @@ plugins {
     `java-library`
 }
 
+val fromGitHub = providers.gradleProperty("ga.platformRepo").orNull == "github"
+val platformSource = if (fromGitHub) "GitHub Packages" else "mavenLocal"
+
 java {
     toolchain { languageVersion = JavaLanguageVersion.of(25) }
 }
@@ -38,15 +41,17 @@ tasks.register("verifyPlatformSpringResolves") {
         require(names.any { it.startsWith("platform-spring-0.1.0") }) { "platform-spring not resolved: $names" }
         require(names.any { it.startsWith("platform-core-0.1.0") }) { "platform-core (transitive) not resolved: $names" }
         require(names.any { it.startsWith("spring-jdbc-") }) { "spring-jdbc (transitive) not resolved: $names" }
-        println("platform-spring resolves from mavenLocal with ${names.size} artifacts")
+        println("platform-spring resolves from $platformSource with ${names.size} artifacts")
     }
 }
 
 tasks.named("compileJava") {
     doFirst {
         val core = configurations.compileClasspath.get().resolve().filter { it.name.startsWith("platform-core") }
-        require(core.isNotEmpty() && core.all { it.path.contains(".m2") }) { "platform-core must come from mavenLocal: $core" }
-        println("compiling disclosure-domain against ${core.map { it.path }}")
+        // mavenLocal 경로면 ~/.m2, GitHub Packages 경로면 Gradle 캐시(원격 해석)여야 한다.
+        val ok = core.isNotEmpty() && core.all { it.path.contains("/.m2/") != fromGitHub }
+        require(ok) { "platform-core must come from $platformSource: $core" }
+        println("compiling disclosure-domain against ${core.map { it.path }} (from $platformSource)")
     }
 }
 
@@ -66,6 +71,6 @@ tasks.register("verifyPlatformCanonical") {
         require(names.any { it.startsWith("platform-canonical-0.1.0") }) { "platform-canonical not resolved: $names" }
         require(names.any { it.startsWith("java-json-canonicalization-1.1") }) { "JCS library (transitive) not resolved: $names" }
         require(names.any { it.startsWith("jackson-databind-3.") }) { "jackson-databind 3 (transitive) not resolved: $names" }
-        println("platform-canonical resolves from mavenLocal with ${names.size} artifacts: $names")
+        println("platform-canonical resolves from $platformSource with ${names.size} artifacts: $names")
     }
 }

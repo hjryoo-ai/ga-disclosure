@@ -209,3 +209,60 @@ tasks.register<Exec>("verifyPublishedPlatform") {
         "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
     )
 }
+
+// ---------------------------------------------------------------------------------------------
+// 선행 C(Phase 2): 플랫폼 세 모듈을 GitHub Packages에도 발행한다(설계서 §11). 태그 `platform-v*`에서
+// .github/workflows/publish-platform.yml이 실행한다. 자격증명은 환경변수에서만 읽고, 없으면 저장소를 구성하지 않는다
+// (로컬·일반 CI에서는 publishToMavenLocal만 쓰인다). 세 모듈은 SemVer 동일 버전으로 움직인다.
+// ---------------------------------------------------------------------------------------------
+val platformModules = listOf("platform-core", "platform-canonical", "platform-spring")
+val githubPackagesUrl = "https://maven.pkg.github.com/hjryoo-ai/ga-disclosure"
+configure(platformModules.map { project(":$it") }) {
+    pluginManager.withPlugin("maven-publish") {
+        val actor = providers.environmentVariable("GITHUB_ACTOR")
+        val token = providers.environmentVariable("GITHUB_TOKEN")
+        if (actor.isPresent && token.isPresent) {
+            extensions.configure<PublishingExtension> {
+                repositories {
+                    maven {
+                        name = "GitHubPackages"
+                        url = uri(githubPackagesUrl)
+                        credentials {
+                            username = actor.get()
+                            password = token.get()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 발행 태그(platform-vX.Y.Z)와 세 모듈의 빌드 버전이 모두 같은지 확인한다. 워크플로가 발행 전에 호출한다.
+tasks.register("checkPlatformVersion") {
+    group = "verification"
+    description = "Fails unless every platform module has the version given by -PexpectedPlatformVersion."
+    val expected = providers.gradleProperty("expectedPlatformVersion")
+    val versions = platformModules.associateWith { project(":$it").version.toString() }
+    doLast {
+        val want = expected.orNull ?: throw GradleException("-PexpectedPlatformVersion is required")
+        val wrong = versions.filterValues { it != want }
+        if (wrong.isNotEmpty()) throw GradleException("platform version mismatch: tag=$want, modules=$versions")
+        logger.lifecycle("platform modules all at $want: ${versions.keys}")
+    }
+}
+
+// 발행된 아티팩트를 mavenLocal 없이 GitHub Packages에서만 해석해 disclosure-domain을 컴파일한다(발행물 소비 가능 증명).
+// GITHUB_ACTOR/GITHUB_TOKEN(read:packages) 환경변수가 필요하다.
+tasks.register<Exec>("verifyPublishedPlatformFromGitHub") {
+    group = "verification"
+    description = "Compiles disclosure-domain against platform artifacts resolved from GitHub Packages only."
+    workingDir = rootDir
+    commandLine(
+        rootDir.resolve("gradlew").absolutePath,
+        "--project-dir", "verification/published-consumer",
+        "--no-configuration-cache", "--refresh-dependencies",
+        "-Pga.platformRepo=github",
+        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
+    )
+}
