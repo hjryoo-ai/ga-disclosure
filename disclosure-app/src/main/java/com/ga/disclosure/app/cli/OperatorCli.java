@@ -15,10 +15,18 @@ import com.ga.disclosure.compliance.rules.TenantTransactions;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.vo.RuleVersionId;
+import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.persistence.TenantRepository;
 import com.ga.disclosure.rules.bundle.Bundle;
 import com.ga.disclosure.rules.bundle.BundleLoader;
 import com.ga.disclosure.rules.version.RuleVersion;
+import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.catalog.CatalogImportOutcome;
+import com.ga.disclosure.workflow.catalog.CatalogImportRejectedException;
+import com.ga.disclosure.workflow.catalog.CatalogImportService;
+import com.ga.disclosure.workflow.catalog.InvalidCatalogFileException;
+import com.ga.disclosure.workflow.customer.CustomerRekeyService;
+import com.ga.disclosure.workflow.customer.RekeyReport;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
 import org.springframework.boot.ApplicationArguments;
@@ -50,7 +58,11 @@ import java.util.stream.Stream;
  * rules activate   [--as-of 2027-01-01] [--tenants all|T1,T2] --operator &lt;id&gt;
  * rules reconcile  [--tenants all|T1,T2] [--bundles-dir contracts/rules/bundles] --operator &lt;id&gt;
  * demo seed        --file &lt;seed.json&gt; --operator &lt;id&gt;
+ * catalog import   --tenant T1 --file &lt;catalog.json&gt; --operator &lt;id&gt;
+ * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
+ * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
  * </pre>
+ * 고객 개인정보는 CLI 인자로 받지 않는다(셸 기록·프로세스 목록에 남는다).
  */
 @Component
 @Profile("cli")
@@ -66,11 +78,13 @@ public class OperatorCli implements ApplicationRunner {
     private final TenantTransactions transactions;
     private final TenantRepository tenants;
     private final RuleVersionStore rules;
+    private final CatalogImportService catalog;
+    private final CustomerRekeyService rekey;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
                        RuleBundleReconciler reconciler, TenantDirectory directory, TenantTransactions transactions,
-                       TenantRepository tenants, RuleVersionStore rules) {
+                       TenantRepository tenants, RuleVersionStore rules, CatalogImportService catalog, CustomerRekeyService rekey) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -79,6 +93,8 @@ public class OperatorCli implements ApplicationRunner {
         this.transactions = transactions;
         this.tenants = tenants;
         this.rules = rules;
+        this.catalog = catalog;
+        this.rekey = rekey;
     }
 
     @Override
@@ -90,6 +106,9 @@ public class OperatorCli implements ApplicationRunner {
             case "rules activate" -> activate(args);
             case "rules reconcile" -> reconcile(args);
             case "demo seed" -> seed(args);
+            case "catalog import" -> importCatalog(args);
+            case "customer rekey" -> rekey(args);
+            case "crypto init-kek" -> initKek(args);
             default -> throw new CliFailure("unknown command '" + args.command() + "' — see OperatorCli javadoc");
         }
     }
@@ -124,8 +143,9 @@ public class OperatorCli implements ApplicationRunner {
             ActivationReport r = args.optional("as-of")
                     .map(d -> activation.runAsOf(tenant, LocalDate.parse(d), operator))
                     .orElseGet(() -> activation.run(tenant, operator));
-            out.println("ACTIVATE " + tenant + " asOf=" + r.asOf() + " retired=" + r.retired() + " activated=" + r.activated()
-                    + (r.expiredUnactivated().isEmpty() ? "" : " expiredUnactivated=" + r.expiredUnactivated()));
+            out.println("ACTIVATE " + tenant + " asOf=" + r.asOf() + " retired=" + r.retired() + " activated=" + r.activated());
+            r.missed().forEach(m -> out.println("  RULE_ACTIVATION_MISSED " + m.rule() + " flag=" + m.flagId()
+                    + (m.flagCreated() ? " RAISED" : " ALREADY_OPEN")));
         }
     }
 
@@ -165,6 +185,43 @@ public class OperatorCli implements ApplicationRunner {
             });
             out.println("SEED TENANT_RULE " + tenant + " " + id + (created ? " DRAFT" : " EXISTS"));
         }
+    }
+
+    private void importCatalog(CliArguments args) {
+        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
+        TenantId tenant = TenantId.of(args.required("tenant"));
+        Path file = Path.of(args.required("file"));
+        CatalogImportOutcome o;
+        try {
+            o = catalog.importFile(tenant, actor, file.getFileName().toString(), Files.readAllBytes(file));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (InvalidCatalogFileException | CatalogImportRejectedException e) {
+            throw new CliFailure("catalog import rejected: " + e.getMessage());
+        }
+        out.println("CATALOG_IMPORT " + tenant + " " + o.kind() + " " + o.result() + " import=" + o.importId() + " inserted="
+                + o.counts().inserted() + " updated=" + o.counts().updated() + " closed=" + o.counts().closed() + " unchanged="
+                + o.counts().unchanged());
+    }
+
+    private void rekey(CliArguments args) {
+        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
+        TenantId tenant = TenantId.of(args.required("tenant"));
+        int batch = Integer.parseInt(args.optional("batch").orElse("500"));
+        RekeyReport r = rekey.rekey(tenant, actor, batch);
+        out.println("REKEY " + tenant + " retired=" + r.retiredKeyId().orElse("-") + " active=" + r.activeKeyId() + " reencrypted="
+                + r.reencrypted() + " destroyed=" + r.destroyedKeyIds());
+    }
+
+    private void initKek(CliArguments args) {
+        Path file = Path.of(args.required("file"));
+        String kekId = args.optional("kek-id").orElse("KEK-LOCAL-1");
+        try {
+            LocalFileKeyProvider.initialize(file, kekId);
+        } catch (IllegalStateException e) {
+            throw new CliFailure(e.getMessage());
+        }
+        out.println("KEK_INIT " + kekId + " " + file.toAbsolutePath() + " (owner read/write only; keep it outside the repository)");
     }
 
     // ------------------------------------------------------------------

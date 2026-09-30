@@ -22,12 +22,59 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * C2: disclosure_app 세션에서 app.tenant_id 미설정 시 모든 테넌트 테이블 0행, 설정 시 해당 테넌트 행만(tenant 포함).
  * C3: disclosure_app은 RLS를 우회·해제하거나 트리거를 비활성화할 수 없다.
+ * Phase 2 P7: 검사 대상 테이블은 손목록이 아니라 DB 카탈로그에서 읽는다(public 스키마 전 테이블 − flyway_schema_history).
+ * 새 테이블은 자동으로 모든 검사에 들어가고, 개수 고정 단언이 추가 사실을 드러낸다.
  */
 class RlsIsolationIT {
 
-    static final List<String> TABLES = SeedData.TENANT_TABLES;
-
     private static final PostgresHarness DB = PostgresHarness.get();
+
+    /** V5 기준 테넌트 테이블 수. 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게). */
+    private static final int EXPECTED_TABLE_COUNT = 20;
+
+    static final List<String> TABLES = catalogTables();
+
+    private static List<String> catalogTables() {
+        List<String> tables = new ArrayList<>();
+        DB.seed("CATALOG", c -> {
+            try (Statement s = c.createStatement(); ResultSet rs = s.executeQuery("""
+                    SELECT c.relname
+                      FROM pg_class c
+                     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                       AND c.relname <> 'flyway_schema_history'
+                     ORDER BY c.relname
+                    """)) {
+                while (rs.next()) {
+                    tables.add(rs.getString(1));
+                }
+            }
+        });
+        return List.copyOf(tables);
+    }
+
+    @Test
+    void catalogListsEveryTenantTableAndTheCountIsPinned() {
+        assertThat(TABLES).hasSize(EXPECTED_TABLE_COUNT)
+                .contains("tenant", "customer_ref", "customer_data_key", "catalog_import", "product_catalog", "compliance_flag");
+    }
+
+    /** 모든 테이블의 첫 컬럼은 tenant_id다(설계서 §5). */
+    @ParameterizedTest
+    @FieldSource("TABLES")
+    void tenantIdIsTheFirstColumn(String table) {
+        DB.seed(A, c -> {
+            try (PreparedStatement ps = c.prepareStatement("""
+                    SELECT attname FROM pg_attribute
+                     WHERE attrelid = ('public.' || ?)::regclass AND attnum = 1
+                    """)) {
+                ps.setString(1, table);
+                try (ResultSet rs = ps.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat(rs.getString(1)).as(table).isEqualTo("tenant_id");
+                }
+            }
+        });
+    }
     private static final String A = SeedData.uniqueTenant("RLS_A");
     private static final String B = SeedData.uniqueTenant("RLS_B");
 

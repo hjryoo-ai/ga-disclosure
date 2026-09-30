@@ -61,6 +61,13 @@ class RuleBundleReconcilerIT {
         });
         assertThat(g.openDriftFlags(t)).containsExactly(report.drifts().getFirst().flagId());
         assertThat(g.auditOf(t).getLast().entry().detail().toString()).contains(report.drifts().getFirst().flagId().toString());
+
+        // Phase 2: 다음 날 대사가 같은 드리프트를 다시 찾아도 열린 플래그는 하나 — 같은 ID를 보고하고 FLAG_RAISE 감사도 한 번뿐
+        ReconcileReport again = g.reconciler.reconcile(t, canonical, Governance.OPERATOR);
+        assertThat(again.drifts()).singleElement().satisfies(d -> assertThat(d.flagId()).isEqualTo(report.drifts().getFirst().flagId()));
+        assertThat(g.openDriftFlags(t)).hasSize(1);
+        assertThat(g.auditOf(t).stream().filter(r -> r.entry().action() == com.ga.disclosure.audit.AuditAction.FLAG_RAISE).count())
+                .isEqualTo(1);
     }
 
     @Test

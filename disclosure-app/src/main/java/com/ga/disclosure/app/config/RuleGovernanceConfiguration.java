@@ -56,8 +56,9 @@ public class RuleGovernanceConfiguration {
     }
 
     @Bean
-    public RuleActivationJob ruleActivationJob(RuleVersionStore rules, AuditPort audit, TenantTransactions tx, Clock clock) {
-        return new RuleActivationJob(rules, audit, tx, clock);
+    public RuleActivationJob ruleActivationJob(RuleVersionStore rules, ComplianceFlagPort flags, AuditPort audit, TenantTransactions tx,
+                                               Clock clock) {
+        return new RuleActivationJob(rules, flags, audit, tx, clock);
     }
 
     @Bean

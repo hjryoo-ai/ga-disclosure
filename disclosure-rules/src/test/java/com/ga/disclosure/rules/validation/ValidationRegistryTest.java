@@ -3,11 +3,14 @@ package com.ga.disclosure.rules.validation;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.TieBreak;
+import com.ga.disclosure.domain.enums.ValidationStage;
 import com.ga.disclosure.domain.vo.InsurerCode;
 import com.ga.disclosure.rules.resolve.EffectiveRule;
+import com.ga.disclosure.rules.resolve.MissingRuleKeyException;
 import com.ga.disclosure.rules.resolve.ResolutionFailure;
 import com.ga.disclosure.rules.resolve.RuleResolutionException;
 import com.ga.disclosure.rules.resolve.RuleResolver;
+import com.ga.disclosure.rules.resolve.ValidationStep;
 import com.ga.disclosure.rules.template.FieldScope;
 import com.ga.disclosure.rules.template.TemplateField;
 import com.ga.disclosure.rules.template.TemplateResolution;
@@ -18,12 +21,14 @@ import com.ga.disclosure.rules.testing.TestItem;
 import com.ga.disclosure.rules.testing.TestSubject;
 import com.ga.disclosure.rules.validation.standard.StandardValidations;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,11 +37,13 @@ import java.util.function.UnaryOperator;
 import static com.ga.disclosure.rules.testing.Snapshots.ok;
 import static com.ga.disclosure.rules.testing.Snapshots.unavailable;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
  * Phase 1 C8: 설계서 §6.2 검증 규칙 12종 각각 통과·실패 표본, 목록에 없는 ID → UNKNOWN_VALIDATION(아무것도 실행하지 않음),
  * 레지스트리에만 있는 규칙은 실행되지 않음, 실행 순서 = 룰 데이터 순서.
+ * Phase 2 선행 A: 규칙은 룰 데이터가 정한 단계({@link ValidationStage})에서만 실행된다.
  * 기준 표본(모든 규칙 통과)은 DISC-2026-07 번들 룰 + STANDARD-v1 번들 서식 + 3사 비교·추천 2건·서명 3건이다.
  */
 class ValidationRegistryTest {
@@ -80,8 +87,26 @@ class ValidationRegistryTest {
         return result(ruleId, subject, RULE);
     }
 
+    /** 규칙이 룰 데이터에서 처음 나열된 단계로 실행한 결과. */
     private static ValidationResult result(String ruleId, TestSubject subject, EffectiveRule rule) {
-        return REGISTRY.run(subject, rule, TEMPLATE).stream().filter(r -> r.ruleId().equals(ruleId)).findFirst().orElseThrow();
+        ValidationStage stage = rule.validations().stream().filter(v -> v.id().equals(ruleId)).findFirst().orElseThrow()
+                .stages().iterator().next();
+        return REGISTRY.run(stage, subject, rule, TEMPLATE).stream().filter(r -> r.ruleId().equals(ruleId)).findFirst().orElseThrow();
+    }
+
+    private static List<String> ids(EffectiveRule rule) {
+        return rule.validations().stream().map(ValidationStep::id).toList();
+    }
+
+    /** {@code [{id, stages:[...]}]} 형태의 validations 배열을 본문에 쓴다. */
+    private static EffectiveRule withValidations(Map<String, List<String>> steps) {
+        ObjectNode body = (ObjectNode) RULE.body();
+        ArrayNode validations = body.putArray("validations");
+        steps.forEach((id, stages) -> {
+            ObjectNode step = validations.addObject().put("id", id);
+            stages.forEach(step.putArray("stages")::add);
+        });
+        return EffectiveRule.of(CONSULT, RULE.globalRuleVersionId(), null, body);
     }
 
     private static TestSubject mapItems(TestSubject s, UnaryOperator<List<ValidationSubject.Item>> f) {
@@ -96,10 +121,66 @@ class ValidationRegistryTest {
     // ------------------------------------------------------------------ 기준 표본
 
     @Test
-    void baselinePassesEveryRuleInDataOrder() {
-        List<ValidationResult> results = REGISTRY.run(baseline(), RULE, TEMPLATE);
-        assertThat(results).extracting(ValidationResult::ruleId).containsExactlyElementsOf(RULE.validations());
-        assertThat(results).hasSize(12).allSatisfy(r -> assertThat(r.passed()).as(r.ruleId() + ": " + r.message()).isTrue());
+    void baselinePassesEveryRuleInEveryStageInDataOrder() {
+        List<String> ran = new ArrayList<>();
+        for (ValidationStage stage : ValidationStage.values()) {
+            List<ValidationResult> results = REGISTRY.run(stage, baseline(), RULE, TEMPLATE);
+            assertThat(results).extracting(ValidationResult::ruleId).containsExactlyElementsOf(RULE.validationsFor(stage));
+            assertThat(results).allSatisfy(r -> assertThat(r.passed()).as(stage + " " + r.ruleId() + ": " + r.message()).isTrue());
+            results.forEach(r -> ran.add(r.ruleId()));
+        }
+        assertThat(ran).containsAll(ids(RULE));
+    }
+
+    // ------------------------------------------------------------------ 단계(Phase 1 수용 심사 §3-1)
+
+    /** DISC-2026-07의 단계 배정(부록 D). 봉인 단계는 완료 단계 규칙을 뺀 전부를 방어적으로 다시 돈다. */
+    @Test
+    void stagesFollowTheRuleData() {
+        assertThat(RULE.validationsFor(ValidationStage.COMPARE))
+                .containsExactly("R-MIN-COMPARE", "R-DISTINCT-INSURER", "R-SAME-GROUP", "R-PANEL", "R-TEMP-PRODUCT");
+        assertThat(RULE.validationsFor(ValidationStage.GRADE)).containsExactly("R-GRADE-REQUIRED", "R-GRADE-UNAVAILABLE", "R-RANK-MONOTONIC");
+        assertThat(RULE.validationsFor(ValidationStage.REASON)).containsExactly("R-REASON", "R-REQUESTED", "R-FIELD-REQUIRED");
+        assertThat(RULE.validationsFor(ValidationStage.COMPLETE)).containsExactly("R-SIGNER-SET");
+        assertThat(RULE.validationsFor(ValidationStage.SEAL)).hasSize(11).doesNotContain("R-SIGNER-SET");
+    }
+
+    /** Phase 1 보고서 §6 질문 1: 서명 전(봉인 시점)에는 서명자 규칙이 돌지 않으므로 봉인이 서명 부재로 실패하지 않는다. */
+    @Test
+    void sealDoesNotRunSignerSetSoAnUnsignedDocumentCanBeSealed() {
+        TestSubject unsigned = baseline().withSignatures(List.of());
+        assertThat(REGISTRY.run(ValidationStage.SEAL, unsigned, RULE, TEMPLATE)).allSatisfy(r -> assertThat(r.passed()).isTrue());
+        assertThat(REGISTRY.run(ValidationStage.COMPLETE, unsigned, RULE, TEMPLATE)).singleElement()
+                .satisfies(r -> assertThat(r.passed()).isFalse());
+    }
+
+    @Test
+    void onlyTheRequestedStageRuns() {
+        EffectiveRule rule = withValidations(Map.of("R-MIN-COMPARE", List.of("COMPARE")));
+        List<String> executed = new ArrayList<>();
+        ValidationRegistry registry = ValidationRegistry.of(List.of(new Recording("R-MIN-COMPARE", executed)));
+        assertThat(registry.run(ValidationStage.SEAL, baseline(), rule, TEMPLATE)).isEmpty();
+        assertThat(executed).isEmpty();
+        assertThat(registry.run(ValidationStage.COMPARE, baseline(), rule, TEMPLATE)).hasSize(1);
+        assertThat(executed).containsExactly("R-MIN-COMPARE");
+    }
+
+    @Test
+    void emptyStagesDuplicateIdsAndUnknownStagesAreRejected() {
+        assertThatThrownBy(() -> withValidations(Map.of("R-MIN-COMPARE", List.of())).validations())
+                .isInstanceOf(MissingRuleKeyException.class).hasMessageContaining("R-MIN-COMPARE].stages");
+        assertThatThrownBy(() -> withValidations(Map.of("R-MIN-COMPARE", List.of("SIGN"))).validations())
+                .isInstanceOf(IllegalArgumentException.class);
+        ObjectNode body = (ObjectNode) RULE.body();
+        ArrayNode validations = body.putArray("validations");
+        validations.addObject().put("id", "R-MIN-COMPARE").putArray("stages").add("COMPARE");
+        validations.addObject().put("id", "R-MIN-COMPARE").putArray("stages").add("SEAL");
+        EffectiveRule duplicated = EffectiveRule.of(CONSULT, RULE.globalRuleVersionId(), null, body);
+        assertThatThrownBy(duplicated::validations).isInstanceOf(MissingRuleKeyException.class).hasMessageContaining("duplicate id R-MIN-COMPARE");
+        ObjectNode legacy = (ObjectNode) RULE.body();
+        legacy.putArray("validations").add("R-MIN-COMPARE");
+        assertThatThrownBy(() -> EffectiveRule.of(CONSULT, RULE.globalRuleVersionId(), null, legacy).validations())
+                .as("Phase 1의 문자열 배열 형식은 더 이상 해석되지 않는다").isInstanceOf(MissingRuleKeyException.class);
     }
 
     // ------------------------------------------------------------------ 규칙별 실패 표본
@@ -233,12 +314,15 @@ class ValidationRegistryTest {
 
     @Test
     void unknownValidationIdFailsBeforeAnythingRuns() {
-        ObjectNode body = (ObjectNode) RULE.body();
-        body.putArray("validations").add("R-MIN-COMPARE").add("R-NOT-REGISTERED");
-        EffectiveRule rule = EffectiveRule.of(CONSULT, RULE.globalRuleVersionId(), null, body);
+        // 모르는 ID가 요청 단계에 없어도 실패한다 — 오타가 완료 단계까지 숨어 있지 않는다
+        Map<String, List<String>> steps = new LinkedHashMap<>();
+        steps.put("R-MIN-COMPARE", List.of("COMPARE"));
+        steps.put("R-NOT-REGISTERED", List.of("COMPLETE"));
+        EffectiveRule rule = withValidations(steps);
         List<String> executed = new ArrayList<>();
         ValidationRegistry spying = ValidationRegistry.of(List.of(new Recording("R-MIN-COMPARE", executed)));
-        RuleResolutionException e = catchThrowableOfType(RuleResolutionException.class, () -> spying.run(baseline(), rule, TEMPLATE));
+        RuleResolutionException e = catchThrowableOfType(RuleResolutionException.class,
+                () -> spying.run(ValidationStage.COMPARE, baseline(), rule, TEMPLATE));
         assertThat(e.failure()).isEqualTo(ResolutionFailure.UNKNOWN_VALIDATION);
         assertThat(e).hasMessageContaining("R-NOT-REGISTERED");
         assertThat(executed).isEmpty();
@@ -246,19 +330,20 @@ class ValidationRegistryTest {
 
     @Test
     void registeredButUnlistedValidationsDoNotRunAndOrderFollowsData() {
-        ObjectNode body = (ObjectNode) RULE.body();
-        body.putArray("validations").add("R-REASON").add("R-MIN-COMPARE");
-        EffectiveRule rule = EffectiveRule.of(CONSULT, RULE.globalRuleVersionId(), null, body);
+        Map<String, List<String>> steps = new LinkedHashMap<>();
+        steps.put("R-REASON", List.of("SEAL"));
+        steps.put("R-MIN-COMPARE", List.of("COMPARE", "SEAL"));
+        EffectiveRule rule = withValidations(steps);
         List<String> executed = new ArrayList<>();
         ValidationRegistry registry = ValidationRegistry.of(List.of(
                 new Recording("R-MIN-COMPARE", executed), new Recording("R-REASON", executed), new Recording("R-DORMANT", executed)));
-        assertThat(registry.run(baseline(), rule, TEMPLATE)).extracting(ValidationResult::ruleId).containsExactly("R-REASON", "R-MIN-COMPARE");
+        assertThat(registry.run(ValidationStage.SEAL, baseline(), rule, TEMPLATE)).extracting(ValidationResult::ruleId).containsExactly("R-REASON", "R-MIN-COMPARE");
         assertThat(executed).containsExactly("R-REASON", "R-MIN-COMPARE");
     }
 
     @Test
     void registryHasExactlyTheTwelveDesignRules() {
-        assertThat(REGISTRY.registeredIds()).containsExactlyInAnyOrderElementsOf(RULE.validations()).hasSize(12);
+        assertThat(REGISTRY.registeredIds()).containsExactlyInAnyOrderElementsOf(ids(RULE)).hasSize(12);
     }
 
     private record Recording(String id, List<String> executed) implements Validation {

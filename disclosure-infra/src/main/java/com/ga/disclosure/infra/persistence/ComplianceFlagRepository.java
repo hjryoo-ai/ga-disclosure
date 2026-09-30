@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,13 +21,36 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
     }
 
     @Override
-    public UUID raise(String type, String severity, Instant raisedAt) {
-        UUID id = UUID.randomUUID();
-        update("""
-                INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at)
-                VALUES (:tenantId, :flagId, :type, :severity, :raisedAt)
-                """, Map.of("flagId", id, "type", type, "severity", severity, "raisedAt", Timestamp.from(raisedAt)));
-        return id;
+    public RaisedFlag raiseOpen(String type, String severity, String targetKind, String targetId, Instant raisedAt) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("flagId", UUID.randomUUID());
+        params.put("type", type);
+        params.put("severity", severity);
+        params.put("targetKind", targetKind);
+        params.put("targetId", targetId);
+        params.put("raisedAt", Timestamp.from(raisedAt));
+        // 같은 유형·대상의 열린 플래그가 있으면(부분 유일 인덱스 ux_compliance_flag_open_target) 새 행을 만들지 않는다.
+        List<UUID> created = query("""
+                INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at, target_kind, target_id)
+                VALUES (:tenantId, :flagId, :type, :severity, :raisedAt, :targetKind, :targetId)
+                ON CONFLICT (tenant_id, type, target_kind, target_id) WHERE resolved_at IS NULL AND target_id IS NOT NULL
+                DO NOTHING
+                RETURNING flag_id
+                """, params, (rs, n) -> rs.getObject("flag_id", UUID.class));
+        if (!created.isEmpty()) {
+            return new RaisedFlag(created.getFirst(), true);
+        }
+        UUID open = queryAtMostOne("""
+                SELECT flag_id
+                  FROM compliance_flag
+                 WHERE tenant_id = :tenantId
+                   AND type = :type
+                   AND target_kind = :targetKind
+                   AND target_id = :targetId
+                   AND resolved_at IS NULL
+                """, params, (rs, n) -> rs.getObject("flag_id", UUID.class))
+                .orElseThrow(() -> new IllegalStateException("flag insert skipped but no open " + type + " flag for " + targetKind + " " + targetId));
+        return new RaisedFlag(open, false);
     }
 
     /** 미해소 플래그 ID(유형별). */

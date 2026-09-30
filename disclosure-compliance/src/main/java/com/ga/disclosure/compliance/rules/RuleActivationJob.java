@@ -29,13 +29,19 @@ public final class RuleActivationJob {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    public static final String MISSED_FLAG_TYPE = "RULE_ACTIVATION_MISSED";
+    public static final String MISSED_FLAG_SEVERITY = "HIGH";
+
     private final RuleVersionStore rules;
+    private final ComplianceFlagPort flags;
     private final AuditPort audit;
     private final TenantTransactions transactions;
     private final Clock clock;
 
-    public RuleActivationJob(RuleVersionStore rules, AuditPort audit, TenantTransactions transactions, Clock clock) {
+    public RuleActivationJob(RuleVersionStore rules, ComplianceFlagPort flags, AuditPort audit, TenantTransactions transactions,
+                             Clock clock) {
         this.rules = Objects.requireNonNull(rules, "rules");
+        this.flags = Objects.requireNonNull(flags, "flags");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -56,20 +62,38 @@ public final class RuleActivationJob {
                 }
             }
             List<RuleVersionId> activated = new ArrayList<>();
-            List<RuleVersionId> expired = new ArrayList<>();
+            List<ActivationReport.Missed> missed = new ArrayList<>();
             for (RuleVersion r : rules.findByStatus(RuleStatus.APPROVED)) {
                 if (r.applyFrom().isAfter(today)) {
                     continue;
                 }
                 if (r.applyTo() != null && !r.applyTo().isAfter(today)) {
-                    expired.add(r.id());
+                    missed.add(flagMissed(r, today, operator));
                     continue;
                 }
                 step(r, RuleStatus.APPROVED, RuleStatus.ACTIVE, AuditAction.RULE_ACTIVATE, today, operator);
                 activated.add(r.id());
             }
-            return new ActivationReport(tenant, today, retired, activated, expired);
+            return new ActivationReport(tenant, today, retired, activated, missed);
         });
+    }
+
+    /**
+     * 적용 구간이 이미 끝난 APPROVED 룰은 활성화하지 않는다(지나간 구간이 뒤늦게 시행 중이 되지 않게). 대신 준법 콘솔에 보이도록
+     * {@code RULE_ACTIVATION_MISSED} 플래그를 올린다 — 같은 룰의 열린 플래그가 있으면 재사용(Phase 1 수용 심사 D3).
+     */
+    private ActivationReport.Missed flagMissed(RuleVersion rule, LocalDate today, Operator operator) {
+        ComplianceFlagPort.RaisedFlag flag = flags.raiseOpen(MISSED_FLAG_TYPE, MISSED_FLAG_SEVERITY, "RULE_VERSION", rule.id().value(),
+                clock.instant());
+        if (flag.created()) {
+            ObjectNode detail = JSON.createObjectNode();
+            detail.put("type", MISSED_FLAG_TYPE).put("severity", MISSED_FLAG_SEVERITY).put("flagId", flag.flagId().toString())
+                    .put("asOf", today.toString()).put("applyFrom", rule.applyFrom().toString())
+                    .put("applyTo", String.valueOf(rule.applyTo())).put("scope", rule.scope().name());
+            audit.append(new AuditEntry(clock.instant(), operator.subject(), Operator.ROLE, AuditAction.FLAG_RAISE, "RULE_VERSION",
+                    rule.id().value(), detail));
+        }
+        return new ActivationReport.Missed(rule.id(), flag.flagId(), flag.created());
     }
 
     private void step(RuleVersion rule, RuleStatus from, RuleStatus to, AuditAction action, LocalDate today, Operator operator) {

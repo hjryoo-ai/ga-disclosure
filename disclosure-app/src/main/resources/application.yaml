@@ -19,6 +19,10 @@ ga:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
     username: ${DISCLOSURE_OPERATOR_USER:disclosure_operator}
     password: ${DISCLOSURE_OPERATOR_PASSWORD:operator_local_only}
+  # 고객 개인정보 암호화의 마스터 키(KEK). 개발·테스트는 저장소 밖 로컬 키 파일(`crypto init-kek`로 생성, chmod 600),
+  # 운영은 KMS 어댑터로 교체한다(설계서 §9). 비어 있으면 고객 정보를 다루는 순간 실패한다.
+  crypto:
+    local-kek-file: ${GA_LOCAL_KEK_FILE:}
 
 management:
   endpoints:

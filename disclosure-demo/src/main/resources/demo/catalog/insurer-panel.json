@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "kind": "INSURER_PANEL",
+  "source": "DEMO_FILE",
+  "asOf": "2026-09-01",
+  "insurers": [
+    { "insurerCode": "INS-A", "insurerName": "(가상) 가나생명", "line": "LIFE", "activeFrom": "2026-01-01", "activeTo": null },
+    { "insurerCode": "INS-B", "insurerName": "(가상) 다라생명", "line": "LIFE", "activeFrom": "2026-01-01", "activeTo": null },
+    { "insurerCode": "INS-C", "insurerName": "(가상) 마바생명", "line": "LIFE", "activeFrom": "2026-01-01", "activeTo": "2026-12-01" },
+    { "insurerCode": "INS-D", "insurerName": "(가상) 사아손보", "line": "NONLIFE", "activeFrom": "2026-01-01", "activeTo": null },
+    { "insurerCode": "INS-E", "insurerName": "(가상) 자차손보", "line": "NONLIFE", "activeFrom": "2026-01-01", "activeTo": null },
+    { "insurerCode": "INS-F", "insurerName": "(가상) 카타손보", "line": "NONLIFE", "activeFrom": "2026-10-01", "activeTo": null }
+  ]
+}

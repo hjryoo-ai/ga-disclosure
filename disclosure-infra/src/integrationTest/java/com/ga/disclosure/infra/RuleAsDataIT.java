@@ -3,6 +3,7 @@ package com.ga.disclosure.infra;
 import com.ga.disclosure.domain.enums.ManagerConfirmMode;
 import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.TemplateType;
+import com.ga.disclosure.domain.enums.ValidationStage;
 import com.ga.disclosure.rules.bundle.Bundle;
 import com.ga.disclosure.rules.resolve.EffectiveRule;
 import com.ga.disclosure.rules.template.FieldScope;
@@ -74,8 +75,11 @@ class RuleAsDataIT {
             for (int i = 0; i < signers.size(); i++) {
                 subject = subject.signedBy(signers.get(i), SEALED.plusSeconds(60L * (i + 1)));
             }
-            Map<String, ValidationResult> results = REGISTRY.run(subject, rule, template).stream()
-                    .collect(Collectors.toMap(ValidationResult::ruleId, Function.identity()));
+            // 봉인 단계(완료 단계 규칙을 뺀 전부)와 완료 단계를 합치면 룰의 모든 규칙이다(단계는 룰 데이터, Phase 2 선행 A).
+            Map<String, ValidationResult> results = new HashMap<>();
+            for (ValidationStage stage : List.of(ValidationStage.SEAL, ValidationStage.COMPLETE)) {
+                REGISTRY.run(stage, subject, rule, template).forEach(r -> results.put(r.ruleId(), r));
+            }
             return new Evaluation(rule, template, results);
         });
     }

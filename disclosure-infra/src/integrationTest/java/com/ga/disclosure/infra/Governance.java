@@ -54,7 +54,7 @@ final class Governance {
         this.clock = Clock.fixed(Instant.parse(instant), SEOUL);
         this.distribution = new RuleDistributionService(rules, templates, audit, tx, clock);
         this.approval = new RuleApprovalService(rules, audit, tx, clock);
-        this.activation = new RuleActivationJob(rules, audit, tx, clock);
+        this.activation = new RuleActivationJob(rules, flags, audit, tx, clock);
         this.reconciler = new RuleBundleReconciler(rules, templates, flags, audit, tx, clock);
     }
 

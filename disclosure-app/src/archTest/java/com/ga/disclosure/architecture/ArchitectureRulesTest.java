@@ -2,6 +2,7 @@ package com.ga.disclosure.architecture;
 
 import com.ga.disclosure.domain.grade.GradeSnapshotItem;
 import com.ga.disclosure.domain.grade.RatioLabel;
+import com.ga.disclosure.domain.pii.Sensitive;
 import com.ga.disclosure.rules.grade.GradeConsistencyCheck;
 import com.ga.platform.core.arch.ArchRules;
 import com.ga.platform.core.arch.ArchRules.Allowed;
@@ -67,6 +68,15 @@ class ArchitectureRulesTest {
     /** GradeSnapshotItem·RatioLabel을 다루면서 순서 API를 쓸 수 있는 유일한 클래스(정수 rankInSet·gradeOrdinal만). */
     static final List<Allowed> ORDERING_CLASSES = List.of(
             new Allowed(GradeConsistencyCheck.class.getName(), "엔진 스냅샷 정합성 검증(설계서 §6.3 (i)~(v)) — 정렬 기준은 엔진이 준 정수뿐"));
+
+    /** {@code Sensitive.reveal}(개인정보 원문 접근)을 호출할 수 있는 패키지(정확한 패키지, Phase 2 P5). */
+    static final List<Allowed> PII_REVEAL_PACKAGES = List.of(
+            new Allowed(P + "domain.pii", "BirthDate.matches — 본인확인 대조(상수 시간 비교, 결과만 반환)"),
+            new Allowed(P + "infra.crypto", "CustomerFieldCipher — 컬럼 암호화 직전 정규 원문을 바이트로(암호화 후 0으로 지운다)"),
+            new Allowed(P + "rules.pii", "MaskedView — 룰 데이터 masking으로 부분 마스킹한 문자열만 내보낸다"));
+
+    /** javax.crypto를 쓸 수 있는 유일한 패키지. */
+    static final Allowed CRYPTO_PACKAGE = new Allowed(P + "infra.crypto", "고객 개인정보 컬럼 암호화·KEK 감싸기(설계서 §9)");
 
     private static JavaClasses classes;
 
@@ -170,12 +180,27 @@ class ArchitectureRulesTest {
         ArchRules.noClassNameContaining("Grading", "Ranking", "CommissionRate").check(classes);
     }
 
+    // (f) Phase 2 P5: 개인정보 값객체의 누출 경로 — record 컴포넌트 금지, 원문 타입 필드 금지, reveal 호출처 허용 목록, javax.crypto 한정
+    @Test
+    void sensitiveValuesDoNotLeakThroughRecordsFieldsOrCrypto() {
+        PiiRules.noRecordHoldsSensitive().check(classes);
+        PiiRules.piiValuesAreHeldOnlyInsideSensitive(P + "domain.pii").check(classes);
+        ArchRules.methodOnlyInvokedFrom(Sensitive.class, "reveal", PII_REVEAL_PACKAGES).check(classes);
+        PiiRules.cryptoOnlyIn(CRYPTO_PACKAGE.fqn()).check(classes);
+    }
+
+    // (g) Phase 2 P6: 생년월일 대조는 상수 시간 비교
+    @Test
+    void birthDateMatchUsesConstantTimeComparison() {
+        PiiRules.birthDateMatchIsConstantTime().check(classes);
+    }
+
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
         List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE), DB_INFRASTRUCTURE, ORDERING_CLASSES)
                 .flatMap(List::stream).toList();
-        List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES)
+        List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE))
                 .flatMap(List::stream).toList();
         assertThat(ArchRules.staleClasses(classes, classAllowlist)).as("stale class entries").isEmpty();
         assertThat(ArchRules.stalePackages(classes, packageAllowlist)).as("stale package entries").isEmpty();

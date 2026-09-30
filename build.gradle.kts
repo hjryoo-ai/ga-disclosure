@@ -194,6 +194,48 @@ val verifyContractChecksums = tasks.register("verifyContractChecksums") {
 tasks.named("check") { dependsOn(verifyContractChecksums) }
 
 // ---------------------------------------------------------------------------------------------
+// Phase 2 P4: 평문 유출 스캔 — 모든 모듈의 테스트 결과 XML(표준 출력·오류·실패 메시지·테스트 이름)에 센티널 고객의
+// 이름·전화·생년월일(원문·변형·UTF-8 16진)이 한 번도 나타나지 않아야 한다. 센티널은 disclosure-infra 테스트 픽스처의
+// pii-sentinels.properties(PlaintextLeakScanIT와 같은 파일). 모든 Test 태스크 뒤에 돌고 check에 묶인다.
+// ---------------------------------------------------------------------------------------------
+val sentinelsFile = layout.projectDirectory.file("disclosure-infra/src/testFixtures/resources/pii-sentinels.properties")
+
+val scanPlaintextLeaks = tasks.register("scanPlaintextLeaks") {
+    group = "verification"
+    description = "Fails when a PII sentinel appears in any test result XML (Phase 2 P4)."
+    val sentinels = sentinelsFile.asFile
+    val root = layout.projectDirectory.asFile
+    inputs.file(sentinels)
+    doLast {
+        val props = java.util.Properties()
+        sentinels.reader(Charsets.UTF_8).use { props.load(it) }
+        val plain = linkedSetOf(props.getProperty("name"), props.getProperty("phone"), props.getProperty("birthDate"))
+        props.getProperty("variants").split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { plain.add(it) }
+        val forbidden = plain + plain.map { v -> v.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) } }
+        val results = root.listFiles().orEmpty()
+            .map { it.resolve("build/test-results") }
+            .filter { it.isDirectory }
+            .flatMap { dir -> dir.walkTopDown().filter { it.isFile && it.name.endsWith(".xml") }.toList() }
+        if (results.isEmpty()) {
+            throw GradleException("scanPlaintextLeaks: no test result XML found — run the tests first")
+        }
+        val hits = results.flatMap { f ->
+            val text = f.readText(Charsets.UTF_8)
+            forbidden.filter { text.contains(it) }.map { "${f.relativeTo(root)}: ${it.take(3)}…" }
+        }
+        if (hits.isNotEmpty()) {
+            throw GradleException("평문 개인정보 센티널이 테스트 출력에 나타났다(값은 앞 3자만 표시):\n" + hits.joinToString("\n"))
+        }
+        logger.lifecycle("scanPlaintextLeaks: ${results.size} result files, ${forbidden.size} forbidden strings, 0 hits")
+    }
+}
+subprojects {
+    tasks.withType<Test>().configureEach { finalizedBy(scanPlaintextLeaks) }
+}
+scanPlaintextLeaks.configure { mustRunAfter(subprojects.map { p -> p.tasks.withType<Test>() }) }
+tasks.named("check") { dependsOn(scanPlaintextLeaks) }
+
+// ---------------------------------------------------------------------------------------------
 // C11: platform-core·platform-spring을 mavenLocal에 발행한 뒤, 발행 아티팩트만으로 disclosure-domain을
 // 별도 빌드(verification/published-consumer)에서 컴파일한다. ~/.m2에 쓰므로 build에 묶지 않고 CI 잡으로 돌린다.
 // ---------------------------------------------------------------------------------------------

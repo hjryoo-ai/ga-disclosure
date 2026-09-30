@@ -9,10 +9,11 @@ dependencies {
     implementation(platform(libs.spring.boot.bom))
     implementation(project(":platform-spring"))
     implementation(project(":disclosure-domain"))
-    // 포트-어댑터: rules·audit·compliance가 선언한 포트를 구현한다(설계서 §3.3).
+    // 포트-어댑터: rules·audit·compliance·workflow가 선언한 포트를 구현한다(설계서 §3.3).
     implementation(project(":disclosure-rules"))
     implementation(project(":disclosure-audit"))
     implementation(project(":disclosure-compliance"))
+    implementation(project(":disclosure-workflow"))
     implementation("org.springframework:spring-context")
     runtimeOnly(libs.postgresql)
 
@@ -35,11 +36,14 @@ testing {
                 implementation(project(":disclosure-rules"))
                 implementation(project(":disclosure-audit"))
                 implementation(project(":disclosure-compliance"))
+                implementation(project(":disclosure-workflow"))
                 implementation(testFixtures(project(":disclosure-rules")))
                 implementation(platform(libs.spring.boot.bom))
                 implementation(libs.junit.jupiter)
                 implementation(libs.assertj.core)
                 implementation(libs.spring.jdbc)
+                // PlaintextLeakScanIT가 로그 출력(스프링 JDBC 바인드 값 TRACE 포함)을 잡아 평문을 찾는다(Phase 2 P4)
+                implementation(libs.logback.classic)
                 runtimeOnly(libs.junit.platform.launcher)
             }
             targets.all {
