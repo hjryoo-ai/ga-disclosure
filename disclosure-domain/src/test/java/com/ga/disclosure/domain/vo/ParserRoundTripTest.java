@@ -2,6 +2,7 @@ package com.ga.disclosure.domain.vo;
 
 import com.ga.platform.core.tenant.TenantId;
 import com.ga.platform.core.testing.SeededCases;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -18,7 +19,7 @@ class ParserRoundTripTest {
 
     private static final long SEED = 0x5EED_0000_0101L;
     private static final String UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    private static final String UPPER_TAIL = UPPER + "_-";
+    private static final String INSURER_TAIL = UPPER + "-";
     private static final String TENANT_TAIL = UPPER + "_";
     private static final String OPAQUE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final String OPAQUE_TAIL = OPAQUE + "_.-";
@@ -29,7 +30,7 @@ class ParserRoundTripTest {
     }
 
     static Stream<Arguments> productKeys() {
-        return SeededCases.of(SEED + 1, r -> new Object[] {word(r, UPPER, UPPER_TAIL, 64), word(r, OPAQUE, OPAQUE_TAIL, 64)});
+        return SeededCases.of(SEED + 1, r -> new Object[] {word(r, UPPER, INSURER_TAIL, 8), word(r, OPAQUE, OPAQUE_TAIL, 31)});
     }
 
     @ParameterizedTest
@@ -45,7 +46,17 @@ class ParserRoundTripTest {
     void productKeyRoundTrip(String insurer, String code) {
         ProductKey key = new ProductKey(InsurerCode.of(insurer), code);
         assertThat(ProductKey.parse(key.value())).isEqualTo(key);
-        assertThat(key.value()).containsOnlyOnce(":");
+        assertThat(key.value()).containsOnlyOnce(":").hasSizeLessThanOrEqualTo(40);
+    }
+
+    /** 계약 1.2.0 경계: 보험사 8자 + 코드 31자 = 40자는 통과, 한 글자라도 넘으면 거부(자르지 않는다). */
+    @Test
+    void productKeyLengthBoundaryIsFortyCharacters() {
+        String code31 = "P" + "1".repeat(30);
+        assertThat(ProductKey.parse("ABCDEFGH:" + code31).value()).hasSize(40);
+        assertThatThrownBy(() -> ProductKey.parse("ABCDEFGH:" + code31 + "2")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ProductKey.parse("ABCDEFGHI:" + "P1")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> InsurerCode.of("ABCDEFGHI")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @ParameterizedTest
@@ -55,7 +66,8 @@ class ParserRoundTripTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"INS-A", "INS-A:", ":PRD-1", "INS-A:PRD:1", "ins-a:PRD-1", "INS-A:PRD 1", ""})
+    @ValueSource(strings = {"INS-A", "INS-A:", ":PRD-1", "INS-A:PRD:1", "ins-a:PRD-1", "INS-A:PRD 1", "",
+            "INS_A:PRD-1", "-INS:PRD-1", "INS-A:.PRD", "INS-A:-PRD", "INS-A:_PRD"})
     void productKeyRejectsMalformed(String raw) {
         assertThatThrownBy(() -> ProductKey.parse(raw)).isInstanceOf(IllegalArgumentException.class);
     }
