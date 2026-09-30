@@ -249,6 +249,88 @@ class ContractSchemaTest {
         assertThat(schema(GRADES_RESPONSE).validate(strict)).isEmpty();
     }
 
+    // ------------------------------------------------------------------ 계약 1.2.0: 상품 키 규칙·오류 코드 (Phase 3A 선행 A)
+
+    private static final String GRADES_REQUEST = ENGINE + "#/components/schemas/CommissionGradesRequest";
+    private static final String CODE31 = "P111111111111111111111111111111";
+
+    private static ObjectNode engineRequestExample() {
+        return (ObjectNode) YAML.readTree(readString(ENGINE))
+                .at("/paths/~1internal~1v1~1disclosure~1commission-grades/post/requestBody/content/application~1json/example");
+    }
+
+    private static ObjectNode requestWithKey(String productKey, String insurerCode) {
+        ObjectNode request = engineRequestExample();
+        ObjectNode first = (ObjectNode) request.get("products").get(0);
+        first.put("productKey", productKey);
+        first.put("insurerCode", insurerCode);
+        return request;
+    }
+
+    @Test
+    void engineContractIsVersion120AndRequestExamplePasses() {
+        assertThat(YAML.readTree(readString(ENGINE)).at("/info/version").asString()).isEqualTo("1.2.0");
+        assertThat(schema(GRADES_REQUEST).validate(engineRequestExample())).isEmpty();
+    }
+
+    @ParameterizedTest(name = "accepted {0}")
+    @ValueSource(strings = {"INS-A:PRD-1001", "ABCDEFGH:" + "P111111111111111111111111111111", "A:1", "INS-A:p.r_d-1", "12345678:X"})
+    void productKeysWithinTheRuleAreAccepted(String key) {
+        assertThat(key.length()).isLessThanOrEqualTo(40);
+        assertThat(schema(GRADES_REQUEST).validate(requestWithKey(key, key.substring(0, key.indexOf(':'))))).isEmpty();
+    }
+
+    @ParameterizedTest(name = "rejected {0}")
+    @ValueSource(strings = {
+            "ABCDEFGH:" + CODE31 + "2",         // 41자
+            "ABCDEFGHI:P1",                      // 보험사 9자
+            "INS_A:PRD-1",                        // 보험사에 밑줄
+            "-INS:PRD-1",                         // 보험사가 하이픈으로 시작
+            "INS-A:.PRD", "INS-A:-PRD",           // 상품 코드가 영숫자로 시작하지 않음
+            "ins-a:PRD-1", "INS-A:PRD:1", "INS-A:", "INS-A"})
+    void productKeysOutsideTheRuleAreRejected(String key) {
+        assertThat(schema(GRADES_REQUEST).validate(requestWithKey(key, "INS-A"))).isNotEmpty();
+    }
+
+    @ParameterizedTest(name = "insurerCode {0} rejected")
+    @ValueSource(strings = {"ABCDEFGHI", "INS_A", "ins-a", "-INS", ""})
+    void insurerCodesOutsideTheRuleAreRejected(String insurer) {
+        assertThat(schema(GRADES_REQUEST).validate(requestWithKey("INS-A:PRD-1", insurer))).isNotEmpty();
+    }
+
+    @Test
+    void responseProductKeysFollowTheSameRule() {
+        ObjectNode response = engineExample();
+        result(response, "OK").put("productKey", "ABCDEFGH:" + CODE31 + "2");
+        assertThat(schema(GRADES_RESPONSE).validate(response)).isNotEmpty();
+    }
+
+    /** 카탈로그 파일과 엔진 계약이 같은 키 규칙을 쓴다(카탈로그 키가 그대로 엔진 요청이 된다). */
+    @Test
+    void catalogFileUsesTheEngineKeyRule() {
+        JsonNode engine = YAML.readTree(readString(ENGINE)).at("/components/schemas");
+        JsonNode catalog = read("catalog/v1/catalog-file.schema.json").path("$defs");
+        for (String f : List.of("pattern", "maxLength")) {
+            assertThat(catalog.at("/product/properties/productKey").path(f)).isEqualTo(engine.path("ProductKey").path(f));
+            assertThat(catalog.path("insurerCode").path(f)).isEqualTo(engine.path("InsurerCode").path(f));
+        }
+    }
+
+    /** 엔진 E3 요청 1~4: 추가형 오류 코드와 GET 403 설명 변경(엔진 E3 심사 §3-3). 임시등록은 엔진 사유 예시에서 빠진다. */
+    @Test
+    void engineErrorCodesOf120AreDocumented() {
+        JsonNode engine = YAML.readTree(readString(ENGINE));
+        JsonNode post = engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades/post/responses");
+        JsonNode get = engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/responses");
+        assertThat(post.at("/400/description").asString()).contains("AS_OF_IN_FUTURE", "UNKNOWN_PRODUCT_GROUP");
+        assertThat(post.at("/422/description").asString()).contains("NO_POLICY", "POLICY_SELF_CHECK_FAILED", "INVALID_POLICY");
+        assertThat(get.at("/500/description").asString()).contains("SNAPSHOT_INTEGRITY");
+        assertThat(get.at("/500/content/application~1json/schema/$ref").asString()).isEqualTo("#/components/schemas/Problem");
+        assertThat(get.at("/403/description").asString()).contains("인가 거부").contains("404").doesNotContain("TENANT_MISMATCH");
+        assertThat(engine.at("/components/schemas/GradeResultUnavailable/properties/reason/description").asString())
+                .doesNotContain("예: NO_RATE_DATA·NOT_IN_GROUP·TEMP_PRODUCT");
+    }
+
     // ------------------------------------------------------------------ 룰·서식
 
     static final String DISC_2026_07 = "rules/bundles/rules/DISC-2026-07.bundle.json";
@@ -364,7 +446,7 @@ class ContractSchemaTest {
         JsonNode post = engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades/post/responses");
         JsonNode get = engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/responses");
         assertThat(post.propertyNames()).containsExactlyInAnyOrder("200", "400", "401", "403", "409", "422");
-        assertThat(get.propertyNames()).containsExactlyInAnyOrder("200", "401", "403", "404");
+        assertThat(get.propertyNames()).containsExactlyInAnyOrder("200", "401", "403", "404", "500");   // 500: 1.2.0
 
         JsonNode ok = engine.at("/components/schemas/GradeResultOk/properties");
         assertThat(ok.has("gradeOrdinal")).isTrue();

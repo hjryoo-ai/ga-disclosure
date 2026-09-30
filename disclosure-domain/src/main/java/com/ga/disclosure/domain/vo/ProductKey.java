@@ -3,16 +3,17 @@ package com.ga.disclosure.domain.vo;
 import java.util.Objects;
 
 /**
- * 상품키 {@code {insurerCode}:{code}}(예: {@code INS-A:PRD-1001}). 콜론은 정확히 하나.
+ * 상품키 {@code {insurerCode}:{code}}(예: {@code INS-A:PRD-1001}). 콜론은 정확히 하나, 전체 40자 이하(엔진 계약 1.2.0).
+ * 임시등록 상품은 상품키가 없다(엔진 도메인 밖, 설계서 §4.2).
  *
- * @param insurer 보험사
- * @param code    보험사 내 상품 코드(임시등록 상품은 {@code TEMP-…} 등 설계사 입력)
+ * @param insurer 보험사(8자 이하)
+ * @param code    보험사 내 상품 코드(31자 이하, 영숫자로 시작)
  */
 public record ProductKey(InsurerCode insurer, String code) {
 
     public ProductKey {
         Objects.requireNonNull(insurer, "insurer");
-        Patterns.require(Patterns.OPAQUE_CODE, code, "product code");
+        Patterns.require(Patterns.PRODUCT_CODE, code, "product code");
     }
 
     public static ProductKey parse(String raw) {
