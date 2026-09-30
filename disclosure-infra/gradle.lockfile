@@ -2,6 +2,8 @@
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
 # To regenerate this file, run: ./gradlew :disclosure-infra:dependencies --write-locks
+ch.qos.logback:logback-classic:1.5.38=integrationTestCompileClasspath,integrationTestRuntimeClasspath
+ch.qos.logback:logback-core:1.5.38=integrationTestCompileClasspath,integrationTestRuntimeClasspath
 com.ethlo.time:itu:1.14.0=integrationTestRuntimeClasspath,runtimeClasspath,testFixturesRuntimeClasspath,testRuntimeClasspath
 com.fasterxml.jackson.core:jackson-annotations:2.21=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testFixturesCompileClasspath,testFixturesRuntimeClasspath,testRuntimeClasspath
 com.github.docker-java:docker-java-api:3.7.1=integrationTestCompileClasspath,integrationTestRuntimeClasspath,testCompileClasspath,testFixturesCompileClasspath,testFixturesRuntimeClasspath,testRuntimeClasspath

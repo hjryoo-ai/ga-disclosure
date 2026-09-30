@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "PRODUCT_GROUPS",
+  "source": "DEMO_FILE",
+  "asOf": "2026-09-01",
+  "groups": [
+    { "groupCode": "PG-HEALTH-SIMPLE-NR", "name": "(가상) 간편 건강보험 무해지형", "line": "LIFE", "applyFrom": "2026-07-01", "applyTo": null },
+    { "groupCode": "PG-CANCER", "name": "(가상) 암보험", "line": "NONLIFE", "applyFrom": "2026-07-01", "applyTo": null }
+  ]
+}

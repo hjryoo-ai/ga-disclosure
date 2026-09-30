@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "kind": "PRODUCTS",
+  "source": "DEMO_FILE",
+  "asOf": "2026-09-01",
+  "products": [
+    {
+      "productKey": "INS-A:PRD-1001",
+      "insurerCode": "INS-A",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "productName": "(가상) 가나 간편건강 무해지",
+      "saleFrom": "2026-01-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 32100,
+        "INSURANCE_PERIOD": "20년납 100세만기"
+      }
+    },
+    {
+      "productKey": "INS-A:PRD-1002",
+      "insurerCode": "INS-A",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "productName": "(가상) 가나 간편건강 무해지 플러스",
+      "saleFrom": "2026-07-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 35800,
+        "INSURANCE_PERIOD": "20년납 100세만기"
+      }
+    },
+    {
+      "productKey": "INS-B:PRD-2044",
+      "insurerCode": "INS-B",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "productName": "(가상) 다라 유병자 건강",
+      "saleFrom": "2026-01-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 29400,
+        "INSURANCE_PERIOD": "20년납 90세만기"
+      }
+    },
+    {
+      "productKey": "INS-B:PRD-2045",
+      "insurerCode": "INS-B",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "productName": "(가상) 다라 유병자 건강(구형)",
+      "saleFrom": "2025-01-01",
+      "saleTo": "2026-09-01",
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 27300,
+        "INSURANCE_PERIOD": "20년납 90세만기"
+      }
+    },
+    {
+      "productKey": "INS-C:PRD-3120",
+      "insurerCode": "INS-C",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "productName": "(가상) 마바 간편 3.5.5",
+      "saleFrom": "2026-03-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 30900,
+        "INSURANCE_PERIOD": "30년납 100세만기"
+      }
+    },
+    {
+      "productKey": "INS-A:PRD-1101",
+      "insurerCode": "INS-A",
+      "groupCode": "PG-CANCER",
+      "productName": "(가상) 가나 암케어",
+      "saleFrom": "2026-01-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 21000,
+        "INSURANCE_PERIOD": "20년납 90세만기"
+      }
+    },
+    {
+      "productKey": "INS-D:PRD-4001",
+      "insurerCode": "INS-D",
+      "groupCode": "PG-CANCER",
+      "productName": "(가상) 사아 암보장",
+      "saleFrom": "2026-01-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 18700,
+        "INSURANCE_PERIOD": "20년납 100세만기"
+      }
+    },
+    {
+      "productKey": "INS-E:PRD-5001",
+      "insurerCode": "INS-E",
+      "groupCode": "PG-CANCER",
+      "productName": "(가상) 자차 암플랜",
+      "saleFrom": "2026-01-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 19900,
+        "INSURANCE_PERIOD": "20년납 100세만기"
+      }
+    },
+    {
+      "productKey": "INS-F:PRD-6001",
+      "insurerCode": "INS-F",
+      "groupCode": "PG-CANCER",
+      "productName": "(가상) 카타 첫 암보험",
+      "saleFrom": "2026-10-01",
+      "saleTo": null,
+      "defaults": {
+        "PREMIUM_EXAMPLE_WON": 22500,
+        "INSURANCE_PERIOD": "20년납 100세만기"
+      }
+    }
+  ]
+}

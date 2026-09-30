@@ -110,4 +110,37 @@ class OperatorCliIT {
         assertThatThrownBy(() -> run("rules", "delete", "--operator", "x")).hasStackTraceContaining("unknown command 'rules delete'");
         assertThatThrownBy(() -> run("rules", "approve", "--tenant", "T1", "--operator", "x")).hasStackTraceContaining("missing --rule");
     }
+
+    /**
+     * Phase 2: 카탈로그 수입(상품군 → 패널 → 상품, 데모 파일) — 같은 파일 재수입은 NOOP. 로컬 KEK 파일 생성은 한 번만(덮어쓰기 거부).
+     * 고객 데이터 키 순환은 두 번째 실행에서 첫 키를 은퇴·파기한다(쓰는 행이 없으므로).
+     */
+    @Test
+    void catalogImportKekInitAndCustomerRekey() throws Exception {
+        String tenant = SeedData.uniqueTenant("CLI_CAT");
+        DB.seed(tenant, c -> SeedData.tenant(c, tenant));
+        Path catalog = ROOT.resolve("disclosure-demo/src/main/resources/demo/catalog");
+        for (String file : List.of("product-groups.json", "insurer-panel.json", "products.json")) {
+            assertThat(run("catalog", "import", "--tenant", tenant, "--file", catalog.resolve(file).toString(), "--operator", "cli-test"))
+                    .contains("CATALOG_IMPORT " + tenant).contains(" IMPORTED ");
+        }
+        assertThat(run("catalog", "import", "--tenant", tenant, "--file", catalog.resolve("products.json").toString(), "--operator", "cli-test"))
+                .contains(" PRODUCTS NOOP ");
+        assertThat(column(tenant, "SELECT count(*) FROM product_catalog WHERE tenant_id = ?")).containsExactly("9");
+        assertThat(column(tenant, "SELECT DISTINCT source FROM product_catalog WHERE tenant_id = ?")).containsExactly("DEMO_FILE");
+
+        Path kek = java.nio.file.Files.createTempDirectory("cli-kek").resolve("kek.json");
+        assertThat(run("crypto", "init-kek", "--file", kek.toString())).contains("KEK_INIT KEK-LOCAL-1");
+        assertThat(java.nio.file.Files.getPosixFilePermissions(kek)).extracting(Enum::name)
+                .containsExactlyInAnyOrder("OWNER_READ", "OWNER_WRITE");
+        assertThatThrownBy(() -> run("crypto", "init-kek", "--file", kek.toString())).hasStackTraceContaining("already exists");
+
+        String first = run("--ga.crypto.local-kek-file=" + kek, "customer", "rekey", "--tenant", tenant, "--operator", "cli-test");
+        assertThat(first).contains("REKEY " + tenant + " retired=- ").contains("reencrypted=0 destroyed=[]");
+        String second = run("--ga.crypto.local-kek-file=" + kek, "customer", "rekey", "--tenant", tenant, "--operator", "cli-test");
+        String firstKey = first.substring(first.indexOf("active=") + 7).split(" ")[0];
+        assertThat(second).contains("retired=" + firstKey).contains("destroyed=[" + firstKey + "]");
+        assertThat(column(tenant, "SELECT status FROM customer_data_key WHERE tenant_id = ? ORDER BY created_at, status"))
+                .containsExactlyInAnyOrder("DESTROYED", "ACTIVE");
+    }
 }

@@ -13,13 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class SeedData {
 
-    /** RLS 대상 테넌트 테이블 전부(18개). V2__rls.sql의 목록과 같다. */
-    public static final List<String> TENANT_TABLES = List.of(
-            "tenant", "identity_link", "rule_version", "form_template",
-            "product_group", "product_catalog", "insurer_panel", "customer_ref",
-            "disclosure", "disclosure_item", "recommendation", "document_artifact",
-            "sign_session", "signature", "audit_log", "audit_anchor",
-            "subject_policy", "compliance_flag");
+
+    public static final String SEED_KEY_ID = "DEK-SEED";
+    public static final String SEED_CUSTOMER_REF = "CR-" + "0".repeat(31) + "1";
 
     /** SHA-256(JCS({})) = SHA-256("{}"). */
     public static final String EMPTY_OBJECT_HASH = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
@@ -150,7 +146,7 @@ public final class SeedData {
                 bundleIdOrNull == null ? null : EMPTY_OBJECT_HASH);
     }
 
-    /** 18개 테넌트 테이블 전부에 한 행 이상을 넣는다(RLS 격리 검증용). */
+    /** 테넌트 테이블 전부(V5 기준 20개)에 한 행 이상을 넣는다(RLS 격리 검증용). */
     public static void everyTable(Connection c, String tenant) throws SQLException {
         tenant(c, tenant);
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'sub-1', 'AGENT-1', ARRAY['AGENT'], '/HQ/B1')", tenant);
@@ -166,13 +162,34 @@ public final class SeedData {
                 INSERT INTO form_template (tenant_id, template_id, template_type, version, apply_from, fields, layout)
                 VALUES (?, 'STANDARD', 'STANDARD', 1, DATE '2026-07-01', '[]'::jsonb, '{}'::jsonb)
                 """, tenant);
-        exec(c, "INSERT INTO product_group (tenant_id, group_code, name, line, apply_from, source) VALUES (?, 'PG-HEALTH', '건강', 'LIFE', DATE '2026-01-01', 'SEED')", tenant);
         exec(c, """
-                INSERT INTO product_catalog (tenant_id, product_key, insurer_code, group_code, product_name, defaults, source, synced_at)
-                VALUES (?, 'INS-A:PRD-1', 'INS-A', 'PG-HEALTH', '상품', '{}'::jsonb, 'SEED', TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                INSERT INTO product_group (tenant_id, group_code, name, line, apply_from, source, source_ref, synced_at)
+                VALUES (?, 'PG-HEALTH', '건강', 'LIFE', DATE '2026-01-01', 'SEED', 'seed.json@sha256:' || repeat('0', 64),
+                        TIMESTAMPTZ '2026-09-01 00:00:00+09')
                 """, tenant);
-        exec(c, "INSERT INTO insurer_panel (tenant_id, insurer_code, insurer_name, line, active_from) VALUES (?, 'INS-A', '보험사A', 'LIFE', DATE '2026-01-01')", tenant);
-        exec(c, "INSERT INTO customer_ref (tenant_id, customer_ref, name_enc, created_at) VALUES (?, 'C-0001', '\\x00'::bytea, TIMESTAMPTZ '2026-09-01 00:00:00+09')", tenant);
+        exec(c, """
+                INSERT INTO product_catalog (tenant_id, product_key, insurer_code, group_code, product_name, sale_from, defaults, source,
+                                             source_ref, synced_at)
+                VALUES (?, 'INS-A:PRD-1', 'INS-A', 'PG-HEALTH', '상품', DATE '2026-01-01', '{}'::jsonb, 'SEED',
+                        'seed.json@sha256:' || repeat('0', 64), TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant);
+        exec(c, """
+                INSERT INTO insurer_panel (tenant_id, insurer_code, insurer_name, line, active_from, source, source_ref, synced_at)
+                VALUES (?, 'INS-A', '보험사A', 'LIFE', DATE '2026-01-01', 'SEED', 'seed.json@sha256:' || repeat('0', 64),
+                        TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant);
+        exec(c, """
+                INSERT INTO catalog_import (tenant_id, import_id, kind, file_name, file_sha256, source, as_of, imported_at,
+                                            inserted, updated, closed, unchanged)
+                VALUES (?, ?, 'PRODUCTS', 'seed.json', repeat('0', 64), 'SEED', DATE '2026-09-01', TIMESTAMPTZ '2026-09-01 00:00:00+09',
+                        1, 0, 0, 0)
+                """, tenant, UUID.randomUUID());
+        dataKey(c, tenant, SEED_KEY_ID);
+        // 암호문 자리: 형식 머리(0x01) + 28바이트. 실제 암호화는 infra.crypto가 하고 이 행은 RLS 격리 검증용이다.
+        exec(c, """
+                INSERT INTO customer_ref (tenant_id, customer_ref, name_enc, enc_key_id, created_at)
+                VALUES (?, ?, decode('01' || repeat('00', 28), 'hex'), ?, TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant, SEED_CUSTOMER_REF, SEED_KEY_ID);
         UUID draft = disclosure(c, tenant, "DRAFT", null);
         item(c, tenant, draft, 1, "0.84");
         recommendation(c, tenant, draft, 1);
@@ -193,6 +210,14 @@ public final class SeedData {
                 INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at)
                 VALUES (?, ?, 'MISSING', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09')
                 """, tenant, UUID.randomUUID());
+    }
+
+    /** 감싼 키 자리값(32바이트 0)을 가진 ACTIVE 데이터 키. 암호화 IT는 실제 키 저장소 어댑터로 만든다. */
+    public static void dataKey(Connection c, String tenant, String keyId) throws SQLException {
+        exec(c, """
+                INSERT INTO customer_data_key (tenant_id, key_id, kek_id, wrapped_key, status, created_at)
+                VALUES (?, ?, 'KEK-SEED', decode(repeat('00', 32), 'hex'), 'ACTIVE', TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant, keyId);
     }
 
     public static int exec(Connection c, String sql, Object... params) throws SQLException {

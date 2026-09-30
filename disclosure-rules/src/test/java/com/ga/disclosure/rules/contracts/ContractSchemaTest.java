@@ -10,8 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
@@ -289,8 +291,40 @@ class ContractSchemaTest {
         assertThat(rule.path("reasonCodes")).hasSize(5);
         assertThat(rule.path("tenantOverridable")).extracting(JsonNode::asString).containsExactly(
                 "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "anchor", "kpi",
-                "retainUnlinked");
+                "retainUnlinked", "masking");
         assertThat(rule.path("allowedTieBreaks")).extracting(JsonNode::asString).containsExactly("SHARED_RANK", "STRICT");
+        assertThat(rule.at("/exceptionApproval/role").asString()).isEqualTo("MANAGER");
+        assertThat(rule.at("/validations/10/id").asString()).isEqualTo("R-SIGNER-SET");
+        assertThat(rule.at("/validations/10/stages")).extracting(JsonNode::asString).containsExactly("COMPLETE");
+    }
+
+    /** Phase 1 수용 심사 §3-1: 단계는 기본값 없음 — 빈 단계·모르는 단계·문자열 항목(Phase 1 형식)·추가 속성은 스키마 위반. */
+    @ParameterizedTest(name = "validations[0] = {0} fails")
+    @ValueSource(strings = {
+            "{\"id\":\"R-MIN-COMPARE\",\"stages\":[]}",
+            "{\"id\":\"R-MIN-COMPARE\"}",
+            "{\"id\":\"R-MIN-COMPARE\",\"stages\":[\"SIGN\"]}",
+            "{\"id\":\"R-MIN-COMPARE\",\"stages\":[\"SEAL\",\"SEAL\"]}",
+            "{\"id\":\"R-MIN-COMPARE\",\"stages\":[\"SEAL\"],\"default\":true}",
+            "\"R-MIN-COMPARE\""})
+    void validationStepsHaveExplicitClosedStages(String step) {
+        ObjectNode body = (ObjectNode) read(DISC_2026_07).get("body");
+        ((ArrayNode) body.get("validations")).set(0, YAML.readTree(step));
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(body)).isNotEmpty();
+    }
+
+    /** 예외 승인 주체는 GLOBAL 전용 — 사규에 열 수 없고, 역할 어휘는 닫혀 있다. 마스킹은 열 수 있다. */
+    @Test
+    void exceptionApprovalIsClosedAndCannotBeOpenedToTenants() {
+        ObjectNode opened = (ObjectNode) read(DISC_2026_07).get("body");
+        ((ArrayNode) opened.get("tenantOverridable")).add("exceptionApproval");
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(opened)).isNotEmpty();
+        ObjectNode agent = (ObjectNode) read(DISC_2026_07).get("body");
+        ((ObjectNode) agent.get("exceptionApproval")).put("role", "AGENT");
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(agent)).isNotEmpty();
+        ObjectNode negative = (ObjectNode) read(DISC_2026_07).get("body");
+        ((ObjectNode) negative.at("/masking/phone")).put("keepLast", -1);
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(negative)).isNotEmpty();
     }
 
     @Test

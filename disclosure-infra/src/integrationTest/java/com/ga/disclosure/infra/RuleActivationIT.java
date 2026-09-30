@@ -1,8 +1,10 @@
 package com.ga.disclosure.infra;
 
 import com.ga.disclosure.audit.AuditAction;
+import com.ga.disclosure.audit.AuditRecord;
 import com.ga.disclosure.compliance.rules.ActivationReport;
 import com.ga.disclosure.compliance.rules.GovernanceRejectedException;
+import com.ga.disclosure.compliance.rules.RuleActivationJob;
 import com.ga.disclosure.domain.enums.ManagerConfirmMode;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
@@ -18,6 +20,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,6 +46,8 @@ class RuleActivationIT {
     }
 
     /** {@code date} 00:30(Asia/Seoul)에 도는 배치 — 날짜는 주입된 시계에서만 온다. */
+    private final Governance g = setup;
+
     private static Governance at(String date) {
         return new Governance(LocalDate.parse(date).atTime(0, 30).atZone(Governance.SEOUL).toInstant().toString());
     }
@@ -92,14 +98,36 @@ class RuleActivationIT {
         assertThat(again.retired()).isEmpty();
     }
 
+    /**
+     * Phase 1 수용 심사 D3 / Phase 2 선행 B: 적용 구간이 끝난 APPROVED 룰은 활성화하지 않고 {@code RULE_ACTIVATION_MISSED}를 올린다.
+     * 다음 날 다시 돌아도 같은 열린 플래그를 보고할 뿐 새 플래그·새 FLAG_RAISE 감사 행을 만들지 않는다.
+     */
     @Test
-    void approvedRuleWhoseWindowAlreadyEndedIsReportedNotActivated() {
+    void approvedRuleWhoseWindowAlreadyEndedRaisesActivationMissedOnce() {
         TenantId t = distributedTenant();
         // 2027-01-01 경계를 놓치고 2027-01-05에 처음 돌면: 2026-07은 활성화하지 않고(구간 종료), 2027-01만 활성화
         ActivationReport late = at("2027-01-05").activation.run(t, Governance.OPERATOR);
-        assertThat(late.expiredUnactivated()).extracting(RuleVersionId::value).containsExactly("DISC-2026-07");
+        assertThat(late.missed()).singleElement().satisfies(m -> {
+            assertThat(m.rule().value()).isEqualTo("DISC-2026-07");
+            assertThat(m.flagCreated()).isTrue();
+        });
         assertThat(late.activated()).extracting(RuleVersionId::value).containsExactly("DISC-2027-01");
         assertThat(status(t, "DISC-2026-07")).isEqualTo(RuleStatus.APPROVED);
+
+        ActivationReport nextDay = at("2027-01-06").activation.run(t, Governance.OPERATOR);
+        assertThat(nextDay.missed()).singleElement().satisfies(m -> {
+            assertThat(m.flagId()).isEqualTo(late.missed().getFirst().flagId());
+            assertThat(m.flagCreated()).isFalse();
+        });
+        List<UUID> open = g.in(t, () -> g.flags.findOpen(RuleActivationJob.MISSED_FLAG_TYPE));
+        assertThat(open).containsExactly(late.missed().getFirst().flagId());
+        List<AuditRecord> raised = g.auditOf(t).stream().filter(r -> r.entry().action() == AuditAction.FLAG_RAISE).toList();
+        assertThat(raised).singleElement()
+                .satisfies(r -> {
+                    assertThat(r.entry().targetKind()).isEqualTo("RULE_VERSION");
+                    assertThat(r.entry().targetId()).isEqualTo("DISC-2026-07");
+                    assertThat(r.entry().detail().path("type").asString()).isEqualTo("RULE_ACTIVATION_MISSED");
+                });
     }
 
     @Test
@@ -126,12 +154,21 @@ class RuleActivationIT {
         assertThat(approved.approvedAt()).isEqualTo(Instant.parse("2026-06-30T00:00:00Z"));
         assertThat(setup.auditOf(t).getLast().entry().detail().get("checkedAgainst").toString())
                 .contains("DISC-2026-07", "DISC-2027-01");
+        assertThat(setup.auditOf(t).getLast().entry().detail().path("outcome").asString()).isEqualTo("APPROVED");
 
         at("2026-09-23").activation.run(t, Governance.OPERATOR);
         int auditRows = setup.auditOf(t).size();
         assertThat(setup.approval.approve(t, RuleVersionId.of("HOUSE-2026"), Governance.OPERATOR)).as("re-approval is a no-op")
                 .isEqualTo(RuleStatus.ACTIVE);
-        assertThat(setup.auditOf(t)).hasSize(auditRows);
+        // Phase 1 수용 심사 D4: no-op도 배포 no-op과 같은 규약으로 감사 행 1건(outcome=NOOP, 현재 상태)을 남긴다
+        assertThat(setup.auditOf(t)).hasSize(auditRows + 1);
+        assertThat(setup.auditOf(t).getLast().entry()).satisfies(e -> {
+            assertThat(e.action()).isEqualTo(AuditAction.RULE_APPROVE);
+            assertThat(e.targetId()).isEqualTo("HOUSE-2026");
+            assertThat(e.detail().path("outcome").asString()).isEqualTo("NOOP");
+            assertThat(e.detail().path("status").asString()).isEqualTo("ACTIVE");
+        });
+        assertThat(status(t, "HOUSE-2026")).isEqualTo(RuleStatus.ACTIVE);
         assertThatThrownBy(() -> setup.approval.approve(t, RuleVersionId.of("DISC-2026-07"), Governance.OPERATOR))
                 .isInstanceOf(GovernanceRejectedException.class).hasMessageContaining("only a TENANT rule");
         EffectiveRule rule = setup.in(t, () -> setup.resolver.resolve(t, LocalDate.parse("2026-09-23")));

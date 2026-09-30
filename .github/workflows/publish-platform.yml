@@ -1,0 +1,50 @@
+name: publish-platform
+
+# 설계서 §11: 플랫폼 세 모듈(platform-core·platform-canonical·platform-spring)을 태그 platform-vX.Y.Z에서
+# GitHub Packages로 발행한다. 세 모듈은 SemVer 동일 버전이며, GitHub Packages는 같은 버전을 다시 받지 않으므로
+# 실패 후 재시도는 버전을 올려서 한다. 소비자는 mavenLocal을 먼저 쓰고, 없을 때 이 저장소를 쓴다(README).
+on:
+  push:
+    tags: ['platform-v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Tag version must equal every platform module version
+        run: ./gradlew checkPlatformVersion -PexpectedPlatformVersion="${GITHUB_REF_NAME#platform-v}" --console=plain
+
+      - name: net.jqwik must not appear in any dependency graph (CLAUDE.md 절대 규칙 9)
+        run: |
+          ./gradlew allDependencies --console=plain > deps.txt
+          if grep -q 'net\.jqwik' deps.txt; then echo 'net.jqwik found'; exit 1; fi
+
+      - name: Platform module checks
+        run: ./gradlew :platform-core:check :platform-canonical:check :platform-spring:check --console=plain
+
+      - name: Publish to GitHub Packages
+        run: >
+          ./gradlew --console=plain
+          :platform-core:publishAllPublicationsToGitHubPackagesRepository
+          :platform-canonical:publishAllPublicationsToGitHubPackagesRepository
+          :platform-spring:publishAllPublicationsToGitHubPackagesRepository
+
+      - name: Consume the published artifacts from GitHub Packages only (no mavenLocal)
+        run: |
+          rm -rf ~/.m2/repository/com/ga
+          ./gradlew verifyPublishedPlatformFromGitHub --console=plain

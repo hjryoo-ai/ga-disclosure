@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/catalog/v1/catalog-file.schema.json",
+  "title": "카탈로그 수입 파일 (v1)",
+  "description": "설계서 §4.2. 상품군·상품·보험사 패널은 외부 정본(협회·보험사·GA 위탁계약)의 캐시이며 이 파일로만 들어온다. kind가 본문 배열을 정한다. 수입은 행 단위 upsert + 파일에 없는 행의 유효기간 닫기(삭제 없음), 같은 파일(kind·SHA-256)은 no-op, asOf는 같은 kind의 직전 수입보다 이를 수 없다. 유효기간은 반개구간 [from, to), to가 null이면 무기한. 상품군 코드 체계는 외부 정본(§14 #1)이므로 형식만 검사하고 목록은 두지 않는다. 금액은 정수 원 — 실수는 받지 않는다.",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "source", "asOf"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "enum": ["PRODUCT_GROUPS", "PRODUCTS", "INSURER_PANEL"] },
+    "source": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+      "description": "공급처 식별자(예: ASSOC_FILE, INSURER_FILE, DEMO_FILE). 행의 source 컬럼에 기록된다"
+    },
+    "asOf": {
+      "$ref": "#/$defs/date",
+      "description": "수입 기준일: 파일에 없는 열린 행을 이 날짜로 닫는다. 시스템이 오늘로 채우지 않는다"
+    },
+    "groups": { "type": "array", "items": { "$ref": "#/$defs/group" } },
+    "products": { "type": "array", "items": { "$ref": "#/$defs/product" } },
+    "insurers": { "type": "array", "items": { "$ref": "#/$defs/insurer" } }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "PRODUCT_GROUPS" } }, "required": ["kind"] },
+      "then": { "required": ["groups"], "not": { "anyOf": [{ "required": ["products"] }, { "required": ["insurers"] }] } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "PRODUCTS" } }, "required": ["kind"] },
+      "then": { "required": ["products"], "not": { "anyOf": [{ "required": ["groups"] }, { "required": ["insurers"] }] } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "INSURER_PANEL" } }, "required": ["kind"] },
+      "then": { "required": ["insurers"], "not": { "anyOf": [{ "required": ["groups"] }, { "required": ["products"] }] } }
+    }
+  ],
+  "$defs": {
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "openDate": { "oneOf": [{ "$ref": "#/$defs/date" }, { "type": "null" }] },
+    "line": { "enum": ["LIFE", "NONLIFE"] },
+    "insurerCode": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+    "groupCode": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "group": {
+      "type": "object",
+      "required": ["groupCode", "name", "line", "applyFrom", "applyTo"],
+      "properties": {
+        "groupCode": { "$ref": "#/$defs/groupCode" },
+        "name": { "$ref": "#/$defs/name" },
+        "line": { "$ref": "#/$defs/line" },
+        "applyFrom": { "$ref": "#/$defs/date" },
+        "applyTo": { "$ref": "#/$defs/openDate" }
+      },
+      "additionalProperties": false
+    },
+    "product": {
+      "type": "object",
+      "required": ["productKey", "insurerCode", "groupCode", "productName", "saleFrom", "saleTo", "defaults"],
+      "properties": {
+        "productKey": {
+          "type": "string",
+          "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+          "description": "엔진 계약과 같은 {insurerCode}:{상품} 형식. 접두는 insurerCode와 같아야 한다(수입기가 검사)"
+        },
+        "insurerCode": { "$ref": "#/$defs/insurerCode" },
+        "groupCode": { "$ref": "#/$defs/groupCode" },
+        "productName": { "$ref": "#/$defs/name" },
+        "saleFrom": { "$ref": "#/$defs/date" },
+        "saleTo": { "$ref": "#/$defs/openDate" },
+        "defaults": {
+          "type": "object",
+          "description": "서식 항목 기본값 {항목 코드: 값}. 값은 문자열·정수·불리언과 그 배열·객체(해약환급예시 표 등)",
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+          "additionalProperties": { "$ref": "#/$defs/defaultValue" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "defaultValue": {
+      "anyOf": [
+        { "type": "string", "maxLength": 1000 },
+        { "type": "integer" },
+        { "type": "boolean" },
+        { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/defaultValue" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/defaultValue" } }
+      ]
+    },
+    "insurer": {
+      "type": "object",
+      "required": ["insurerCode", "insurerName", "line", "activeFrom", "activeTo"],
+      "properties": {
+        "insurerCode": { "$ref": "#/$defs/insurerCode" },
+        "insurerName": { "$ref": "#/$defs/name" },
+        "line": { "$ref": "#/$defs/line" },
+        "activeFrom": { "$ref": "#/$defs/date" },
+        "activeTo": { "$ref": "#/$defs/openDate" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

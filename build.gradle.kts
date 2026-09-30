@@ -194,6 +194,48 @@ val verifyContractChecksums = tasks.register("verifyContractChecksums") {
 tasks.named("check") { dependsOn(verifyContractChecksums) }
 
 // ---------------------------------------------------------------------------------------------
+// Phase 2 P4: 평문 유출 스캔 — 모든 모듈의 테스트 결과 XML(표준 출력·오류·실패 메시지·테스트 이름)에 센티널 고객의
+// 이름·전화·생년월일(원문·변형·UTF-8 16진)이 한 번도 나타나지 않아야 한다. 센티널은 disclosure-infra 테스트 픽스처의
+// pii-sentinels.properties(PlaintextLeakScanIT와 같은 파일). 모든 Test 태스크 뒤에 돌고 check에 묶인다.
+// ---------------------------------------------------------------------------------------------
+val sentinelsFile = layout.projectDirectory.file("disclosure-infra/src/testFixtures/resources/pii-sentinels.properties")
+
+val scanPlaintextLeaks = tasks.register("scanPlaintextLeaks") {
+    group = "verification"
+    description = "Fails when a PII sentinel appears in any test result XML (Phase 2 P4)."
+    val sentinels = sentinelsFile.asFile
+    val root = layout.projectDirectory.asFile
+    inputs.file(sentinels)
+    doLast {
+        val props = java.util.Properties()
+        sentinels.reader(Charsets.UTF_8).use { props.load(it) }
+        val plain = linkedSetOf(props.getProperty("name"), props.getProperty("phone"), props.getProperty("birthDate"))
+        props.getProperty("variants").split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { plain.add(it) }
+        val forbidden = plain + plain.map { v -> v.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) } }
+        val results = root.listFiles().orEmpty()
+            .map { it.resolve("build/test-results") }
+            .filter { it.isDirectory }
+            .flatMap { dir -> dir.walkTopDown().filter { it.isFile && it.name.endsWith(".xml") }.toList() }
+        if (results.isEmpty()) {
+            throw GradleException("scanPlaintextLeaks: no test result XML found — run the tests first")
+        }
+        val hits = results.flatMap { f ->
+            val text = f.readText(Charsets.UTF_8)
+            forbidden.filter { text.contains(it) }.map { "${f.relativeTo(root)}: ${it.take(3)}…" }
+        }
+        if (hits.isNotEmpty()) {
+            throw GradleException("평문 개인정보 센티널이 테스트 출력에 나타났다(값은 앞 3자만 표시):\n" + hits.joinToString("\n"))
+        }
+        logger.lifecycle("scanPlaintextLeaks: ${results.size} result files, ${forbidden.size} forbidden strings, 0 hits")
+    }
+}
+subprojects {
+    tasks.withType<Test>().configureEach { finalizedBy(scanPlaintextLeaks) }
+}
+scanPlaintextLeaks.configure { mustRunAfter(subprojects.map { p -> p.tasks.withType<Test>() }) }
+tasks.named("check") { dependsOn(scanPlaintextLeaks) }
+
+// ---------------------------------------------------------------------------------------------
 // C11: platform-core·platform-spring을 mavenLocal에 발행한 뒤, 발행 아티팩트만으로 disclosure-domain을
 // 별도 빌드(verification/published-consumer)에서 컴파일한다. ~/.m2에 쓰므로 build에 묶지 않고 CI 잡으로 돌린다.
 // ---------------------------------------------------------------------------------------------
@@ -206,6 +248,63 @@ tasks.register<Exec>("verifyPublishedPlatform") {
         rootDir.resolve("gradlew").absolutePath,
         "--project-dir", "verification/published-consumer",
         "--no-configuration-cache",
+        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// 선행 C(Phase 2): 플랫폼 세 모듈을 GitHub Packages에도 발행한다(설계서 §11). 태그 `platform-v*`에서
+// .github/workflows/publish-platform.yml이 실행한다. 자격증명은 환경변수에서만 읽고, 없으면 저장소를 구성하지 않는다
+// (로컬·일반 CI에서는 publishToMavenLocal만 쓰인다). 세 모듈은 SemVer 동일 버전으로 움직인다.
+// ---------------------------------------------------------------------------------------------
+val platformModules = listOf("platform-core", "platform-canonical", "platform-spring")
+val githubPackagesUrl = "https://maven.pkg.github.com/hjryoo-ai/ga-disclosure"
+configure(platformModules.map { project(":$it") }) {
+    pluginManager.withPlugin("maven-publish") {
+        val actor = providers.environmentVariable("GITHUB_ACTOR")
+        val token = providers.environmentVariable("GITHUB_TOKEN")
+        if (actor.isPresent && token.isPresent) {
+            extensions.configure<PublishingExtension> {
+                repositories {
+                    maven {
+                        name = "GitHubPackages"
+                        url = uri(githubPackagesUrl)
+                        credentials {
+                            username = actor.get()
+                            password = token.get()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 발행 태그(platform-vX.Y.Z)와 세 모듈의 빌드 버전이 모두 같은지 확인한다. 워크플로가 발행 전에 호출한다.
+tasks.register("checkPlatformVersion") {
+    group = "verification"
+    description = "Fails unless every platform module has the version given by -PexpectedPlatformVersion."
+    val expected = providers.gradleProperty("expectedPlatformVersion")
+    val versions = platformModules.associateWith { project(":$it").version.toString() }
+    doLast {
+        val want = expected.orNull ?: throw GradleException("-PexpectedPlatformVersion is required")
+        val wrong = versions.filterValues { it != want }
+        if (wrong.isNotEmpty()) throw GradleException("platform version mismatch: tag=$want, modules=$versions")
+        logger.lifecycle("platform modules all at $want: ${versions.keys}")
+    }
+}
+
+// 발행된 아티팩트를 mavenLocal 없이 GitHub Packages에서만 해석해 disclosure-domain을 컴파일한다(발행물 소비 가능 증명).
+// GITHUB_ACTOR/GITHUB_TOKEN(read:packages) 환경변수가 필요하다.
+tasks.register<Exec>("verifyPublishedPlatformFromGitHub") {
+    group = "verification"
+    description = "Compiles disclosure-domain against platform artifacts resolved from GitHub Packages only."
+    workingDir = rootDir
+    commandLine(
+        rootDir.resolve("gradlew").absolutePath,
+        "--project-dir", "verification/published-consumer",
+        "--no-configuration-cache", "--refresh-dependencies",
+        "-Pga.platformRepo=github",
         "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
     )
 }

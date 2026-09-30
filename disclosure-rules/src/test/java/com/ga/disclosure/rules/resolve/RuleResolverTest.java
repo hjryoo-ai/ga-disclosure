@@ -1,7 +1,9 @@
 package com.ga.disclosure.rules.resolve;
 
 import com.ga.disclosure.domain.enums.ManagerConfirmMode;
+import com.ga.disclosure.domain.enums.PiiField;
 import com.ga.disclosure.domain.enums.RuleStatus;
+import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.rules.bundle.RuleBundle;
 import com.ga.disclosure.rules.testing.Bundles;
@@ -166,5 +168,48 @@ class RuleResolverTest {
     void bodyHashMustMatchTheBody() {
         assertThatThrownBy(() -> new EffectiveRule(D, Y2026.ruleVersionId(), null, Y2026.body(), "0".repeat(64)))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** Phase 1 수용 심사 §3-2: 예외 승인 주체는 사규가 바꿀 수 없다(관리자 확인 OFF 테넌트도 예외 건은 관리자가 승인). */
+    @Test
+    void exceptionApprovalCannotBeOverriddenButMaskingCan() {
+        RuleResolutionException e = failure(withGlobal()
+                .add(Bundles.tenant("HOUSE", FROM, null, RuleStatus.ACTIVE, json("{\"exceptionApproval\": {\"role\": \"AGENT\"}}"))));
+        assertThat(e.failure()).isEqualTo(ResolutionFailure.DISALLOWED_OVERRIDE);
+        assertThat(e).hasMessageContaining("exceptionApproval");
+
+        JsonNode house = json("""
+                {"masking": {"name": {"keepFirst": 1, "keepLast": 0, "maskChar": "*"},
+                             "phone": {"keepFirst": 0, "keepLast": 4, "maskChar": "#"},
+                             "birthDate": {"keepFirst": 4, "keepLast": 0, "maskChar": "*"}}}""");
+        EffectiveRule rule = new RuleResolver(withGlobal().add(Bundles.tenant("HOUSE", FROM, null, RuleStatus.ACTIVE, house)))
+                .resolve(T, D);
+        assertThat(rule.exceptionApprovalRole()).isEqualTo(SignerRole.MANAGER);
+        assertThat(rule.masking(PiiField.PHONE)).isEqualTo(new MaskingRule(0, 4, "#"));
+        EffectiveRule global = new RuleResolver(withGlobal()).resolve(T, D);
+        assertThat(global.masking(PiiField.NAME)).isEqualTo(new MaskingRule(1, 1, "*"));
+        assertThat(global.masking(PiiField.BIRTH_DATE)).isEqualTo(new MaskingRule(0, 0, "*"));
+    }
+
+    /** 2027-01 룰은 관리자 확인 OFF(서명자에서 MANAGER 제외)지만 예외 승인 주체는 여전히 MANAGER다. */
+    @Test
+    void managerConfirmOffStillRequiresManagerExceptionApproval() {
+        RuleBundle y2027 = Bundles.rule(Bundles.DISC_2027_01);
+        EffectiveRule rule = RuleResolver.merge(y2027.applyFrom(), Bundles.global(y2027, RuleStatus.ACTIVE, null), null);
+        assertThat(rule.managerConfirmMode()).isEqualTo(ManagerConfirmMode.OFF);
+        assertThat(rule.signerSet()).doesNotContain(SignerRole.MANAGER);
+        assertThat(rule.exceptionApprovalRole()).isEqualTo(SignerRole.MANAGER);
+    }
+
+    @Test
+    void maskingKeepsOnlyTheConfiguredEndsAndNeverRevealsAShortValueWhole() {
+        MaskingRule rule = new MaskingRule(1, 1, "*");
+        assertThat(rule.apply("홍길동")).isEqualTo("홍*동");
+        assertThat(rule.apply("남궁민수")).isEqualTo("남**수");
+        assertThat(rule.apply("홍길")).isEqualTo("**");
+        assertThat(new MaskingRule(3, 4, "*").apply("01012345678")).isEqualTo("010****5678");
+        assertThat(new MaskingRule(0, 0, "*").apply("1990-01-01")).isEqualTo("**********");
+        assertThat(new MaskingRule(1, 0, "*").apply("𝒜bc")).as("코드포인트 단위").isEqualTo("𝒜**");
+        assertThatThrownBy(() -> new MaskingRule(0, 0, "**")).isInstanceOf(IllegalArgumentException.class);
     }
 }

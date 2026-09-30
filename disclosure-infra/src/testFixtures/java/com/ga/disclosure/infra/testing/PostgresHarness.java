@@ -96,6 +96,27 @@ public final class PostgresHarness {
         return container.getJdbcUrl();
     }
 
+    /** 컨테이너 안에서 전체 데이터 덤프({@code pg_dump --data-only}, 컨테이너 superuser — RLS와 무관하게 전 테넌트). */
+    public String dumpAllData() {
+        try {
+            var result = container.execInContainer("pg_dump", "--data-only", "--username", container.getUsername(), container.getDatabaseName());
+            if (result.getExitCode() != 0) {
+                throw new IllegalStateException("pg_dump failed: " + result.getStderr());
+            }
+            return result.getStdout();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** PostgreSQL 서버 로그(컨테이너 표준 출력·오류). */
+    public String serverLogs() {
+        return container.getLogs();
+    }
+
     /** {@code disclosure_migrator}로 한 트랜잭션을 열고 {@code app.tenant_id}를 설정한 뒤 실행·커밋한다(시드용). */
     public void seed(String tenantId, SqlWork work) {
         runInTransaction(migrator, tenantId, work, true);

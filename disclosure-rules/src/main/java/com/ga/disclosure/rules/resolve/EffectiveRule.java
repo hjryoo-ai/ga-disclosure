@@ -1,10 +1,12 @@
 package com.ga.disclosure.rules.resolve;
 
 import com.ga.disclosure.domain.enums.ManagerConfirmMode;
+import com.ga.disclosure.domain.enums.PiiField;
 import com.ga.disclosure.domain.enums.SignOrder;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.TieBreak;
+import com.ga.disclosure.domain.enums.ValidationStage;
 import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.platform.canonical.Canonicalizer;
@@ -15,6 +17,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -187,9 +190,55 @@ public record EffectiveRule(
         return boolValue("retainUnlinked");
     }
 
-    /** 실행할 검증 규칙 ID(순서대로). */
-    public List<String> validations() {
-        return List.copyOf(strings("validations", Function.identity()));
+    /** 검증 규칙과 실행 단계(룰 순서대로). ID 중복·빈 단계·모르는 단계는 예외(기본값 없음). */
+    public List<ValidationStep> validations() {
+        List<ValidationStep> out = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (JsonNode n : array("validations")) {
+            String id = text(n, "validations[].id", "id");
+            if (!seen.add(id)) {
+                throw missing("validations[] (duplicate id " + id + ")");
+            }
+            JsonNode stages = n.get("stages");
+            if (stages == null || !stages.isArray() || stages.isEmpty()) {
+                throw missing("validations[" + id + "].stages");
+            }
+            Set<ValidationStage> parsed = EnumSet.noneOf(ValidationStage.class);
+            for (JsonNode s : stages) {
+                if (!s.isString()) {
+                    throw missing("validations[" + id + "].stages[]");
+                }
+                parsed.add(ValidationStage.valueOf(s.asString()));
+            }
+            out.add(new ValidationStep(id, parsed));
+        }
+        return List.copyOf(out);
+    }
+
+    /** {@code stage}에서 실행할 규칙 ID(룰 순서대로). */
+    public List<String> validationsFor(ValidationStage stage) {
+        return validations().stream().filter(v -> v.runsIn(stage)).map(ValidationStep::id).toList();
+    }
+
+    // ------------------------------------------------------------------ 예외 승인·마스킹
+
+    /**
+     * 산출불가·임시등록·검증 오버라이드의 예외 승인 주체(설계서 §6.5). {@code managerConfirmMode}와 무관하게 항상 필요하며
+     * 서명이 아니라 review 기록이다. GLOBAL 전용 키(사규가 열 수 없다).
+     */
+    public SignerRole exceptionApprovalRole() {
+        return SignerRole.valueOf(text(object("exceptionApproval"), "exceptionApproval.role", "role"));
+    }
+
+    /** 표시용 부분 마스킹 규칙(설계서 §9, TODO(confirm#12)). */
+    public MaskingRule masking(PiiField field) {
+        JsonNode rule = object("masking").get(field.ruleKey());
+        String path = "masking." + field.ruleKey();
+        if (rule == null || !rule.isObject()) {
+            throw missing(path);
+        }
+        return new MaskingRule(intValue(rule, path + ".keepFirst", "keepFirst"), intValue(rule, path + ".keepLast", "keepLast"),
+                text(rule, path + ".maskChar", "maskChar"));
     }
 
     public Set<String> tenantOverridable() {
