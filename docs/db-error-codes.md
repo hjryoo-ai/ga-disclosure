@@ -13,7 +13,7 @@ DB 트리거가 불변식 위반을 거부할 때 올리는 사용자 정의 SQL
 | GD020 | V3 | `signature` INSERT | 서명 대상 확인서 없음 |
 | GD021 | V3 | `signature` INSERT | 부모 상태가 `SEALED`·`PARTIALLY_SIGNED`가 아님 |
 | GD022 | V3 | `signature` INSERT | `signed_doc_hash ≠ disclosure.canonical_hash` |
-| GD030 | V3·V5 | append-only 테이블(`signature`, `audit_log`, `document_artifact`, `audit_anchor`, V5 `catalog_import`)·`disclosure`·자식 테이블 | UPDATE·DELETE(append-only 테이블), TRUNCATE |
+| GD030 | V3·V5·V6 | append-only 테이블(`signature`, `audit_log`, `document_artifact`, `audit_anchor`, V5 `catalog_import`, V6 `review`)·`disclosure`·자식 테이블 | UPDATE·DELETE(append-only 테이블), TRUNCATE |
 | GD040 | V4 | `rule_version` INSERT | GLOBAL인데 `status ≠ APPROVED`, 또는 TENANT인데 `status ≠ DRAFT` |
 | GD041 | V4 | `rule_version` UPDATE | 식별자·`scope` 변경, 또는 TENANT·DRAFT가 아닌 행에서 메타(`status`, `apply_to`, `approved_by`, `approved_at`) 외 컬럼 변경 |
 | GD042 | V4 | `rule_version` UPDATE | `apply_to` 재기록(값→다른 값, 값→NULL) |
@@ -30,5 +30,7 @@ DB 트리거가 불변식 위반을 거부할 때 올리는 사용자 정의 SQL
 | GD064 | V5 | `customer_ref` | DELETE·TRUNCATE(파기는 Phase 5 보존기간 배치) |
 | GD070 | V5 | `product_group`·`product_catalog`·`insurer_panel` | DELETE·TRUNCATE(파일에서 사라진 행은 유효기간을 닫는다) |
 | GD071 | V5 | `product_catalog` UPDATE | 키 정체성(`tenant_id`, `product_key`, `insurer_code`) 변경 |
+| GD065 | V6 | `customer_ref` UPDATE | `registration_key` 변경(등록 멱등 키는 INSERT 때만 정한다) |
+| GD080 | V6 | `review` INSERT | 부모 확인서 없음, 또는 부모가 가변 상태(`DRAFT`~`REASONED`)가 아님 — 예외 승인은 봉인 전에만 기록한다 |
 
-제약 위반(트리거가 아닌 DB 제약)은 PostgreSQL 표준 코드를 그대로 쓴다: 배타 제약 `23P01`(`ex_rule_version_in_force_overlap`, `ex_form_template_overlap`, V5 `ex_insurer_panel_overlap`), CHECK `23514`(V5: `customer_ref` 암호문 머리·ID 형식, 카탈로그 구간·`line`), PK·유일 `23505`(V5: `ux_customer_data_key_active`, `uq_catalog_import_file`, `ux_compliance_flag_open_target`), FK `23503`.
+제약 위반(트리거가 아닌 DB 제약)은 PostgreSQL 표준 코드를 그대로 쓴다: 배타 제약 `23P01`(`ex_rule_version_in_force_overlap`, `ex_form_template_overlap`, V5 `ex_insurer_panel_overlap`), CHECK `23514`(V5: `customer_ref` 암호문 머리·ID 형식, 카탈로그 구간·`line`; V6: `disclosure` 상태 열거·스냅샷 헤더 전부-또는-없음·산출 전 스냅샷 금지, `disclosure_item` 임시등록 정체성·등급 복사본 세 형태, `review` 해시·사유, `registration_key` 형식), PK·유일 `23505`(V5: `ux_customer_data_key_active`, `uq_catalog_import_file`, `ux_compliance_flag_open_target`; V6: `ux_disclosure_item_product`, `ux_customer_ref_registration`), FK `23503`.

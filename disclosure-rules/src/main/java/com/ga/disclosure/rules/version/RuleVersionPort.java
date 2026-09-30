@@ -1,5 +1,7 @@
 package com.ga.disclosure.rules.version;
 
+import com.ga.disclosure.domain.vo.RuleVersionId;
+import java.util.Optional;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.platform.core.tenant.TenantId;
 
@@ -16,4 +18,7 @@ import java.util.List;
 public interface RuleVersionPort {
 
     List<RuleVersion> findActive(TenantId tenant, RuleScope scope, LocalDate asOf);
+
+    /** 확인서에 고정된 버전 ID로 조회한다(상태 무관 — 판정은 해석기, 3A {@code RuleResolver.load}). */
+    Optional<RuleVersion> findById(TenantId tenant, RuleVersionId id);
 }

@@ -104,6 +104,12 @@ public class RuleVersionRepository extends TenantScopedRepository implements Rul
     }
 
     @Override
+    public Optional<RuleVersion> findById(TenantId tenant, RuleVersionId id) {
+        requireBound(tenant);
+        return find(id);
+    }
+
+    @Override
     public List<RuleVersion> findByStatus(RuleStatus status) {
         return query("""
                 SELECT rule_version_id, scope, apply_from, apply_to, status, approved_by, approved_at, body::text AS body,

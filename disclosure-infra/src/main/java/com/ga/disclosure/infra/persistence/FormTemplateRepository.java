@@ -63,6 +63,14 @@ public class FormTemplateRepository extends TenantScopedRepository implements Fo
     }
 
     @Override
+    public Optional<FormTemplate> findByRef(TenantId tenant, TemplateRef ref) {
+        if (!TenantContext.current().equals(tenant)) {
+            throw new IllegalArgumentException("port called for " + tenant + " while bound to " + TenantContext.current());
+        }
+        return find(ref);
+    }
+
+    @Override
     public Optional<FormTemplate> find(TemplateRef ref) {
         return queryAtMostOne("""
                 SELECT template_id, version, template_type, apply_from, apply_to, fields::text AS fields, layout::text AS layout,

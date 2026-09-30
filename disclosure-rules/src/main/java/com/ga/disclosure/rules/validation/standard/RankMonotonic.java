@@ -10,7 +10,10 @@ import com.ga.disclosure.rules.validation.ValidationSubject;
 
 import java.util.List;
 
-/** 엔진 스냅샷 정합성(설계서 §6.3 (i)~(v)). 판정은 {@link GradeConsistencyCheck}가 한다. 실패는 스냅샷 거부 — 오버라이드 없음. */
+/**
+ * 엔진 스냅샷 정합성(설계서 §6.3 (i)~(v)). 판정은 {@link GradeConsistencyCheck}가 한다. 실패는 스냅샷 거부 — 오버라이드 없음.
+ * 요청 집합 = 임시등록을 제외한 항목(임시등록은 엔진에 보내지 않는다, 설계서 §4.1 v1.7).
+ */
 final class RankMonotonic implements Validation {
 
     static final String ID = "R-RANK-MONOTONIC";
@@ -27,7 +30,7 @@ final class RankMonotonic implements Validation {
         }
         GradeSnapshot snapshot = subject.gradeSnapshot().get();
         List<String> violations = GradeConsistencyCheck.violations(
-                subject.items().stream().map(ValidationSubject.Item::productKey).toList(), snapshot,
+                subject.items().stream().map(ValidationSubject.Item::productKey).flatMap(java.util.Optional::stream).toList(), snapshot,
                 rule.allowedGradingPolicies(), rule.allowedRankingPolicies(), rule.allowedTieBreaks());
         return violations.isEmpty()
                 ? ValidationResult.pass(ID, "스냅샷 " + snapshot.snapshotId() + " 정합(" + snapshot.tieBreak() + ")")

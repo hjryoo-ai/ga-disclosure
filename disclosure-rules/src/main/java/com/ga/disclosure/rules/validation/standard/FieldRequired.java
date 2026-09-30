@@ -36,7 +36,7 @@ final class FieldRequired implements Validation {
                 }
                 case PER_ITEM -> subject.items().stream()
                         .filter(i -> blank(i.fieldValues(), field.code()))
-                        .forEach(i -> missing.add(field.code() + "@" + i.productKey()));
+                        .forEach(i -> missing.add(field.code() + "@" + i.label()));
             }
         }
         return missing.isEmpty()

@@ -43,19 +43,30 @@ public final class SeedData {
                 tenant, "GA " + tenant, "http://engine.invalid/" + tenant);
     }
 
-    /** 확인서 헤더 1건(봉인 이후 상태면 봉인 컬럼도 채운다). */
+    /** 산출 전 상태(스냅샷 헤더가 없어야 한다, V6 {@code ck_disclosure_snapshot_state}). */
+    public static final List<String> UNGRADED_STATUSES = List.of("DRAFT", "COMPARED");
+
+    /**
+     * 확인서 헤더 1건. 봉인 이후 상태면 봉인 컬럼을, 산출 이후 상태(GRADED~)면 엔진 스냅샷 헤더 6개를 함께 채운다(V6 헤더 전부-또는-없음).
+     */
     public static UUID disclosure(Connection c, String tenant, String status, String canonicalHash) throws SQLException {
         UUID id = UUID.randomUUID();
         boolean sealed = !MUTABLE_STATUSES.contains(status);
+        boolean graded = !UNGRADED_STATUSES.contains(status);
         exec(c, """
                 INSERT INTO disclosure (tenant_id, disclosure_id, disclosure_no, agent_id, customer_ref, group_code,
                                         template_id, template_version, rule_version_id, issuer_mode, status, consult_date,
-                                        grade_snapshot_id, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq)
+                                        grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break, grade_basis,
+                                        snapshot_generated_at, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq)
                 VALUES (?, ?, ?, 'AGENT-1', 'C-0001', 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
-                        'GRD-1', CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 10:00:00+09' END, ?, ?, ?, ?)
+                        CASE WHEN ? THEN 'GRD-1' END, CASE WHEN ? THEN 'GRADING-2026-07' END, CASE WHEN ? THEN 'RANK-2026-07' END,
+                        CASE WHEN ? THEN 'SHARED_RANK' END,
+                        CASE WHEN ? THEN '{"groupAvgSource": "ASSOC_DISCLOSURE", "period": "2026Q2", "groupPopulation": 27}'::jsonb END,
+                        CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 09:30:00+09' END,
+                        CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 10:00:00+09' END, ?, ?, ?, ?)
                 """,
                 tenant, id, sealed ? tenant + "-2026-" + String.format("%06d", SEQUENCE.incrementAndGet()) : null,
-                sealed ? "DISC-2026-07" : null, status, sealed,
+                sealed ? "DISC-2026-07" : null, status, graded, graded, graded, graded, graded, graded, sealed,
                 sealed ? canonicalHash : null, sealed ? hash('b') : null, sealed ? hash('c') : null, sealed ? 1L : null);
         return id;
     }
@@ -64,8 +75,8 @@ public final class SeedData {
         exec(c, """
                 INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, product_key, insurer_code, product_name,
                                              is_recommended, field_values, grade, grade_label, grade_ordinal, rank_in_set,
-                                             ratio_to_avg, grade_status)
-                VALUES (?, ?, ?, ?, 'INS-A', '상품', true, '{}'::jsonb, 'LOW', '낮음', 2, ?, ?, 'OK')
+                                             ratio_to_avg, grade_status, tie, grade_source)
+                VALUES (?, ?, ?, ?, 'INS-A', '상품', true, '{}'::jsonb, 'LOW', '낮음', 2, ?, ?, 'OK', false, 'ENGINE')
                 """, tenant, disclosure, (short) itemNo, "INS-A:PRD-" + itemNo, (short) itemNo, ratioToAvg);
     }
 
@@ -193,6 +204,7 @@ public final class SeedData {
         UUID draft = disclosure(c, tenant, "DRAFT", null);
         item(c, tenant, draft, 1, "0.84");
         recommendation(c, tenant, draft, 1);
+        review(c, tenant, draft, "R-TEMP-PRODUCT");
         UUID sealed = disclosure(c, tenant, "SEALED", hash('a'));
         artifact(c, tenant, sealed, "PDF");
         exec(c, """
@@ -210,6 +222,14 @@ public final class SeedData {
                 INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at)
                 VALUES (?, ?, 'MISSING', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09')
                 """, tenant, UUID.randomUUID());
+    }
+
+    /** 관리자 예외 승인 1건(V6 review, 부모는 가변 상태여야 한다 — GD080). */
+    public static void review(Connection c, String tenant, UUID disclosure, String ruleId) throws SQLException {
+        exec(c, """
+                INSERT INTO review (tenant_id, review_id, disclosure_id, rule_id, subject_hash, approved_by, approved_role, approved_at, reason)
+                VALUES (?, ?, ?, ?, repeat('0', 64), 'manager@seed', 'MANAGER', TIMESTAMPTZ '2026-09-23 11:00:00+09', '시드 승인')
+                """, tenant, UUID.randomUUID(), disclosure, ruleId);
     }
 
     /** 감싼 키 자리값(32바이트 0)을 가진 ACTIVE 데이터 키. 암호화 IT는 실제 키 저장소 어댑터로 만든다. */

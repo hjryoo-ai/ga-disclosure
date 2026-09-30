@@ -1,5 +1,7 @@
 package com.ga.disclosure.rules.testing;
 
+import com.ga.disclosure.domain.vo.RuleVersionId;
+import java.util.Optional;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.rules.version.RuleVersion;
@@ -30,5 +32,10 @@ public final class InMemoryRuleVersionPort implements RuleVersionPort {
                 .filter(r -> r.status() == RuleStatus.ACTIVE || r.status() == RuleStatus.RETIRED)
                 .filter(r -> r.covers(asOf))
                 .toList();
+    }
+
+    @Override
+    public Optional<RuleVersion> findById(TenantId tenant, RuleVersionId id) {
+        return rules.stream().filter(r -> r.id().equals(id)).findFirst();
     }
 }

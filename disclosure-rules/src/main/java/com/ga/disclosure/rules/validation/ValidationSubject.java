@@ -15,8 +15,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 검증 규칙이 보는 확인서의 단면. 검증이 필요로 하는 것만 노출한다 — 워크플로 애그리게이트가 Phase 3에서 구현하고,
- * 그 전까지 구현체는 테스트 픽스처에만 둔다(Phase 1 지시문 "하지 말 것").
+ * 검증 규칙이 보는 확인서의 단면. 검증이 필요로 하는 것만 노출한다 — 워크플로 애그리게이트({@code Disclosure}, Phase 3A)가
+ * 구현하고, 규칙 단위 테스트는 테스트 픽스처 구현을 쓴다.
  */
 public interface ValidationSubject {
 
@@ -50,7 +50,11 @@ public interface ValidationSubject {
     /** 비교 항목 1건. */
     interface Item {
 
-        ProductKey productKey();
+        /** 상품키. 임시등록 항목은 상품키가 없다(엔진 도메인 밖이라 키를 짓지 않는다, 3A 계획 Q4). */
+        Optional<ProductKey> productKey();
+
+        /** 상품명(카탈로그, 임시등록이면 설계사 입력). */
+        String productName();
 
         InsurerCode insurerCode();
 
@@ -76,6 +80,12 @@ public interface ValidationSubject {
 
         /** 추천사유 텍스트. */
         Optional<String> reasonText();
+
+        /** 메시지·감사용 표시: 상품키, 임시등록이면 보험사와 발행번호. */
+        default String label() {
+            return productKey().map(ProductKey::value)
+                    .orElseGet(() -> "임시등록(" + insurerCode() + "/" + quoteDocNo().orElse("-") + ")");
+        }
     }
 
     /** 서명 1건: 역할과 서명 시각. */

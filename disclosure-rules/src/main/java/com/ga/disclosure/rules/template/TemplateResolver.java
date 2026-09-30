@@ -1,5 +1,6 @@
 package com.ga.disclosure.rules.template;
 
+import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.rules.resolve.ResolutionFailure;
 import com.ga.disclosure.rules.resolve.RuleResolutionException;
@@ -36,6 +37,14 @@ public final class TemplateResolver {
                     found.size() + " " + templateType + " templates on " + asOf + ": " + found.stream().map(FormTemplate::ref).toList());
         }
         return resolution(found.getFirst());
+    }
+
+    /** 확인서에 고정된 서식을 로드한다(3A: 초안 생성 시 한 번 해석해 ID·버전을 고정하고 재해석하지 않는다). */
+    public TemplateResolution load(TenantId tenant, TemplateRef ref) {
+        FormTemplate t = port.findByRef(Objects.requireNonNull(tenant, "tenant"), Objects.requireNonNull(ref, "ref"))
+                .orElseThrow(() -> new RuleResolutionException(ResolutionFailure.PINNED_VERSION_MISSING,
+                        "pinned template " + ref + " does not exist for " + tenant));
+        return resolution(t);
     }
 
     /** 서식 레코드를 해석 결과로 바꾼다(필드 형식은 서식 스키마가 보장). */
