@@ -59,15 +59,18 @@ ALTER TABLE disclosure_item
     ADD CONSTRAINT ck_item_ungraded CHECK (grade_status IS NOT NULL OR (
         grade IS NULL AND grade_label IS NULL AND grade_ordinal IS NULL AND rank_in_set IS NULL AND NOT ratio_present
         AND tie IS NULL AND unavailable_reason IS NULL AND grade_source IS NULL)),
-    ADD CONSTRAINT ck_item_ok CHECK (grade_status IS DISTINCT FROM 'OK' OR (
+    -- CHECK는 식이 NULL이면 통과한다 — 비교식은 전부 coalesce(…, false)·IS NOT DISTINCT FROM으로 NULL을 거짓으로 만든다(W8이 잡은 결함)
+    ADD CONSTRAINT ck_item_ok CHECK (grade_status IS DISTINCT FROM 'OK' OR coalesce(
         grade IS NOT NULL AND grade_label IS NOT NULL AND grade_ordinal >= 1 AND rank_in_set >= 1 AND ratio_present
-        AND tie IS NOT NULL AND unavailable_reason IS NULL AND grade_source = 'ENGINE')),
-    ADD CONSTRAINT ck_item_unavailable CHECK (grade_status IS DISTINCT FROM 'UNAVAILABLE' OR (
+        AND tie IS NOT NULL AND unavailable_reason IS NULL AND grade_source IS NOT DISTINCT FROM 'ENGINE', false)),
+    ADD CONSTRAINT ck_item_unavailable CHECK (grade_status IS DISTINCT FROM 'UNAVAILABLE' OR coalesce(
         grade IS NULL AND grade_label IS NULL AND grade_ordinal IS NULL AND rank_in_set IS NULL AND NOT ratio_present
-        AND tie IS NULL AND unavailable_reason IS NOT NULL AND btrim(unavailable_reason) <> '' AND grade_source IS NOT NULL)),
+        AND tie IS NULL AND unavailable_reason IS NOT NULL AND btrim(unavailable_reason) <> '' AND grade_source IS NOT NULL, false)),
     ADD CONSTRAINT ck_item_temp_grade CHECK (NOT temp_product OR grade_status IS NULL
-        OR (grade_status = 'UNAVAILABLE' AND grade_source = 'LOCAL' AND unavailable_reason = 'TEMP_PRODUCT')),
+        OR (grade_status = 'UNAVAILABLE' AND grade_source IS NOT DISTINCT FROM 'LOCAL'
+            AND unavailable_reason IS NOT DISTINCT FROM 'TEMP_PRODUCT')),
     ADD CONSTRAINT ck_item_local_is_temp CHECK (grade_source IS DISTINCT FROM 'LOCAL' OR temp_product);
+
 
 -- 같은 확인서 안에서 상품키는 한 번만(임시등록은 키가 없으므로 제외)
 CREATE UNIQUE INDEX ux_disclosure_item_product ON disclosure_item (tenant_id, disclosure_id, product_key)

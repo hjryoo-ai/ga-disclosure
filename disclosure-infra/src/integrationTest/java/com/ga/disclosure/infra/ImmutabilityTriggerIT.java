@@ -126,7 +126,7 @@ class ImmutabilityTriggerIT {
 
     static Stream<Arguments> statusTimesChildOperation() {
         return STATUSES.stream().flatMap(s -> Stream.of("disclosure_item", "recommendation")
-                .flatMap(t -> Stream.of("INSERT", "UPDATE", "DELETE").map(op -> Arguments.of(s, t, op))));
+                .flatMap(t -> Stream.of("INSERT", "UPDATE", "UPDATE_V6", "DELETE").map(op -> Arguments.of(s, t, op))));
     }
 
     private static UUID seedDisclosure(String status) {
@@ -250,6 +250,9 @@ class ImmutabilityTriggerIT {
                     VALUES (?, ?, 2, 'INS-B:PRD-2', 'INS-B', 'PG-HEALTH', '끼워넣기', true, '{}'::jsonb)""";
             case "disclosure_item:UPDATE" -> "UPDATE disclosure_item SET field_values = '{\"PREMIUM\": 1}'::jsonb WHERE tenant_id = ? AND disclosure_id = ?";
             case "disclosure_item:DELETE" -> "DELETE FROM disclosure_item WHERE tenant_id = ? AND disclosure_id = ?";
+            // V6 컬럼(동점·출처)도 자식 트리거가 컬럼과 무관하게 막는다(3A W8)
+            case "disclosure_item:UPDATE_V6" -> "UPDATE disclosure_item SET tie = NOT tie, group_code = group_code WHERE tenant_id = ? AND disclosure_id = ?";
+            case "recommendation:UPDATE_V6" -> "UPDATE recommendation SET reason_codes = reason_codes || ARRAY['CUSTOMER_REQUEST'] WHERE tenant_id = ? AND disclosure_id = ?";
             case "recommendation:INSERT" -> "INSERT INTO recommendation (tenant_id, disclosure_id, item_no, reason_codes) VALUES (?, ?, 2, ARRAY['OTHER'])";
             case "recommendation:UPDATE" -> "UPDATE recommendation SET reason_text = '변경' WHERE tenant_id = ? AND disclosure_id = ?";
             case "recommendation:DELETE" -> "DELETE FROM recommendation WHERE tenant_id = ? AND disclosure_id = ?";
