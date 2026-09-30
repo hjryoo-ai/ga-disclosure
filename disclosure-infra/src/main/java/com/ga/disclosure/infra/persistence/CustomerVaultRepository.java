@@ -93,6 +93,16 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
     }
 
     @Override
+    public boolean exists(CustomerRef ref) {
+        return queryAtMostOne("""
+                SELECT customer_ref
+                  FROM customer_ref
+                 WHERE tenant_id = :tenantId
+                   AND customer_ref = :customerRef
+                """, Map.of("customerRef", ref.value()), (rs, n) -> Boolean.TRUE).isPresent();
+    }
+
+    @Override
     public KeyRotation rotate(Instant at) {
         Optional<StoredKey> active = activeKey();
         active.ifPresent(k -> update("""

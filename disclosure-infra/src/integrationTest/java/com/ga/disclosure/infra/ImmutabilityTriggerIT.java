@@ -245,9 +245,9 @@ class ImmutabilityTriggerIT {
         });
         String sql = switch (table + ":" + op) {
             case "disclosure_item:INSERT" -> """
-                    INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, product_key, insurer_code, product_name, is_recommended,
-                                                 field_values)
-                    VALUES (?, ?, 2, 'INS-B:PRD-2', 'INS-B', '끼워넣기', true, '{}'::jsonb)""";
+                    INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, product_key, insurer_code, group_code, product_name,
+                                                 is_recommended, field_values)
+                    VALUES (?, ?, 2, 'INS-B:PRD-2', 'INS-B', 'PG-HEALTH', '끼워넣기', true, '{}'::jsonb)""";
             case "disclosure_item:UPDATE" -> "UPDATE disclosure_item SET field_values = '{\"PREMIUM\": 1}'::jsonb WHERE tenant_id = ? AND disclosure_id = ?";
             case "disclosure_item:DELETE" -> "DELETE FROM disclosure_item WHERE tenant_id = ? AND disclosure_id = ?";
             case "recommendation:INSERT" -> "INSERT INTO recommendation (tenant_id, disclosure_id, item_no, reason_codes) VALUES (?, ?, 2, ARRAY['OTHER'])";

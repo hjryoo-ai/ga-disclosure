@@ -17,6 +17,9 @@ public interface CustomerVault {
 
     Optional<Customer> find(CustomerRef ref);
 
+    /** 복호화 없이 존재만 본다(확인서 초안이 고객 참조를 가리킬 때, Phase 3A). */
+    boolean exists(CustomerRef ref);
+
     /** 활성 키를 RETIRED로, 새 키를 ACTIVE로(같은 트랜잭션). 활성 키가 없었으면 새 키만. */
     KeyRotation rotate(Instant at);
 

@@ -15,14 +15,35 @@ dependencies {
     implementation(project(":disclosure-compliance"))
     implementation(project(":disclosure-workflow"))
     implementation("org.springframework:spring-context")
+    // Phase 3A 엔진 클라이언트: 응답을 계약 스키마(contracts/api, OpenAPI YAML)로 수신 즉시 검증한다
+    implementation(libs.json.schema.validator)
+    implementation(libs.jackson.dataformat.yaml)
     runtimeOnly(libs.postgresql)
 
     // PostgresHarness: 컨테이너 1회 기동 → init-roles.sql → disclosure_migrator로 Flyway → disclosure_app 데이터소스
     testFixturesApi(platform(libs.spring.boot.bom))
     testFixturesApi(libs.testcontainers.postgresql)
     testFixturesApi(libs.postgresql)
+    testFixturesImplementation(project(":disclosure-domain"))
+    testFixturesImplementation(project(":disclosure-workflow"))
+    testFixturesImplementation(libs.jackson.dataformat.yaml)
+    testFixturesImplementation(libs.json.schema.validator)
     testFixturesImplementation(libs.flyway.core)
     testFixturesImplementation(libs.flyway.postgresql)
+}
+
+// 엔진 계약(contracts/api)을 클래스패스 ga-contracts/api/에 싣는다 — 클라이언트와 FakeEngine이 같은 스키마로 검증한다.
+val contractResources = tasks.register<Sync>("contractResources") {
+    from(rootProject.layout.projectDirectory.dir("contracts/api")) {
+        into("ga-contracts/api")
+    }
+    into(layout.buildDirectory.dir("generated/contract-resources"))
+}
+
+sourceSets {
+    main {
+        resources.srcDir(contractResources)
+    }
 }
 
 testing {

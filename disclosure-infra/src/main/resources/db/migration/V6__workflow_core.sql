@@ -45,6 +45,7 @@ ALTER TABLE disclosure
 -- disclosure_item: 임시등록 정체성, 등급 복사본의 세 형태
 -- ---------------------------------------------------------------------------------------------
 ALTER TABLE disclosure_item
+    ADD COLUMN group_code         TEXT NOT NULL,                               -- 항목의 상품군(카탈로그 소속, 임시등록은 헤더 상품군) — R-SAME-GROUP
     ADD COLUMN tie                BOOLEAN,                                     -- 엔진 tie(OK일 때만)
     ADD COLUMN unavailable_reason TEXT,                                        -- 엔진 reason 원문 또는 로컬 TEMP_PRODUCT
     ADD COLUMN grade_source       TEXT,                                        -- ENGINE | LOCAL

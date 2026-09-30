@@ -1,0 +1,14 @@
+{
+  "gradingPolicyVersionId": "GRADING-2026-07",
+  "rankingPolicyVersionId": "RANK-2026-07",
+  "tieBreak": "SHARED_RANK",
+  "basis": { "groupAvgSource": "ASSOC_DISCLOSURE", "period": "2026Q2", "groupPopulation": 27 },
+  "unknownReason": "NO_RATE_DATA",
+  "productGroups": ["PG-HEALTH-SIMPLE-NR"],
+  "products": [
+    { "productKey": "INS-A:PRD-1001", "ratioToAvg": "0.84", "grade": "LOW",       "gradeLabel": "낮음",     "gradeOrdinal": 2, "rankKey": 10 },
+    { "productKey": "INS-C:PRD-3120", "ratioToAvg": "1.02", "grade": "MID",       "gradeLabel": "보통",     "gradeOrdinal": 3, "rankKey": 20 },
+    { "productKey": "INS-B:PRD-2044", "ratioToAvg": "1.37", "grade": "VERY_HIGH", "gradeLabel": "매우높음", "gradeOrdinal": 5, "rankKey": 30 },
+    { "productKey": "INS-E:PRD-5001", "ratioToAvg": "0.70", "grade": "LOW",       "gradeLabel": "낮음",     "gradeOrdinal": 2, "rankKey": 10 }
+  ]
+}

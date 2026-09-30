@@ -73,10 +73,10 @@ public final class SeedData {
 
     public static void item(Connection c, String tenant, UUID disclosure, int itemNo, String ratioToAvg) throws SQLException {
         exec(c, """
-                INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, product_key, insurer_code, product_name,
+                INSERT INTO disclosure_item (tenant_id, disclosure_id, item_no, product_key, insurer_code, group_code, product_name,
                                              is_recommended, field_values, grade, grade_label, grade_ordinal, rank_in_set,
                                              ratio_to_avg, grade_status, tie, grade_source)
-                VALUES (?, ?, ?, ?, 'INS-A', '상품', true, '{}'::jsonb, 'LOW', '낮음', 2, ?, ?, 'OK', false, 'ENGINE')
+                VALUES (?, ?, ?, ?, 'INS-A', 'PG-HEALTH', '상품', true, '{}'::jsonb, 'LOW', '낮음', 2, ?, ?, 'OK', false, 'ENGINE')
                 """, tenant, disclosure, (short) itemNo, "INS-A:PRD-" + itemNo, (short) itemNo, ratioToAvg);
     }
 
