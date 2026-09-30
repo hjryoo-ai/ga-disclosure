@@ -24,6 +24,7 @@ import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.workflow.disclosure.CanonicalValue;
 import com.ga.disclosure.workflow.disclosure.Disclosure;
 import com.ga.disclosure.workflow.disclosure.DisclosureItem;
+import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.disclosure.DisclosureRecord;
 import com.ga.disclosure.workflow.disclosure.DisclosureStore;
 import com.ga.platform.canonical.Canonicalizer;
@@ -56,7 +57,7 @@ import java.util.UUID;
  * 엔진 출처 항목 등급으로 복원한다(항목 순서). 봉인 이후 행의 변경은 V3 트리거가 거부한다.
  */
 @Repository
-public class DisclosureRepository extends TenantScopedRepository implements DisclosureStore {
+public class DisclosureRepository extends TenantScopedRepository implements DisclosureStore, DisclosureLookup {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -99,6 +100,20 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                    FOR UPDATE
                 """, Map.of("id", id.value()), (rs, n) -> header(rs));
         return header.map(this::withChildren);
+    }
+
+    @Override
+    public List<DisclosureId> findFor(CustomerRef customer, java.time.LocalDate consultDate, GroupCode group) {
+        return query("""
+                SELECT disclosure_id
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND customer_ref = :customerRef
+                   AND consult_date = :consultDate
+                   AND group_code = :groupCode
+                 ORDER BY disclosure_id
+                """, Map.of("customerRef", customer.value(), "consultDate", consultDate, "groupCode", group.value()),
+                (rs, n) -> DisclosureId.of(rs.getObject("disclosure_id", UUID.class)));
     }
 
     /**

@@ -17,6 +17,18 @@ public interface CustomerVault {
 
     Optional<Customer> find(CustomerRef ref);
 
+    /**
+     * 등록 멱등 키로 등록한다(3A 계획 Q7): 같은 키의 고객이 이미 있으면 새 행을 만들지 않고 그 참조를 돌려준다({@code created=false}).
+     * 동시 등록도 한 행만 남는다(부분 유일 인덱스 + {@code ON CONFLICT DO NOTHING} 후 재조회).
+     */
+    KeyedInsert insertKeyed(CustomerRef ref, NewCustomer customer, Instant createdAt, RegistrationKey key);
+
+    record KeyedInsert(CustomerRef ref, boolean created, String keyIdOrNull) {
+    }
+
+    /** 등록 멱등 키로 찾는다(복호화 없음). */
+    Optional<CustomerRef> findByRegistrationKey(RegistrationKey key);
+
     /** 복호화 없이 존재만 본다(확인서 초안이 고객 참조를 가리킬 때, Phase 3A). */
     boolean exists(CustomerRef ref);
 

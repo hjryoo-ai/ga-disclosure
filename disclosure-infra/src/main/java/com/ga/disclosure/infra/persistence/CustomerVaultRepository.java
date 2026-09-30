@@ -11,6 +11,7 @@ import com.ga.disclosure.workflow.customer.Customer;
 import com.ga.disclosure.workflow.customer.CustomerVault;
 import com.ga.disclosure.workflow.customer.KeyProviderPort;
 import com.ga.disclosure.workflow.customer.NewCustomer;
+import com.ga.disclosure.workflow.customer.RegistrationKey;
 import com.ga.platform.core.tenant.TenantContext;
 import com.ga.platform.core.tenant.TenantId;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
@@ -90,6 +91,55 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
                         Arrays.fill(dek, (byte) 0);
                     }
                 });
+    }
+
+    @Override
+    public KeyedInsert insertKeyed(CustomerRef ref, NewCustomer customer, Instant createdAt, RegistrationKey key) {
+        Optional<CustomerRef> existing = byRegistrationKey(key);
+        if (existing.isPresent()) {
+            return new KeyedInsert(existing.get(), false, null);
+        }
+        TenantId tenant = TenantContext.current();
+        StoredKey dataKey = activeKey().orElseGet(() -> createKey(createdAt));
+        byte[] dek = unwrap(tenant, dataKey);
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("customerRef", ref.value());
+            params.put("name", CustomerFieldCipher.encrypt(dek, tenant, ref, dataKey.keyId(), customer.name()));
+            params.put("phone", customer.phone().map(p -> CustomerFieldCipher.encrypt(dek, tenant, ref, dataKey.keyId(), p)).orElse(null));
+            params.put("birthDate", customer.birthDate().map(b -> CustomerFieldCipher.encrypt(dek, tenant, ref, dataKey.keyId(), b)).orElse(null));
+            params.put("keyId", dataKey.keyId());
+            params.put("createdAt", Timestamp.from(createdAt));
+            params.put("registrationKey", key.value());
+            // 같은 키의 동시 등록: 진 쪽은 부분 유일 인덱스에서 이긴 쪽의 커밋을 기다린 뒤 0행이 되고, 재조회가 이긴 쪽의 참조를 읽는다.
+            List<String> inserted = query("""
+                    INSERT INTO customer_ref (tenant_id, customer_ref, name_enc, phone_enc, birth_date_enc, enc_key_id, created_at, registration_key)
+                    VALUES (:tenantId, :customerRef, :name, :phone, :birthDate, :keyId, :createdAt, :registrationKey)
+                    ON CONFLICT (tenant_id, registration_key) WHERE registration_key IS NOT NULL DO NOTHING
+                    RETURNING customer_ref
+                    """, params, (rs, n) -> rs.getString("customer_ref"));
+            if (!inserted.isEmpty()) {
+                return new KeyedInsert(ref, true, dataKey.keyId());
+            }
+        } finally {
+            Arrays.fill(dek, (byte) 0);
+        }
+        return new KeyedInsert(byRegistrationKey(key).orElseThrow(() -> new IllegalStateException(
+                "registration key conflict without a committed row")), false, null);
+    }
+
+    @Override
+    public Optional<CustomerRef> findByRegistrationKey(RegistrationKey key) {
+        return byRegistrationKey(key);
+    }
+
+    private Optional<CustomerRef> byRegistrationKey(RegistrationKey key) {
+        return queryAtMostOne("""
+                SELECT customer_ref
+                  FROM customer_ref
+                 WHERE tenant_id = :tenantId
+                   AND registration_key = :registrationKey
+                """, Map.of("registrationKey", key.value()), (rs, n) -> CustomerRef.of(rs.getString("customer_ref")));
     }
 
     @Override

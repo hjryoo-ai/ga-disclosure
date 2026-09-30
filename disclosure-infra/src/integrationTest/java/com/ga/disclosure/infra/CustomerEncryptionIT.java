@@ -220,6 +220,23 @@ class CustomerEncryptionIT {
         refs.forEach(ref -> assertThat(lookup(t, ref).name().field()).isNotNull());
     }
 
+    /** 같은 등록 멱등 키의 동시 등록 20건: 실패 0, 행 1개, 전부 같은 참조(3A 계획 Q7). */
+    @Test
+    void sameRegistrationKeyConcurrentlyYieldsOneCustomer() throws InterruptedException {
+        TenantId t = s.freshTenant("ENC_KEYED");
+        com.ga.disclosure.workflow.customer.RegisterCustomer register =
+                new com.ga.disclosure.workflow.customer.RegisterCustomer(s.vault, s.audit, s.tx, s.clock);
+        com.ga.disclosure.workflow.customer.RegistrationKey key = new com.ga.disclosure.workflow.customer.RegistrationKey("demo:customers.json#C01");
+        List<CustomerRef> refs = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<Throwable> failures = concurrently(20, i -> refs.add(register.execute(t, CatalogCustomerSetup.OPERATOR, key,
+                customer("가상고객" + i, null, null)).ref()));
+        assertThat(failures.stream().map(e -> e.getClass().getSimpleName()).toList()).isEmpty();
+        assertThat(refs).hasSize(20);
+        assertThat(new java.util.HashSet<>(refs)).hasSize(1);
+        assertThat(rows(t, "SELECT count(*) FROM customer_ref")).containsExactly("1");
+        assertThat(rows(t, "SELECT registration_key FROM customer_ref")).containsExactly("demo:customers.json#C01");
+    }
+
     /** 순환과 등록이 겹쳐도 실패 없이 ACTIVE 키는 하나이고, 모든 행이 복호화된다(순환 경로는 ACTIVE를 먼저 RETIRED로 바꾼다). */
     @Test
     void registrationsDuringRotationNeverFail() throws InterruptedException {

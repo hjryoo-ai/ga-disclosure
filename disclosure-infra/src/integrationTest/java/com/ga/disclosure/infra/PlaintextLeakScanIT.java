@@ -1,5 +1,8 @@
 package com.ga.disclosure.infra;
 
+import com.ga.disclosure.workflow.customer.RegistrationKey;
+import com.ga.disclosure.workflow.customer.RegisterCustomer;
+import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
@@ -149,6 +152,24 @@ class PlaintextLeakScanIT {
         capture(() -> guarded.writeValueAsString(customer.name()));
         capture(() -> guarded.writeValueAsString(customer));
         capture(() -> plain.writeValueAsString(customer.phone().orElseThrow()));
+        // Phase 3A W9: RegisterCustomer(등록 멱등 키) — 새 등록, 같은 키 재등록(NOOP), 그리고 고객 파일(센티널 값·형식 오류 행) 경로
+        RegisterCustomer register = new RegisterCustomer(s.vault, s.audit, s.tx, s.clock);
+        capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, new RegistrationKey("leak:file.json#S1"), sentinel));
+        capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, new RegistrationKey("leak:file.json#S1"), sentinel));
+        String file = """
+                {"schemaVersion":1,"source":"leak","customers":[{"id":"S2","name":"%s","phone":"%s","birthDate":"%s"}]}"""
+                .formatted(PiiSentinels.NAME, PiiSentinels.PHONE, PiiSentinels.BIRTH_DATE);
+        for (CustomerFileParser.Row row : CustomerFileParser.parse("customers.json", file.getBytes(StandardCharsets.UTF_8))) {
+            outputs.add(row.toString());
+            capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, row.key(), row.customer()));
+        }
+        capture(() -> CustomerFileParser.parse("customers.json", file.replace(PiiSentinels.PHONE, "02-" + PiiSentinels.PHONE)
+                .getBytes(StandardCharsets.UTF_8)));
+        // 데모 파일(disclosure-demo customers.json, 허구 값)도 같은 유스케이스로 — 이름은 감사·출력에 나오지 않는다
+        byte[] demo = readDemoCustomers();
+        for (CustomerFileParser.Row row : CustomerFileParser.parse("customers.json", demo)) {
+            capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, row.key(), row.customer()));
+        }
         // 키 순환(전 경로) 후 다시 조회
         capture(() -> s.rekey.rekey(t, CatalogCustomerSetup.OPERATOR, 1));
         capture(() -> s.customers.lookup(t, CatalogCustomerSetup.OPERATOR, ref));
@@ -156,6 +177,34 @@ class PlaintextLeakScanIT {
         swapNameCiphertexts(t, ref, second);
         capture(() -> s.customers.lookup(t, CatalogCustomerSetup.OPERATOR, ref));
         capture(() -> s.customers.lookup(t, CatalogCustomerSetup.OPERATOR, second));
+    }
+
+    private static byte[] readDemoCustomers() {
+        try {
+            return java.nio.file.Files.readAllBytes(java.nio.file.Path.of(System.getProperty("ga.repoRoot"),
+                    "disclosure-demo", "src", "main", "resources", "customers.json"));
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    /** 데모 고객 파일은 등록되고(3명), 그 이름은 감사·출력 어디에도 없다. */
+    @Test
+    void demoCustomerFileRegistersOnceAndItsNamesStayEncrypted() {
+        TenantId t = s.freshTenant("LEAK_DEMO");
+        RegisterCustomer register = new RegisterCustomer(s.vault, s.audit, s.tx, s.clock);
+        List<CustomerFileParser.Row> rows = CustomerFileParser.parse("customers.json", readDemoCustomers());
+        assertThat(rows).hasSize(3);
+        List<String> printed = new ArrayList<>();
+        for (int round = 0; round < 2; round++) {
+            for (CustomerFileParser.Row row : rows) {
+                RegisterCustomer.Registration r = register.execute(t, CatalogCustomerSetup.OPERATOR, row.key(), row.customer());
+                printed.add(r.toString());
+                assertThat(r.created()).as("두 번째 수입은 NOOP").isEqualTo(round == 0);
+            }
+        }
+        String everything = String.join("\n", printed) + s.auditOf(t) + DB.dumpAllData();
+        assertThat(everything).doesNotContain("가상고객01", "가상고객02", "가상고객03", "01000000001", "010-0000-0001");
     }
 
     private static void swapNameCiphertexts(TenantId t, CustomerRef a, CustomerRef b) {
