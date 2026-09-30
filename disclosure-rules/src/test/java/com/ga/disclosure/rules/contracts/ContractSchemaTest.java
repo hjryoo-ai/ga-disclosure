@@ -326,6 +326,12 @@ class ContractSchemaTest {
         assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isTrue();
         assertThat(internal.path("paths").has("/internal/v1/events")).isTrue();
 
+        // 1.1.0: 토큰·테넌트 불일치·스냅샷 미발급 명시 오류(Phase E3 계획 Q3)
+        JsonNode post = engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades/post/responses");
+        JsonNode get = engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/responses");
+        assertThat(post.propertyNames()).containsExactlyInAnyOrder("200", "400", "401", "403", "409", "422");
+        assertThat(get.propertyNames()).containsExactlyInAnyOrder("200", "401", "403", "404");
+
         JsonNode ok = engine.at("/components/schemas/GradeResultOk/properties");
         assertThat(ok.has("gradeOrdinal")).isTrue();
         assertThat(ok.path("ratioToAvg").path("type").asString()).as("ratioToAvg는 불투명 문자열").isEqualTo("string");
