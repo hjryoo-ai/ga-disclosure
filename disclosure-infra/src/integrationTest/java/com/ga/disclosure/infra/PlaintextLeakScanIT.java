@@ -111,6 +111,78 @@ class PlaintextLeakScanIT {
         assertThat(DB.serverLogs()).satisfies(PlaintextLeakScanIT::clean);
     }
 
+    /**
+     * 3B S14: 봉인 경로(성명 복호화 → 봉인 본문 → PDF → 문서 키 암호화 → 업로드 → 열람)를 센티널 고객으로 돈 뒤, 로그(JDBC TRACE)·표준 출력·
+     * 감사·전체 DB 덤프·서버 로그·<b>버킷의 모든 객체 바이트</b>(원문·16진)에 평문이 0건. 성명이 평문으로 있는 곳은 봉인 본문과 PDF 자체뿐이고
+     * 둘 다 버킷에는 암호문으로만 있다.
+     */
+    @Test
+    void sealPathLeavesNoPlaintextOutsideTheDocument() {
+        LoggerContext logging = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger root = logging.getLogger(Logger.ROOT_LOGGER_NAME);
+        Level previous = root.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        root.addAppender(appender);
+        root.setLevel(Level.TRACE);
+        logging.getLogger("org.springframework.jdbc").setLevel(Level.TRACE);
+        PrintStream out = System.out;
+        PrintStream err = System.err;
+        ByteArrayOutputStream streams = new ByteArrayOutputStream();
+        PrintStream tee = new PrintStream(streams, true, StandardCharsets.UTF_8);
+        System.setOut(tee);
+        System.setErr(tee);
+        try (SealSetup seal = new SealSetup()) {
+            WorkflowSetup w = seal.w;
+            CustomerRef sentinel = new com.ga.disclosure.workflow.customer.CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant,
+                    WorkflowSetup.AGENT, new NewCustomer(CustomerName.of(PiiSentinels.NAME), PhoneNumber.of(PiiSentinels.PHONE),
+                            BirthDate.parse(PiiSentinels.BIRTH_DATE)));
+            com.ga.disclosure.domain.vo.DisclosureId id;
+            try {
+                id = w.service.createDraft(w.tenant, WorkflowSetup.AGENT, sentinel, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
+                        com.ga.disclosure.domain.enums.TemplateType.STANDARD);
+                w.service.replaceItems(w.tenant, WorkflowSetup.AGENT, id, WorkflowSetup.threeItems());
+                w.service.compare(w.tenant, WorkflowSetup.AGENT, id);
+                w.service.requestGrades(w.tenant, WorkflowSetup.AGENT, id);
+                w.service.setRecommendations(w.tenant, WorkflowSetup.AGENT, id, List.of(
+                        new com.ga.disclosure.domain.disclosure.AgentReason(1, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("PREMIUM")), null),
+                        new com.ga.disclosure.domain.disclosure.AgentReason(3, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("COVERAGE")), null)));
+                capture(() -> seal.seal.seal(w.tenant, WorkflowSetup.AGENT, id));
+                for (com.ga.disclosure.domain.enums.ArtifactKind kind : List.of(com.ga.disclosure.domain.enums.ArtifactKind.CANONICAL_JSON,
+                        com.ga.disclosure.domain.enums.ArtifactKind.PDF)) {
+                    com.ga.disclosure.workflow.disclosure.ArtifactService.View view = seal.artifacts.view(w.tenant, SealSetup.MANAGER, id, kind);
+                    outputs.add(view instanceof com.ga.disclosure.workflow.disclosure.ArtifactService.View.Granted g
+                            ? g.record().toString() : view.toString());
+                }
+                capture(() -> seal.lifecycle.voidDisclosure(w.tenant, SealSetup.MANAGER, id, "철회"));
+            } finally {
+                System.setOut(out);
+                System.setErr(err);
+                root.detachAppender(appender);
+                root.setLevel(previous);
+                logging.getLogger("org.springframework.jdbc").setLevel(null);
+            }
+            List<String> logLines = appender.list.stream().map(e -> e.getFormattedMessage() + " " + (e.getThrowableProxy() == null ? ""
+                    : e.getThrowableProxy().getMessage())).toList();
+            assertThat(logLines).as("TRACE logging captured the sealing statements").anyMatch(l -> l.contains("document_artifact"));
+            assertThat(String.join("\n", logLines)).satisfies(PlaintextLeakScanIT::clean);
+            assertThat(streams.toString(StandardCharsets.UTF_8)).satisfies(PlaintextLeakScanIT::clean);
+            assertThat(outputs).allSatisfy(PlaintextLeakScanIT::clean);
+            assertThat(w.auditLog().toString()).satisfies(PlaintextLeakScanIT::clean);
+            assertThat(DB.dumpAllData()).satisfies(PlaintextLeakScanIT::clean);
+            assertThat(DB.serverLogs()).satisfies(PlaintextLeakScanIT::clean);
+            List<com.ga.disclosure.workflow.artifact.ArtifactStore.StoredObject> objects = seal.bucket.list(w.tenant.value() + "/");
+            assertThat(objects).hasSize(2);
+            for (com.ga.disclosure.workflow.artifact.ArtifactStore.StoredObject o : objects) {
+                byte[] stored = seal.bucket.get(o.key());
+                assertThat(new String(stored, StandardCharsets.UTF_8)).satisfies(PlaintextLeakScanIT::clean);
+                assertThat(new String(stored, StandardCharsets.ISO_8859_1)).satisfies(PlaintextLeakScanIT::clean);
+                assertThat(java.util.HexFormat.of().formatHex(stored)).satisfies(PlaintextLeakScanIT::clean);
+                assertThat(o.key()).satisfies(PlaintextLeakScanIT::clean);
+            }
+        }
+    }
+
     /** 대조 검사: 스캐너는 원문·변형·16진 표현을 실제로 찾아낸다. */
     @Test
     void theScannerFindsEveryFormOfTheSentinels() {

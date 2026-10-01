@@ -21,7 +21,8 @@ import static com.ga.disclosure.infra.TriggerAssertions.assertRejected;
  * 3A W8: V6 CHECK의 위반 조합 전부 거부, 허용 조합 전부 통과. 기대값은 DDL을 보지 않고 규칙(설계서 §5 v1.7)에서 독립 계산한다.
  * <ul>
  *   <li>항목: 산출 상태 3 × 출처 3 × 임시등록 2 × 등급 필드 유무 2 × 비율 유무 2 × 동점 유무 2 × 사유(없음·TEMP_PRODUCT·엔진 사유) 3 = 432 조합.</li>
- *   <li>헤더: 스냅샷 헤더 6개 컬럼의 NULL 조합 64 × 상태 5 = 320 조합.</li>
+ *   <li>헤더: 스냅샷 헤더 6개 컬럼의 NULL 조합 64 × 상태 5 = 320 조합. V7부터 봉인 이후 상태는 봉인 컬럼 없이 넣을 수 없으므로 다섯째 상태는
+ *       봉인 전 무효화(VOID, 봉인 컬럼 없음 + 무효 시각·사유)다 — 봉인 컬럼과 상태의 결속은 SealColumnCheckIT.</li>
  *   <li>임시등록 정체성(상품키·발행번호), 상태·tie_break 열거, basis 객체.</li>
  * </ul>
  * 모든 시도는 disclosure_app으로 하고 롤백한다(부모는 가변 상태 DRAFT로 시드).
@@ -160,7 +161,7 @@ class SnapshotColumnCheckIT {
 
     static Stream<Arguments> headerCombinations() {
         List<Arguments> out = new ArrayList<>();
-        for (String status : List.of("DRAFT", "COMPARED", "GRADED", "REASONED", "SEALED")) {
+        for (String status : List.of("DRAFT", "COMPARED", "GRADED", "REASONED", "VOID")) {
             for (int mask = 0; mask < 64; mask++) {
                 out.add(Arguments.of(status, mask));
             }
@@ -177,10 +178,14 @@ class SnapshotColumnCheckIT {
             cols.append(", ").append(HEADER.get(i));
             vals.append(", ").append((mask & (1 << i)) != 0 ? VALUES.get(i) : "NULL");
         }
+        if (status.equals("VOID")) {
+            cols.append(", voided_at, void_reason");
+            vals.append(", TIMESTAMPTZ '2026-09-24 09:00:00+09', '상담 취소'");
+        }
         String sql = """
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,
-                                        status, consult_date%s)
-                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23'%s)"""
+                                        status, consult_date, rule_version_id%s)
+                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', 'DISC-2026-07'%s)"""
                 .formatted(cols, vals);
         boolean none = mask == 0;
         boolean all = mask == 63;
@@ -203,8 +208,9 @@ class SnapshotColumnCheckIT {
         String sql = """
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,
                                         status, consult_date, grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break,
-                                        grade_basis, snapshot_generated_at)
-                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', %s, DATE '2026-09-23', %s, %s, %s, %s, %s, %s)"""
+                                        grade_basis, snapshot_generated_at, rule_version_id)
+                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', %s, DATE '2026-09-23', %s, %s, %s, %s, %s, %s,
+                        'DISC-2026-07')"""
                 .formatted(p[1], snapshot ? "'GRD-1'" : "NULL", snapshot ? "'G'" : "NULL", snapshot ? "'R'" : "NULL", p[2], p[3],
                         snapshot ? "now()" : "NULL");
         assertRejected(DB, T, "23514", sql, T);

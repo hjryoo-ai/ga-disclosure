@@ -44,6 +44,31 @@ jobs:
           name: test-reports
           path: '**/build/reports/tests/**'
 
+  pdfa-verify:
+    # 3B S12: 골든 PDF를 veraPDF(PDF/A-2b 프로파일)로 검증한다 — 실패 규칙 1건 이상이면 잡 실패. veraPDF는 GPL-3.0/MPL-2.0이라
+    # 메인 의존성에 넣지 않고 독립 빌드(verification/pdfa-verify)로 돌린다. 골든 PDF는 메인 빌드가 커밋된 골든 입력에서 렌더한다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Render golden PDFs (main build, committed golden inputs)
+        run: ./gradlew :disclosure-seal:renderGolden --console=plain
+
+      - name: veraPDF PDF/A-2b — 0 failed checks
+        run: ./gradlew --project-dir verification/pdfa-verify run --console=plain --args="$GITHUB_WORKSPACE/disclosure-seal/build/golden"
+
+      - name: Golden PDFs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: golden-pdfs
+          path: disclosure-seal/build/golden/*.pdf
+
   no-docker:
     # CLAUDE.md: Docker가 없으면 통합 테스트는 스킵이 아니라 실패해야 한다. 이 잡은 "실패해야 성공"이다(Phase 1 선행 소과제 C).
     # 지시문의 `container:` 방식은 쓰지 않는다 — GitHub Actions는 컨테이너 잡에 호스트의 /var/run/docker.sock을 마운트하므로

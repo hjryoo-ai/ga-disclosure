@@ -73,7 +73,9 @@ class ArchitectureRulesTest {
     static final List<Allowed> PII_REVEAL_PACKAGES = List.of(
             new Allowed(P + "domain.pii", "BirthDate.matches — 본인확인 대조(상수 시간 비교, 결과만 반환)"),
             new Allowed(P + "infra.crypto", "CustomerFieldCipher — 컬럼 암호화 직전 정규 원문을 바이트로(암호화 후 0으로 지운다)"),
-            new Allowed(P + "rules.pii", "MaskedView — 룰 데이터 masking으로 부분 마스킹한 문자열만 내보낸다"));
+            new Allowed(P + "rules.pii", "MaskedView — 룰 데이터 masking으로 부분 마스킹한 문자열만 내보낸다"),
+            new Allowed(P + "seal.canonical", "CanonicalDocumentBuilder — 봉인 유스케이스가 복호화한 성명을 봉인 본문에 싣는다(3A 수용심사 §3-3, "
+                    + "PDF에 인쇄되는 유일한 개인정보)"));
 
     /** javax.crypto를 쓸 수 있는 유일한 패키지. */
     static final Allowed CRYPTO_PACKAGE = new Allowed(P + "infra.crypto", "고객 개인정보 컬럼 암호화·KEK 감싸기(설계서 §9)");
@@ -120,7 +122,8 @@ class ArchitectureRulesTest {
                 Layer.of("PlatformCanonical", "com.ga.platform.canonical..",
                         "Rules", "Seal", "Audit", "Compliance", "Workflow", "Api", "Infra", "App", "Demo"),
                 new Layer("Domain", List.of(P + "domain.."), java.util.Set.copyOf(belowDomain)),
-                Layer.of("Rules", P + "rules..", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),
+                // 3B: 렌더러와 R-FIELD-REQUIRED가 같은 서식 결속(rules.template)을 쓴다 — Seal → Rules(3B 계획 §1)
+                Layer.of("Rules", P + "rules..", "Seal", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),
                 Layer.of("Seal", P + "seal..", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),
                 Layer.of("Sign", P + "sign..", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),
                 Layer.of("Audit", P + "audit..", "Workflow", "Compliance", "Api", "Infra", "App", "Demo"),
@@ -193,6 +196,23 @@ class ArchitectureRulesTest {
     @Test
     void birthDateMatchUsesConstantTimeComparison() {
         PiiRules.birthDateMatchIsConstantTime().check(classes);
+    }
+
+    // (h) 3B: 봉인 본문·렌더러는 벽시계·난수·환경(기본 로케일·시간대)을 읽지 않는다 — 같은 입력이면 어느 JVM에서든 같은 바이트(S1·S2)
+    @Test
+    void sealBodyAndRendererAreEnvironmentFree() {
+        SealRules.noEnvironmentAccess(List.of(P + "seal.canonical..", P + "seal.renderer..")).check(classes);
+    }
+
+    // (i) 3B: 3A D7의 스칼라 [x] 감싸기(CanonicalValue)는 봉인 경로에 나타나지 않는다 — 봉인 본문은 최상위가 객체다(수용심사 §2 D7)
+    @Test
+    void sealPathDoesNotUseTheScalarWrappingConvention() {
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().resideInAnyPackage(P + "seal..", P + "workflow.seal..")
+                .should().dependOnClassesThat().haveFullyQualifiedName(P + "workflow.disclosure.CanonicalValue")
+                .allowEmptyShould(true)
+                .because("봉인 본문은 최상위가 객체이며 [x] 감싸기 규약을 쓰지 않는다(3A 수용심사 D7)")
+                .check(classes);
     }
 
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)

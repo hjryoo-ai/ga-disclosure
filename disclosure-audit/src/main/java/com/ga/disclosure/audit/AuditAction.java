@@ -46,5 +46,29 @@ public enum AuditAction {
     /** 관리자 예외 승인 기록(규칙·대상 해시·승인 ID — 사유 텍스트는 review 행에만). */
     EXCEPTION_APPROVE,
     /** 명령 오류: 업무 트랜잭션이 롤백된 뒤 같은 테넌트의 별도 트랜잭션으로 남기는 실패 사실(명령·예외 종류·오류 코드, 메시지 없음). */
-    COMMAND_FAILED
+    COMMAND_FAILED,
+
+    // ---------------------------------------------------------------- Phase 3B: 봉인·정정·무효·산출물
+    /** 봉인: 번호·canonical·PDF·체인 해시·체인 순번·보존기한, 판정 룰의 정체, SEAL 단계 검증 결과 요약. */
+    DISCLOSURE_SEAL,
+    /** 봉인 거부(업무 거부, 상태·번호·저장소 불변): 거부 코드 목록 전부(단락 없음)와 실패 규칙, 판정 룰의 정체 — 거부 1건에 1행. */
+    DISCLOSURE_SEAL_REJECTED,
+    /** 무효(사유 텍스트는 행에만, 감사에는 길이만). */
+    DISCLOSURE_VOID,
+    /** 정정: 원본 → SUPERSEDED, 새 버전 ID. 새 버전에는 DISCLOSURE_CREATE(supersedesId)가 따로 남는다. */
+    DISCLOSURE_SUPERSEDE,
+    /** 재기준: 이전·새 고정 버전과 새 룰의 COMPARE 검증 결과, 결과 상태(COMPARED|DRAFT). */
+    DISCLOSURE_REBASE,
+    /** 준법 플래그 해소(해소 사유·해소자). */
+    FLAG_RESOLVE,
+    /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
+    ARTIFACT_RETAIN,
+    /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */
+    ARTIFACT_RETAIN_DEFERRED,
+    /** 산출물 열람: 복호화 후 평문 해시 대조 통과. */
+    ARTIFACT_VIEW,
+    /** 산출물 열람 거부: 문서 키 파기·해시 불일치·객체 없음. */
+    ARTIFACT_VIEW_DENIED,
+    /** 참조 없는 잠금 없는 객체(커밋 실패 잔여물) 삭제. */
+    ARTIFACT_GC
 }

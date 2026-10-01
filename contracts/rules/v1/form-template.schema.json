@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ga.example/contracts/rules/v1/form-template.schema.json",
   "title": "form_template 본문 (v1)",
-  "description": "확인서 서식 템플릿 본문 = 번들 body = DB의 fields·layout·pending_confirmation. 항목명·필수 여부·배치는 데이터다(CLAUDE.md 절대 규칙 4). 협회 표준서식이 정본이며(설계서 §14 #2), 확인되지 않은 항목명은 넣지 않고 pendingConfirmation에 자리만 둔다. 템플릿 ID·유형·버전·적용일은 번들(rule-bundle.schema.json)이 가진다.",
+  "description": "확인서 서식 템플릿 본문 = 번들 body = DB의 fields·layout·pending_confirmation. 항목명·필수 여부·배치·결속은 데이터다(CLAUDE.md 절대 규칙 4). 협회 표준서식이 정본이며(설계서 §14 #2), 확인되지 않은 항목명은 넣지 않고 pendingConfirmation에 자리만 둔다. 문서 식별부(section HEADER)는 비교 항목이 아니며 pendingConfirmation과 섞지 않는다 — 라벨이 가정이면 labelRef로 표시한다(Phase 3B 계획 승인 Q2). 템플릿 ID·유형·버전·적용일은 번들(rule-bundle.schema.json)이 가진다.",
   "type": "object",
   "required": [
     "fields",
@@ -20,9 +20,15 @@
     "layout": {
       "type": "object",
       "required": [
+        "title",
         "sections"
       ],
       "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "문서 제목(인쇄, PDF 문서 정보·XMP dc:title). 렌더러 리터럴이 아니라 서식 데이터다."
+        },
         "sections": {
           "type": "array",
           "minItems": 1,
@@ -30,6 +36,7 @@
             "type": "object",
             "required": [
               "code",
+              "orientation",
               "fields"
             ],
             "properties": {
@@ -43,16 +50,58 @@
                   "DOCUMENT"
                 ]
               },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "섹션 제목(인쇄, 선택)"
+              },
+              "columnsPerTable": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8,
+                "description": "COLUMN_PER_ITEM 섹션에서 표 하나에 싣는 항목(열) 수. 항목이 더 많으면 같은 형태의 표를 이어 붙인다(인쇄 배치 — 서식 데이터)."
+              },
               "fields": {
                 "type": "array",
                 "items": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "orientation": {
+                      "const": "COLUMN_PER_ITEM"
+                    }
+                  },
+                  "required": [
+                    "orientation"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "columnsPerTable"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "columnsPerTable"
+                    ]
+                  }
                 }
               }
-            }
+            ]
           }
         }
-      }
+      },
+      "additionalProperties": false
     },
     "pendingConfirmation": {
       "type": "array",
@@ -84,6 +133,7 @@
         "required",
         "source",
         "order",
+        "section",
         "render"
       ],
       "properties": {
@@ -111,28 +161,579 @@
           "type": "integer",
           "minimum": 1
         },
+        "section": {
+          "enum": [
+            "HEADER",
+            "COMPARISON"
+          ],
+          "description": "HEADER = 문서 식별부(확인서 번호·상담일·설계사·고객 성명 결속만), COMPARISON = 비교 항목. 식별부는 비교 항목 수 산정에 넣지 않는다."
+        },
+        "labelRef": {
+          "type": "string",
+          "pattern": "^TODO\\(confirm#\\d+\\)$",
+          "description": "라벨이 정본 확인 전 가정임을 표시(예: 헤더 항목 라벨, TODO(confirm#2))"
+        },
         "render": {
           "type": "object",
+          "required": [
+            "scope",
+            "bind"
+          ],
+          "additionalProperties": false,
           "properties": {
             "scope": {
               "enum": [
                 "PER_ITEM",
                 "PER_DOCUMENT"
               ],
-              "description": "PER_ITEM이면 항목(열)마다, PER_DOCUMENT면 확인서당 한 값. R-FIELD-REQUIRED가 값 위치를 고르는 기준"
+              "description": "PER_ITEM이면 항목(열)마다, PER_DOCUMENT면 확인서당 한 값. 결속(bind)이 정하는 범위와 같아야 한다"
+            },
+            "bind": {
+              "enum": [
+                "HEADER_DISCLOSURE_NO",
+                "HEADER_CONSULT_DATE",
+                "HEADER_AGENT",
+                "HEADER_CUSTOMER_NAME",
+                "HEADER_PRODUCT_GROUP",
+                "PANEL_INSURERS",
+                "ITEM_INSURER_NAME",
+                "ITEM_PRODUCT_NAME",
+                "CATALOG_DEFAULT",
+                "AGENT_INPUT",
+                "ENGINE_GRADE_LABEL",
+                "ENGINE_RANK",
+                "ENGINE_UNAVAILABLE_TEXT",
+                "RECOMMENDATION"
+              ],
+              "description": "서식 항목 ↔ 값의 결속(닫힌 어휘, 3A 수용심사 §3-1). 코드는 항목 코드가 아니라 이 값으로만 분기한다. 허용 scope·source·section은 아래 allOf가 강제한다."
             },
             "readOnly": {
               "type": "boolean"
             },
             "unavailableText": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1,
+              "description": "산출불가 항목의 인쇄 문구(ENGINE 결속 필수)"
             }
-          },
-          "required": [
-            "scope"
-          ]
+          }
         }
-      }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "HEADER_DISCLOSURE_NO"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "SYSTEM"
+              },
+              "section": {
+                "const": "HEADER"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_DOCUMENT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "HEADER_CONSULT_DATE"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "SYSTEM"
+              },
+              "section": {
+                "const": "HEADER"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_DOCUMENT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "HEADER_AGENT"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "SYSTEM"
+              },
+              "section": {
+                "const": "HEADER"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_DOCUMENT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "HEADER_CUSTOMER_NAME"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "SYSTEM"
+              },
+              "section": {
+                "const": "HEADER"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_DOCUMENT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "HEADER_PRODUCT_GROUP"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "CATALOG"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_DOCUMENT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "PANEL_INSURERS"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "SYSTEM"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_DOCUMENT"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "ITEM_INSURER_NAME"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "CATALOG"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "ITEM_PRODUCT_NAME"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "CATALOG"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "CATALOG_DEFAULT"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "CATALOG"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "AGENT_INPUT"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "AGENT"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "ENGINE_GRADE_LABEL"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "ENGINE"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                },
+                "required": [
+                  "unavailableText"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "ENGINE_RANK"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "ENGINE"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                },
+                "required": [
+                  "unavailableText"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "ENGINE_UNAVAILABLE_TEXT"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "ENGINE"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                },
+                "required": [
+                  "unavailableText"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "properties": {
+                  "bind": {
+                    "const": "RECOMMENDATION"
+                  }
+                },
+                "required": [
+                  "bind"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "AGENT"
+              },
+              "section": {
+                "const": "COMPARISON"
+              },
+              "render": {
+                "properties": {
+                  "scope": {
+                    "const": "PER_ITEM"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "additionalProperties": false

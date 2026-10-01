@@ -8,15 +8,15 @@
 
 ## 실행
 
-요구사항: **Docker**(통합 테스트가 Testcontainers로 PostgreSQL 18을 띄운다 — Docker가 없으면 통합 테스트는 스킵되지 않고 **실패**한다). JDK는 Gradle 툴체인이 Java 25를 자동으로 받는다(실행용 JDK는 17 이상이면 된다).
+요구사항: **Docker**(통합 테스트가 Testcontainers로 PostgreSQL 18과 SeaweedFS(S3 호환 + Object Lock)를 띄운다 — Docker가 없으면 통합 테스트는 스킵되지 않고 **실패**한다). JDK는 Gradle 툴체인이 Java 25를 자동으로 받는다(실행용 JDK는 17 이상이면 된다).
 
 ```bash
 ./gradlew build                     # 단위 + 아키텍처(archTest) + 통합(integrationTest) + 계약 체크섬 검사
 ./gradlew verifyPublishedPlatform   # platform-core·platform-canonical·platform-spring을 mavenLocal에 발행하고 발행물만으로 검증
 ./gradlew contractChecksums         # contracts/ 변경 후 contracts/CHECKSUMS 갱신
 ./gradlew resolveAndLockAll --write-locks   # 의존성 추가 후 락 파일 갱신
-docker compose up -d postgres       # 로컬 DB(롤 초기화 포함) — 앱은 disclosure_app, Flyway는 disclosure_migrator로 접속
-disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK 준비(운영자 CLI, 멱등)
+docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + 봉인 산출물 저장소(SeaweedFS, digest 고정, 허구 S3 키)
+disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정(운영자 CLI, 멱등)
 ```
 
 운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다).
@@ -25,11 +25,14 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
 # rules approve --tenant T1 --rule <id> | rules activate [--as-of 2027-01-01] | rules reconcile | demo seed --file <json>
 # catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | crypto init-kek --file <path> [--kek-id KEK-LOCAL-1]
+# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-file <path> --role <ROLE>
+#      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON --out <path> | artifacts gc|reconcile --tenants all
+# 업무 거부(봉인 조건 실패 등)는 종료 코드 2, 인자·명령 오류는 1
 ```
 
 고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).
 
-`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다.
+`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다.
 
 ## 룰은 코드가 아니라 데이터다 (Phase 1)
 
@@ -46,6 +49,13 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 - 상품군·보험사 패널·상품은 파일(`contracts/catalog/v1/catalog-file.schema.json`) 수입으로만 들어온다. 행 단위 upsert가 유효기간 `[from, to)`를 닫고 새 구간을 열며, 같은 파일(kind·SHA-256)은 NOOP, 마지막 수입보다 이른 기준일은 거절된다. 카탈로그 행은 DB 트리거로 삭제할 수 없고, 변경 이력은 감사 로그(`CATALOG_IMPORT`)에 남는다. 비교 검증(`R-PANEL`)은 기준일 시점의 패널로 판정한다.
 - 고객 이름·연락처·생년월일은 테넌트별 데이터 키(AES-256-GCM, AAD에 테넌트·테이블·컬럼·고객 참조 ID를 묶음)로 컬럼 암호화되고, 데이터 키는 KEK로 감싼다. 도메인에서는 `Sensitive<T>`로만 다니며 `toString`은 마스킹, 평문은 허용된 패키지의 `reveal`로만 꺼낸다(ArchUnit). 화면 마스킹 규칙도 룰 데이터(`masking`)다.
 - 모든 테스트 출력(결과 XML·로그)과 DB 덤프·PostgreSQL 서버 로그를 평문 센티널로 스캔한다(`scanPlaintextLeaks`, `PlaintextLeakScanIT`). 한 건이라도 나오면 빌드가 실패한다.
+
+## 봉인 (Phase 3B)
+
+- 봉인은 확인서 본문을 RFC 8785(JCS)로 정규화한 canonical 문서와, 그것만으로 렌더한 PDF/A-2b를 만든다. 렌더러는 벽시계·로케일·시간대를 읽지 않으며(ArchUnit), 다른 JVM·다른 OS에서도 같은 바이트가 나온다(골든 기대값 + 두 JVM 재렌더 테스트, CI에서 veraPDF 검증).
+- 번호는 (테넌트, 봉인 연도)별 무간격 카운터이고, 봉인마다 테넌트 체인 `SHA-256(직전 ‖ canonical ‖ pdf)`이 이어진다. 둘 다 DB 트리거가 강제한다. 봉인 조건(소급 룰·서식, 스냅샷 노후, 막는 검증, 승인 누락, 성명 복호화 불가)은 단락 없이 전부 평가하고, 거부되면 번호·산출물·키가 하나도 생기지 않는다.
+- 산출물은 확인서마다 새 데이터 키로 암호화해 S3 호환 저장소에 올리고, DB 커밋 **뒤에** Object Lock(COMPLIANCE)을 건다. 커밋 실패의 잔여물은 `artifacts gc`가, 잠금 실패는 `artifacts reconcile`이 처리한다. 데이터 키를 파기하면 모든 사본이 읽을 수 없게 된다.
+- 정정은 새 버전(SUPERSEDE), 취소는 VOID뿐이다. 소급 룰로 봉인이 막힌 초안은 재기준(REBASE)으로 새 룰에 다시 고정되고, 옛 승인은 효력을 잃는다.
 
 ## 플랫폼 아티팩트 소비
 

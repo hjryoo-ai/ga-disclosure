@@ -52,9 +52,10 @@ public final class RuleResolver {
 
     /**
      * 확인서에 <b>고정된</b> 버전 ID로 유효 룰을 다시 만든다(3A: 초안 생성 시 한 번 해석해 ID를 고정하고, 이후 명령은 재해석하지 않는다).
-     * 고정된 버전은 기준일에 시행 중이었어야 하며(ACTIVE 또는 RETIRED이고 구간이 기준일 포함) 아니면 저장소 상태가 모순이다.
-     * 초안 생성 뒤 소급 배포된 룰({@code apply_from ≤ 상담일})이 있으면 고정 ID와 재해석 결과가 달라진다 — 그 판정과 봉인 거부
-     * ({@code RULE_SUPERSEDED_DRAFT})는 3B의 SEAL 조건이다(3A 계획 승인 B1). 여기서는 로드만 한다.
+     * 고정된 버전은 기준일에 시작해 있었어야 하며(ACTIVE 또는 RETIRED이고 {@code apply_from ≤ 기준일}) 아니면 저장소 상태가 모순이다.
+     * 끝 날짜는 보지 않는다(3B): 초안 생성 뒤 소급 배포된 GLOBAL 룰이 고정 버전을 대체하면 배포가 고정 버전의 {@code apply_to}를 상담일
+     * 이전으로 닫는다 — 그래도 그 초안은 고정 버전으로 판정·봉인 거부({@code RULE_SUPERSEDED})·재기준을 할 수 있어야 한다(막다른 상태 금지).
+     * 고정 ID와 재해석 결과의 차이 판정은 봉인 조건 ①이다(3A 계획 승인 B1). 여기서는 로드만 한다.
      */
     public EffectiveRule load(TenantId tenant, LocalDate asOf, RuleVersionId globalId, RuleVersionId tenantIdOrNull) {
         Objects.requireNonNull(tenant, "tenant");
@@ -68,8 +69,8 @@ public final class RuleResolver {
         RuleVersion r = port.findById(tenant, id).orElseThrow(() -> new RuleResolutionException(ResolutionFailure.PINNED_VERSION_MISSING,
                 "pinned " + scope + " rule " + id + " does not exist for " + tenant));
         boolean wasInForce = r.status() == RuleStatus.ACTIVE || r.status() == RuleStatus.RETIRED;
-        if (r.scope() != scope || !wasInForce || !r.covers(asOf)) {
-            throw new IllegalStateException("pinned rule " + id + " (" + r.scope() + ", " + r.status() + ") was not in force on " + asOf);
+        if (r.scope() != scope || !wasInForce || r.applyFrom().isAfter(asOf)) {
+            throw new IllegalStateException("pinned rule " + id + " (" + r.scope() + ", " + r.status() + ") had not started on " + asOf);
         }
         return r;
     }

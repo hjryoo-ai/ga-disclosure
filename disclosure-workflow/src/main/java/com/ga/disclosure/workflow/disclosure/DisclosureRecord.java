@@ -24,19 +24,24 @@ public record DisclosureRecord(
         RuleVersionId tenantRuleVersionIdOrNull,
         TemplateRef template,
         IssuerMode issuerMode,
+        Lineage lineage,
         DisclosureStatus status,
         List<DisclosureItem> items,
-        EngineSnapshot snapshotOrNull) {
+        EngineSnapshot snapshotOrNull,
+        SealStamp sealOrNull,
+        VoidMark voidOrNull,
+        DisclosureId supersededByOrNull) {
 
     public DisclosureRecord {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(ruleVersionId, "ruleVersionId");
         Objects.requireNonNull(template, "template");
+        Objects.requireNonNull(lineage, "lineage");
         items = List.copyOf(items);
     }
 
     public Disclosure restore(DisclosureContext context) {
         return Disclosure.restore(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, status, items, snapshotOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull);
     }
 }

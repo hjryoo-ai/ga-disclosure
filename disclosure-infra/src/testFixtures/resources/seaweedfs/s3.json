@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "disclosure-test",
+      "credentials": [
+        { "accessKey": "ga-local-test-access", "secretKey": "ga-local-test-secret-not-a-real-key" }
+      ],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}

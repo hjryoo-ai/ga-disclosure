@@ -3,6 +3,7 @@ package com.ga.disclosure.workflow.disclosure;
 import com.ga.disclosure.domain.disclosure.AgentReason;
 import com.ga.disclosure.domain.disclosure.DisclosureCommand;
 import com.ga.disclosure.domain.disclosure.DisclosureStateTable;
+import com.ga.disclosure.domain.disclosure.FieldValue;
 import com.ga.disclosure.domain.disclosure.ItemDraft;
 import com.ga.disclosure.domain.disclosure.ItemGrade;
 import com.ga.disclosure.domain.disclosure.Recommendation;
@@ -20,8 +21,12 @@ import com.ga.disclosure.domain.vo.ProductKey;
 import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.domain.vo.TemplateRef;
+import com.ga.disclosure.rules.template.BindingView;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.rules.validation.ValidationSubject;
+import com.ga.disclosure.workflow.catalog.PanelEntry;
+import com.ga.platform.canonical.Canonicalizer;
+import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -57,36 +62,54 @@ public final class Disclosure implements ValidationSubject {
     private final CustomerRef customerRef;
     private final GroupCode groupCode;
     private final LocalDate consultDate;
-    private final RuleVersionId ruleVersionId;
-    private final RuleVersionId tenantRuleVersionIdOrNull;
-    private final TemplateRef template;
     private final IssuerMode issuerMode;
-    private final DisclosureContext context;
+    private final Lineage lineage;
+
+    /** 고정 룰·서식과 그 판단 재료. 재기준(REBASE)만 바꾼다 — 상담일은 그대로다. */
+    private RuleVersionId ruleVersionId;
+    private RuleVersionId tenantRuleVersionIdOrNull;
+    private TemplateRef template;
+    private DisclosureContext context;
 
     private DisclosureStatus status;
     private List<DisclosureItem> items;
     private EngineSnapshot snapshotOrNull;
+    private SealStamp sealOrNull;
+    private VoidMark voidOrNull;
+    private DisclosureId supersededByOrNull;
 
     private Disclosure(DisclosureId id, String agentId, CustomerRef customerRef, GroupCode groupCode, LocalDate consultDate,
                        RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template, IssuerMode issuerMode,
-                       DisclosureContext context, DisclosureStatus status, List<DisclosureItem> items, EngineSnapshot snapshotOrNull) {
+                       DisclosureContext context, Lineage lineage, DisclosureStatus status, List<DisclosureItem> items,
+                       EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull, DisclosureId supersededByOrNull) {
         this.id = Objects.requireNonNull(id, "id");
         this.agentId = Objects.requireNonNull(agentId, "agentId");
         this.customerRef = Objects.requireNonNull(customerRef, "customerRef");
         this.groupCode = Objects.requireNonNull(groupCode, "groupCode");
         this.consultDate = Objects.requireNonNull(consultDate, "consultDate");
-        this.ruleVersionId = Objects.requireNonNull(ruleVersionId, "ruleVersionId");
-        this.tenantRuleVersionIdOrNull = tenantRuleVersionIdOrNull;
-        this.template = Objects.requireNonNull(template, "template");
         this.issuerMode = Objects.requireNonNull(issuerMode, "issuerMode");
-        this.context = Objects.requireNonNull(context, "context");
-        if (!context.template().ref().equals(template)) {
-            throw new IllegalArgumentException("context template " + context.template().ref() + " is not the pinned " + template);
-        }
+        this.lineage = Objects.requireNonNull(lineage, "lineage");
+        pin(ruleVersionId, tenantRuleVersionIdOrNull, template, context);
         this.status = Objects.requireNonNull(status, "status");
         this.items = List.copyOf(items);
         this.snapshotOrNull = snapshotOrNull;
+        this.sealOrNull = sealOrNull;
+        this.voidOrNull = voidOrNull;
+        this.supersededByOrNull = supersededByOrNull;
         checkInvariants();
+    }
+
+    private void pin(RuleVersionId rule, RuleVersionId tenantRuleOrNull, TemplateRef pinnedTemplate, DisclosureContext pinnedContext) {
+        Objects.requireNonNull(rule, "ruleVersionId");
+        Objects.requireNonNull(pinnedTemplate, "template");
+        Objects.requireNonNull(pinnedContext, "context");
+        if (!pinnedContext.template().ref().equals(pinnedTemplate)) {
+            throw new IllegalArgumentException("context template " + pinnedContext.template().ref() + " is not the pinned " + pinnedTemplate);
+        }
+        this.ruleVersionId = rule;
+        this.tenantRuleVersionIdOrNull = tenantRuleOrNull;
+        this.template = pinnedTemplate;
+        this.context = pinnedContext;
     }
 
     /** 새 초안: 항목 없음, 룰·서식 버전은 호출자가 상담일로 한 번 해석해 고정한 값. */
@@ -94,27 +117,47 @@ public final class Disclosure implements ValidationSubject {
                                    RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template,
                                    IssuerMode issuerMode, DisclosureContext context) {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, DisclosureStatus.DRAFT, List.of(), null);
+                issuerMode, context, Lineage.FIRST, DisclosureStatus.DRAFT, List.of(), null, null, null, null);
     }
 
-    /** 저장소에서 복원. 불변식(스냅샷 ↔ 상태·항목)을 다시 검사한다. */
+    /**
+     * 정정본 초안(SUPERSEDE, 설계서 §6.6): 원본과 같은 고객·설계사·상품군·상담일·정본 모드, 버전 + 1과 원본 ID. 항목은 입력만 복제하고 등급
+     * 복사본·추천사유는 복제하지 않는다(재산출·재입력 — 절대 규칙 7). 룰·서식은 호출자가 원본 상담일로 다시 해석해 고정한 값이다.
+     */
+    public static Disclosure supersedingDraft(DisclosureId newId, Disclosure original, RuleVersionId ruleVersionId,
+                                              RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template, DisclosureContext context) {
+        List<DisclosureItem> copied = original.items.stream().map(DisclosureItem::ungraded).toList();
+        return new Disclosure(newId, original.agentId, original.customerRef, original.groupCode, original.consultDate, ruleVersionId,
+                tenantRuleVersionIdOrNull, template, original.issuerMode, context, original.lineage.next(original.id), DisclosureStatus.DRAFT,
+                copied, null, null, null, null);
+    }
+
+    /** 저장소에서 복원. 불변식(스냅샷·봉인·무효·정정 ↔ 상태·항목)을 다시 검사한다. */
     public static Disclosure restore(DisclosureId id, String agentId, CustomerRef customerRef, GroupCode groupCode, LocalDate consultDate,
                                      RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template,
-                                     IssuerMode issuerMode, DisclosureContext context, DisclosureStatus status, List<DisclosureItem> items,
-                                     EngineSnapshot snapshotOrNull) {
+                                     IssuerMode issuerMode, DisclosureContext context, Lineage lineage, DisclosureStatus status,
+                                     List<DisclosureItem> items, EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull,
+                                     DisclosureId supersededByOrNull) {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, status, items, snapshotOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull);
     }
 
     private Disclosure copy() {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, status, items, snapshotOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull);
     }
 
     private void adopt(Disclosure candidate) {
         this.status = candidate.status;
         this.items = candidate.items;
         this.snapshotOrNull = candidate.snapshotOrNull;
+        this.sealOrNull = candidate.sealOrNull;
+        this.voidOrNull = candidate.voidOrNull;
+        this.supersededByOrNull = candidate.supersededByOrNull;
+        if (candidate.ruleVersionId != ruleVersionId || candidate.template != template || candidate.context != context
+                || candidate.tenantRuleVersionIdOrNull != tenantRuleVersionIdOrNull) {
+            pin(candidate.ruleVersionId, candidate.tenantRuleVersionIdOrNull, candidate.template, candidate.context);
+        }
         checkInvariants();
     }
 
@@ -222,6 +265,75 @@ public final class Disclosure implements ValidationSubject {
         return gate(command, ValidationStage.REASON, candidate, check);
     }
 
+    /**
+     * 봉인(REASONED → SEALED): 봉인 조건 평가·채번·렌더·체인은 봉인 유스케이스가 한 트랜잭션에서 마쳤다 — 애그리게이트는 그 결과(봉인 도장)를
+     * 받아 상태를 옮긴다. 항목·스냅샷·추천사유는 그대로이며 이후 불변이다(V3).
+     */
+    public TransitionOutcome seal(SealStamp stamp) {
+        DisclosureCommand command = DisclosureCommand.SEAL;
+        DisclosureStateTable.require(status, command);
+        Objects.requireNonNull(stamp, "stamp");
+        if (snapshotOrNull == null) {
+            throw new IllegalStateException("only a graded and reasoned disclosure is sealed");
+        }
+        Disclosure candidate = copy();
+        candidate.sealOrNull = stamp;
+        candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.SEALED);
+        DisclosureStatus from = status;
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, null, List.of());
+    }
+
+    /** 무효(VOID): 표가 허용하는 모든 상태에서. 봉인 후 무효는 번호·봉인 컬럼을 유지한다(재사용 없음, 3B 계획 승인 Q8). */
+    public TransitionOutcome voidWith(VoidMark mark) {
+        DisclosureCommand command = DisclosureCommand.VOID;
+        DisclosureStateTable.require(status, command);
+        Objects.requireNonNull(mark, "mark");
+        Disclosure candidate = copy();
+        candidate.voidOrNull = mark;
+        candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.VOID);
+        DisclosureStatus from = status;
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, null, List.of());
+    }
+
+    /** 정정(SUPERSEDE): 봉인 이후 상태 → SUPERSEDED, 후속 버전 ID를 한 번만 기록한다(V3 GD004). 새 버전은 {@link #supersedingDraft}. */
+    public TransitionOutcome supersede(DisclosureId next) {
+        DisclosureCommand command = DisclosureCommand.SUPERSEDE;
+        DisclosureStateTable.require(status, command);
+        Objects.requireNonNull(next, "next");
+        if (next.equals(id)) {
+            throw new IllegalArgumentException("a disclosure cannot supersede itself");
+        }
+        Disclosure candidate = copy();
+        candidate.supersededByOrNull = next;
+        candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.SUPERSEDED);
+        DisclosureStatus from = status;
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, null, List.of());
+    }
+
+    /**
+     * 재기준(REBASE, 3A 수용심사 §3-8): 상담일 재해석으로 얻은 룰·서식을 새로 고정하고 스냅샷·추천사유를 버린다(항목 입력은 그대로). 새 룰의 COMPARE
+     * 단계 검증을 통과하면 COMPARED, 오버라이드 불가 실패가 있으면 DRAFT(3B 계획 승인 Q3) — 어느 쪽이든 적용되고 결과에 검증 결과를 싣는다.
+     */
+    public TransitionOutcome rebase(RuleVersionId newRule, RuleVersionId newTenantRuleOrNull, TemplateRef newTemplate,
+                                    DisclosureContext newContext, StageCheck newCheck) {
+        DisclosureCommand command = DisclosureCommand.REBASE;
+        DisclosureStateTable.require(status, command);
+        Disclosure candidate = copy();
+        candidate.pin(newRule, newTenantRuleOrNull, newTemplate, newContext);
+        candidate.items = items.stream().map(DisclosureItem::ungraded).toList();
+        candidate.snapshotOrNull = null;
+        candidate.status = DisclosureStatus.COMPARED;
+        List<ValidationResult> results = newCheck.run(ValidationStage.COMPARE, candidate);
+        boolean blocked = results.stream().anyMatch(ValidationResult::blocking);
+        candidate.status = DisclosureStateTable.target(status, command, blocked ? DisclosureStatus.DRAFT : DisclosureStatus.COMPARED);
+        DisclosureStatus from = status;
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, ValidationStage.COMPARE, results);
+    }
+
     private TransitionOutcome gate(DisclosureCommand command, ValidationStage stage, Disclosure candidate, StageCheck check) {
         List<ValidationResult> results = check.run(stage, candidate);
         DisclosureStatus from = status;
@@ -249,8 +361,26 @@ public final class Disclosure implements ValidationSubject {
         return List.copyOf(out);
     }
 
-    /** 스냅샷 ↔ 상태·항목 불변식(W2): 산출 전 상태에는 스냅샷이 없고, 스냅샷이 있으면 모든 항목이 산출돼 있으며 엔진 집합 = 요청 집합이다. */
+    /**
+     * 불변식: 스냅샷 ↔ 상태·항목(W2 — 산출 전 상태에는 스냅샷이 없고, 스냅샷이 있으면 모든 항목이 산출돼 있으며 엔진 집합 = 요청 집합), 그리고
+     * 봉인·무효·정정 ↔ 상태(V7과 같은 규칙: 봉인 도장은 가변 상태에 없고 VOID 밖의 봉인 이후 상태에는 있다, VOID ⇔ 무효 표시, SUPERSEDED ⇔ 후속 ID).
+     */
     private void checkInvariants() {
+        if (status.isMutable() && sealOrNull != null) {
+            throw new IllegalStateException(status + " cannot carry a seal");
+        }
+        if (status.isSealedOrLater() && status != DisclosureStatus.VOID && sealOrNull == null) {
+            throw new IllegalStateException(status + " requires a seal");
+        }
+        if ((status == DisclosureStatus.VOID) != (voidOrNull != null)) {
+            throw new IllegalStateException("void mark exactly on VOID (status " + status + ")");
+        }
+        if ((status == DisclosureStatus.SUPERSEDED) != (supersededByOrNull != null)) {
+            throw new IllegalStateException("superseded-by exactly on SUPERSEDED (status " + status + ")");
+        }
+        if (sealOrNull != null && snapshotOrNull == null) {
+            throw new IllegalStateException("a sealed disclosure carries its engine snapshot");
+        }
         boolean graded = snapshotOrNull != null;
         if (graded && (status == DisclosureStatus.DRAFT || status == DisclosureStatus.COMPARED)) {
             throw new IllegalStateException(status + " cannot carry a snapshot");
@@ -304,6 +434,22 @@ public final class Disclosure implements ValidationSubject {
         return ruleVersionId;
     }
 
+    public Lineage lineage() {
+        return lineage;
+    }
+
+    public Optional<SealStamp> sealStamp() {
+        return Optional.ofNullable(sealOrNull);
+    }
+
+    public Optional<VoidMark> voidMark() {
+        return Optional.ofNullable(voidOrNull);
+    }
+
+    public Optional<DisclosureId> supersededBy() {
+        return Optional.ofNullable(supersededByOrNull);
+    }
+
     public Optional<RuleVersionId> tenantRuleVersionId() {
         return Optional.ofNullable(tenantRuleVersionIdOrNull);
     }
@@ -355,9 +501,60 @@ public final class Disclosure implements ValidationSubject {
         return engineSnapshot().map(EngineSnapshot::snapshot);
     }
 
+    /**
+     * 서식 결속 단면(3B): 번호·성명은 봉인 전이라 없다(봉인이 채운다). 상품군 이름·패널·사유 라벨은 주입된 상담일 사실이고, 항목값은
+     * 저장된 {@code field_values}(출처 포함), 등급은 항목의 복사본이다.
+     */
     @Override
-    public Map<String, String> documentFieldValues() {
-        return FieldValueView.document(context.template());
+    public BindingView bindings() {
+        List<String> panelNames = context.panelOnConsultDate().stream().map(PanelEntry::insurerName).toList();
+        List<BindingView.Item> views = items.stream().<BindingView.Item>map(ItemBindings::new).toList();
+        return new BindingView() {
+            @Override
+            public Optional<String> disclosureNo() {
+                return Optional.empty();
+            }
+
+            @Override
+            public LocalDate consultDate() {
+                return consultDate;
+            }
+
+            @Override
+            public String agentId() {
+                return agentId;
+            }
+
+            @Override
+            public Optional<String> customerName() {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<String> productGroupName() {
+                return context.productGroupName();
+            }
+
+            @Override
+            public List<String> panelInsurerNames() {
+                return panelNames;
+            }
+
+            @Override
+            public List<? extends Item> items() {
+                return views;
+            }
+        };
+    }
+
+    /** 항목의 추천사유 라벨(고정 룰의 라벨, 룰에 없는 코드는 코드 그대로 — R-REASON이 잡는다). */
+    public List<String> reasonLabels(DisclosureItem item) {
+        return item.recommendation().map(r -> r.codes().stream().map(c -> context.reasonLabels().getOrDefault(c, c.value())).toList())
+                .orElse(List.of());
+    }
+
+    public DisclosureContext context() {
+        return context;
     }
 
     @Override
@@ -373,6 +570,56 @@ public final class Disclosure implements ValidationSubject {
     @Override
     public boolean isInsurerOnPanel(InsurerCode insurer, LocalDate date) {
         return context.panel().test(insurer, date);
+    }
+
+    private final class ItemBindings implements BindingView.Item {
+
+        private final DisclosureItem item;
+
+        ItemBindings(DisclosureItem item) {
+            this.item = item;
+        }
+
+        @Override
+        public Optional<String> insurerName() {
+            return context.insurerName(item.draft().insurer());
+        }
+
+        @Override
+        public String productName() {
+            return item.draft().productName();
+        }
+
+        @Override
+        public Optional<JsonNode> fieldValue(String code) {
+            return Optional.ofNullable(item.draft().fieldValues().get(code)).map(v -> Canonicalizer.parseStrict(v.canonicalJson()));
+        }
+
+        @Override
+        public boolean enteredByAgent(String code) {
+            FieldValue v = item.draft().fieldValues().get(code);
+            return v != null && v.origin() == FieldValue.Origin.AGENT;
+        }
+
+        @Override
+        public Optional<ItemGrade> grade() {
+            return item.grade();
+        }
+
+        @Override
+        public boolean recommended() {
+            return item.draft().recommended();
+        }
+
+        @Override
+        public List<String> reasonLabels() {
+            return Disclosure.this.reasonLabels(item);
+        }
+
+        @Override
+        public Optional<String> reasonText() {
+            return item.recommendation().flatMap(Recommendation::text);
+        }
     }
 
     private final class ItemView implements Item {
@@ -421,11 +668,6 @@ public final class Disclosure implements ValidationSubject {
         @Override
         public Optional<String> quoteDocNo() {
             return item.draft().quoteDocNo();
-        }
-
-        @Override
-        public Map<String, String> fieldValues() {
-            return FieldValueView.item(context.template(), item);
         }
 
         @Override

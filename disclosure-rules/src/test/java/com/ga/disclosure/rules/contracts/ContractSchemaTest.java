@@ -422,8 +422,17 @@ class ContractSchemaTest {
     @Test
     void templateCarriesOnlyPressReleaseLabelsAndTodoPlaceholder() {
         JsonNode template = read(STANDARD_V1).get("body");
-        assertThat(template.path("fields")).extracting(f -> f.path("label").asString()).containsExactly(
+        List<JsonNode> comparison = new ArrayList<>();
+        List<JsonNode> header = new ArrayList<>();
+        template.path("fields").forEach(f -> (f.path("section").asString().equals("HEADER") ? header : comparison).add(f));
+        // 비교 항목은 금융위 보도자료의 9개뿐 — 지어낸 항목명이 없다
+        assertThat(comparison).extracting(f -> f.path("label").asString()).containsExactly(
                 "보험회사명", "비교상품군", "상품명", "보험료", "해약환급예시", "판매수수료등급", "판매수수료순위", "추천사유", "추천가능보험사");
+        assertThat(comparison).allSatisfy(f -> assertThat(f.has("labelRef")).as(f.path("code").asString()).isFalse());
+        // 문서 식별부 4개(3B 계획 승인 Q2): 비교 항목이 아니며 라벨은 정본 확인 전 가정으로 표시돼 있다
+        assertThat(header).extracting(f -> f.path("render").path("bind").asString()).containsExactly(
+                "HEADER_DISCLOSURE_NO", "HEADER_CONSULT_DATE", "HEADER_AGENT", "HEADER_CUSTOMER_NAME");
+        assertThat(header).allSatisfy(f -> assertThat(f.path("labelRef").asString()).isEqualTo("TODO(confirm#2)"));
         assertThat(template.path("pendingConfirmation")).extracting(p -> p.path("ref").asString()).containsExactly("TODO(confirm#2)");
     }
 

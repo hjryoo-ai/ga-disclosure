@@ -27,8 +27,14 @@ class TemplateResolverTest {
                 .resolve(T, TemplateType.STANDARD, D);
         assertThat(r.ref()).isEqualTo(STANDARD.template());
         assertThat(r.fields()).extracting(TemplateField::order).isSorted();
-        assertThat(r.fields()).hasSize(9).allSatisfy(f -> assertThat(f.required()).isTrue());
-        assertThat(r.requiredFieldCodes()).hasSize(9);
+        assertThat(r.fields()).hasSize(13).allSatisfy(f -> assertThat(f.required()).isTrue());
+        assertThat(r.fields()).filteredOn(f -> f.section() == FieldSection.COMPARISON).hasSize(9);
+        assertThat(r.fields()).filteredOn(f -> f.section() == FieldSection.HEADER).hasSize(4)
+                .allSatisfy(f -> assertThat(f.labelRef()).contains("TODO(confirm#2)"));
+        assertThat(r.requiredFieldCodes()).hasSize(13);
+        assertThat(r.title()).isNotBlank();
+        assertThat(r.sections()).flatExtracting(LayoutSection::fieldCodes).containsExactlyInAnyOrderElementsOf(
+                r.fields().stream().map(TemplateField::code).toList());
     }
 
     @Test

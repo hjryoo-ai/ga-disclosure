@@ -1,6 +1,7 @@
 package com.ga.disclosure.infra.persistence;
 
 import com.ga.disclosure.domain.pii.BirthDate;
+import com.ga.disclosure.domain.pii.CustomerName;
 import com.ga.disclosure.domain.pii.PhoneNumber;
 import com.ga.disclosure.domain.pii.Sensitive;
 import com.ga.disclosure.domain.vo.CustomerRef;
@@ -87,6 +88,38 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
                     byte[] dek = unwrap(tenant, key);
                     try {
                         return decrypt(dek, tenant, row);
+                    } finally {
+                        Arrays.fill(dek, (byte) 0);
+                    }
+                });
+    }
+
+    @Override
+    public boolean nameReadable(CustomerRef ref) {
+        return queryAtMostOne("""
+                SELECT k.status
+                  FROM customer_ref r
+                  JOIN customer_data_key k ON k.tenant_id = r.tenant_id AND k.key_id = r.enc_key_id
+                 WHERE r.tenant_id = :tenantId
+                   AND r.customer_ref = :customerRef
+                   AND k.tenant_id = :tenantId
+                """, Map.of("customerRef", ref.value()), (rs, n) -> rs.getString("status"))
+                .map(status -> !"DESTROYED".equals(status)).orElse(false);
+    }
+
+    @Override
+    public Optional<Sensitive<CustomerName>> name(CustomerRef ref) {
+        TenantId tenant = TenantContext.current();
+        return queryAtMostOne("""
+                SELECT customer_ref, name_enc, phone_enc, birth_date_enc, enc_key_id, created_at
+                  FROM customer_ref
+                 WHERE tenant_id = :tenantId
+                   AND customer_ref = :customerRef
+                """, Map.of("customerRef", ref.value()), (rs, n) -> row(rs))
+                .map(row -> {
+                    byte[] dek = unwrap(tenant, key(row.keyId()));
+                    try {
+                        return CustomerFieldCipher.decryptName(dek, tenant, row.ref(), row.keyId(), row.name());
                     } finally {
                         Arrays.fill(dek, (byte) 0);
                     }

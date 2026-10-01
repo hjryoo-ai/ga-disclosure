@@ -11,7 +11,7 @@ import com.ga.disclosure.rules.resolve.ResolutionFailure;
 import com.ga.disclosure.rules.resolve.RuleResolutionException;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.rules.resolve.ValidationStep;
-import com.ga.disclosure.rules.template.FieldScope;
+import com.ga.disclosure.rules.template.Bind;
 import com.ga.disclosure.rules.template.TemplateField;
 import com.ga.disclosure.rules.template.TemplateResolution;
 import com.ga.disclosure.rules.template.TemplateResolver;
@@ -27,7 +27,6 @@ import tools.jackson.databind.node.ObjectNode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,11 +55,17 @@ class ValidationRegistryTest {
     private static final TemplateResolution TEMPLATE =
             TemplateResolver.resolution(Bundles.template(Bundles.template(Bundles.STANDARD_V1), null));
 
-    /** 서식의 PER_ITEM 필수 항목 전부에 값을 채운 항목. 코드 이름은 서식 데이터에서 읽는다. */
+    /** 서식의 PER_ITEM 필수 항목 중 저장값에 결속된 것(카탈로그 기본값·설계사 입력)에 값을 채운 항목. 코드 이름은 서식 데이터에서 읽는다. */
     private static TestItem filled(TestItem item) {
-        Map<String, String> values = new HashMap<>();
-        TEMPLATE.requiredFields().stream().filter(f -> f.scope() == FieldScope.PER_ITEM).forEach(f -> values.put(f.code(), "값"));
-        return item.fields(values);
+        TestItem out = item;
+        for (TemplateField f : TEMPLATE.requiredFields()) {
+            if (f.bind() == Bind.CATALOG_DEFAULT) {
+                out = out.field(f.code(), "값");
+            } else if (f.bind() == Bind.AGENT_INPUT) {
+                out = out.agentField(f.code(), "값");
+            }
+        }
+        return out;
     }
 
     private static TestSubject baseline() {
@@ -72,11 +77,6 @@ class ValidationRegistryTest {
                 .withSnapshot(Snapshots.snapshot(TieBreak.SHARED_RANK,
                         ok("INS-C:PRD-3", 5, 3, false), ok("INS-A:PRD-1", 2, 1, false), ok("INS-B:PRD-2", 3, 2, false)))
                 .withDeadline(SEALED.plusSeconds(7 * 86_400));
-        for (TemplateField f : TEMPLATE.requiredFields()) {
-            if (f.scope() == FieldScope.PER_DOCUMENT) {
-                subject = subject.withDocumentField(f.code(), "값");
-            }
-        }
         for (int i = 0; i < RULE.signerSet().size(); i++) {
             subject = subject.signedBy(RULE.signerSet().get(i), SEALED.plusSeconds(60L * (i + 1)));
         }
@@ -301,13 +301,21 @@ class ValidationRegistryTest {
         assertThat(result("R-SIGNER-SET", missingLast.withDeadline(null)).passed()).isFalse();
     }
 
+    /** 결속 기준 판정(3A 수용심사 §3-1): 저장값 결속은 값이, 구조 결속은 그 구조(상품군·패널·등급·추천사유)가 있어야 한다. */
     @Test
     void fieldRequired() {
-        TemplateField perItem = TEMPLATE.requiredFields().stream().filter(f -> f.scope() == FieldScope.PER_ITEM).findFirst().orElseThrow();
-        TestSubject missingItemValue = mapItems(baseline(), items -> replace(items, 1, ((TestItem) items.get(1)).field(perItem.code(), " ")));
-        assertThat(result("R-FIELD-REQUIRED", missingItemValue).message()).contains(perItem.code() + "@INS-B:PRD-2");
-        TemplateField perDocument = TEMPLATE.requiredFields().stream().filter(f -> f.scope() == FieldScope.PER_DOCUMENT).findFirst().orElseThrow();
-        assertThat(result("R-FIELD-REQUIRED", baseline().withDocumentField(perDocument.code(), "")).passed()).isFalse();
+        TemplateField stored = TEMPLATE.requiredFields().stream().filter(f -> f.bind() == Bind.CATALOG_DEFAULT).findFirst().orElseThrow();
+        TestSubject missingItemValue = mapItems(baseline(), items -> replace(items, 1, ((TestItem) items.get(1)).field(stored.code(), " ")));
+        assertThat(result("R-FIELD-REQUIRED", missingItemValue).message()).contains(stored.code() + "@INS-B:PRD-2");
+        TemplateField group = TEMPLATE.requiredFields().stream().filter(f -> f.bind() == Bind.HEADER_PRODUCT_GROUP).findFirst().orElseThrow();
+        assertThat(result("R-FIELD-REQUIRED", baseline().withoutProductGroupName()).message()).contains(group.code())
+                .doesNotContain("@");
+        TemplateField grade = TEMPLATE.requiredFields().stream().filter(f -> f.bind() == Bind.ENGINE_GRADE_LABEL).findFirst().orElseThrow();
+        assertThat(result("R-FIELD-REQUIRED", baseline().withSnapshot(null)).message()).contains(grade.code() + "@INS-A:PRD-1");
+        TemplateField reason = TEMPLATE.requiredFields().stream().filter(f -> f.bind() == Bind.RECOMMENDATION).findFirst().orElseThrow();
+        TestSubject noReason = mapItems(baseline(), items -> replace(items, 0, ((TestItem) items.get(0)).reasons()));
+        assertThat(result("R-FIELD-REQUIRED", noReason).message()).contains(reason.code() + "@INS-A:PRD-1")
+                .doesNotContain(reason.code() + "@INS-C:PRD-3");        // 비추천 항목은 빈 칸이 값이다
     }
 
     // ------------------------------------------------------------------ 레지스트리 규약

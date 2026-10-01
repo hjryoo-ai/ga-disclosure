@@ -35,8 +35,8 @@ class RatioLabelRoundTripIT {
         String read = DB.asApp(T, c -> {
             SeedData.exec(c, """
                     INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id,
-                                            template_version, issuer_mode, status, consult_date)
-                    VALUES (?, ?, 'AGENT-1', 'C-1', 'PG-1', 'STANDARD', 1, 'SELF', 'GRADED', DATE '2026-09-23')
+                                            template_version, issuer_mode, status, consult_date, rule_version_id)
+                    VALUES (?, ?, 'AGENT-1', 'C-1', 'PG-1', 'STANDARD', 1, 'SELF', 'GRADED', DATE '2026-09-23', 'DISC-2026-07')
                     """, T, id);
             SeedData.item(c, T, id, 1, original);
             try (PreparedStatement ps = c.prepareStatement(

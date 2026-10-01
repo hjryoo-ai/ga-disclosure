@@ -55,6 +55,20 @@ final class CommandRunner {
         }
     }
 
+    /** 제한 시간이 있는 업무 트랜잭션 하나(봉인). 예외면 롤백 뒤 {@code COMMAND_FAILED}. */
+    <T> T inTransaction(TenantId tenant, Actor actor, String command, String targetIdOrNull, java.time.Duration timeout, Supplier<T> work) {
+        if (tenant == null) {
+            throw new IllegalArgumentException("tenant is not bound — " + command + " is not audited (unauthenticated or boot error)");
+        }
+        Objects.requireNonNull(actor, "actor");
+        try {
+            return transactions.inTenant(tenant, timeout, work);
+        } catch (RuntimeException e) {
+            recordFailure(tenant, actor, command, targetIdOrNull, e);
+            throw e;
+        }
+    }
+
     /** 트랜잭션 밖에서 난 명령 오류(엔진 호출 등)의 실패 사실을 남기고 원 예외를 돌려준다(호출자가 던진다). */
     RuntimeException failed(TenantId tenant, Actor actor, String command, String targetIdOrNull, RuntimeException failure) {
         recordFailure(tenant, actor, command, targetIdOrNull, failure);

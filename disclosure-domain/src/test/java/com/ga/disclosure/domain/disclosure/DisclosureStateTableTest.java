@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 3A W1(표 대조): 설계서 §6.1의 {@code state-table} 블록(정본, CSV)을 파싱해 {@link DisclosureStateTable}(EnumMap)과 상태 10 × 명령 10
+ * 3A W1(표 대조): 설계서 §6.1의 {@code state-table} 블록(정본, CSV)을 파싱해 {@link DisclosureStateTable}(EnumMap)과 상태 10 × 명령 11
  * 전수를 양방향으로 대조한다. 블록이 없거나 줄 형식이 틀리면 실패한다(계획 승인 B3). 구현된 명령의 표 밖 전이가 애그리게이트에서
  * {@link IllegalTransition}인지는 워크플로 모듈의 {@code DisclosureTransitionTest}가 증명한다.
  */
@@ -77,7 +77,7 @@ class DisclosureStateTableTest {
                 cells++;
             }
         }
-        assertThat(cells).isEqualTo(100);
+        assertThat(cells).isEqualTo(110);           // 상태 10 × 명령 11(3B REBASE)
     }
 
     @ParameterizedTest

@@ -64,6 +64,20 @@ class RuleResolverTest {
         assertThat(loaded.signDeadlineDays()).isEqualTo(10);
     }
 
+    /**
+     * 3B: 소급 배포된 GLOBAL 룰이 고정 버전을 대체해 그 구간이 상담일 이전에 닫혀도 고정 버전은 로드된다 — 봉인 조건 ①(재해석 ≠ 고정)과
+     * 재기준이 그 초안을 다룰 수 있어야 한다. 재해석은 새 룰을 낸다.
+     */
+    @Test
+    void loadStillWorksAfterARetroactiveSupersessionClosedThePinnedVersion() {
+        InMemoryRuleVersionPort port = new InMemoryRuleVersionPort()
+                .add(Bundles.global(Y2026, RuleStatus.RETIRED, LocalDate.parse("2026-09-01")))
+                .add(Bundles.global("DISC-RETRO", LocalDate.parse("2026-09-01"), null, RuleStatus.ACTIVE, Y2026.body()));
+        EffectiveRule loaded = new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), null);
+        assertThat(loaded.globalRuleVersionId()).isEqualTo(RuleVersionId.of("DISC-2026-07"));
+        assertThat(new RuleResolver(port).resolve(T, D).globalRuleVersionId()).isEqualTo(RuleVersionId.of("DISC-RETRO"));
+    }
+
     @Test
     void loadFailsExplicitlyWhenAPinnedVersionIsMissingOrWasNotInForce() {
         InMemoryRuleVersionPort port = withGlobal();

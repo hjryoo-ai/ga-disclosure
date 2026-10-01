@@ -32,5 +32,12 @@ DB 트리거가 불변식 위반을 거부할 때 올리는 사용자 정의 SQL
 | GD071 | V5 | `product_catalog` UPDATE | 키 정체성(`tenant_id`, `product_key`, `insurer_code`) 변경 |
 | GD065 | V6 | `customer_ref` UPDATE | `registration_key` 변경(등록 멱등 키는 INSERT 때만 정한다) |
 | GD080 | V6 | `review` INSERT | 부모 확인서 없음, 또는 부모가 가변 상태(`DRAFT`~`REASONED`)가 아님 — 예외 승인은 봉인 전에만 기록한다 |
+| GD081 | V7 | `review` INSERT | 승인의 룰 버전(`rule_version_id`, `tenant_rule_version_id`) ≠ 부모 확인서의 현재 고정 버전 — 승인은 지금 고정된 룰 아래의 실패에만 귀속된다 |
+| GD090 | V7 | `disclosure_counter` | 첫 값이 1이 아닌 INSERT, +1이 아닌 갱신(건너뛰기·감소·제자리)·키 변경, DELETE·TRUNCATE — 번호는 무결번이다 |
+| GD091 | V7 | `disclosure_chain_head` | 첫 값이 1이 아닌 INSERT, +1이 아닌 갱신·키 변경, 실재하는 봉인(같은 테넌트·순번·체인 해시)을 가리키지 않는 머리, DELETE·TRUNCATE |
+| GD092 | V7 | `document_key` | 봉인 전 확인서의 키 INSERT, 키 재료 없는 INSERT, 파기(감싼 키 → NULL + 시각·주체, 소유 롤 `ga_shred_document_key`만) 외 UPDATE, DELETE·TRUNCATE |
+| GD093 | V7 | `document_artifact` | 봉인 전 확인서의 산출물 INSERT, 다른 확인서의 키·파기된 키 참조, `retention_applied_at` NULL→값 1회 외 UPDATE(DELETE·TRUNCATE는 GD030) |
+| GD094 | V7 | `disclosure` UPDATE | `retention_until` 단축 또는 값 → NULL — 보존기한은 연장만(Object Lock COMPLIANCE와 같은 의미) |
+| GD095 | V7 | `disclosure` INSERT·UPDATE | 봉인 정합: 번호 ≠ 그 테넌트·연도 카운터의 현재 값, 번호 연도 ≠ 봉인 시각의 Asia/Seoul 연도, `chain_seq` ≠ 체인 머리 + 1, `chain_hash` ≠ SHA-256(prev ‖ canonical ‖ pdf) |
 
-제약 위반(트리거가 아닌 DB 제약)은 PostgreSQL 표준 코드를 그대로 쓴다: 배타 제약 `23P01`(`ex_rule_version_in_force_overlap`, `ex_form_template_overlap`, V5 `ex_insurer_panel_overlap`), CHECK `23514`(V5: `customer_ref` 암호문 머리·ID 형식, 카탈로그 구간·`line`; V6: `disclosure` 상태 열거·스냅샷 헤더 전부-또는-없음·산출 전 스냅샷 금지, `disclosure_item` 임시등록 정체성·등급 복사본 세 형태, `review` 해시·사유, `registration_key` 형식), PK·유일 `23505`(V5: `ux_customer_data_key_active`, `uq_catalog_import_file`, `ux_compliance_flag_open_target`; V6: `ux_disclosure_item_product`, `ux_customer_ref_registration`), FK `23503`.
+제약 위반(트리거가 아닌 DB 제약)은 PostgreSQL 표준 코드를 그대로 쓴다: 배타 제약 `23P01`(`ex_rule_version_in_force_overlap`, `ex_form_template_overlap`, V5 `ex_insurer_panel_overlap`), CHECK `23514`(V5: `customer_ref` 암호문 머리·ID 형식, 카탈로그 구간·`line`; V6: `disclosure` 상태 열거·스냅샷 헤더 전부-또는-없음·산출 전 스냅샷 금지, `disclosure_item` 임시등록 정체성·등급 복사본 세 형태, `review` 해시·사유, `registration_key` 형식), PK·유일 `23505`(V5: `ux_customer_data_key_active`, `uq_catalog_import_file`, `ux_compliance_flag_open_target`; V6: `ux_disclosure_item_product`, `ux_customer_ref_registration`; V7: `ux_disclosure_chain_seq`, `uq_document_key_disclosure`), FK `23503`. V7 CHECK(`23514`): `disclosure` 봉인 컬럼 7개 전부-또는-없음·상태 결속(가변 상태 없음, VOID 둘 다, 나머지 봉인 이후 전부)·번호 형식과 테넌트 접두·해시 형식·`chain_seq ≥ 1`·VOID ⇔ 무효 시각 ⇔ 사유·SUPERSEDED ⇔ 후속 ID·고정 룰 필수, 카운터 연도·범위, 체인 머리 형식, 문서 키 ID 형식·파기 일관성, 산출물 종류·해시 형식·길이(암호문 = 평문 + 29)·객체 키 형식.

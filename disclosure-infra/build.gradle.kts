@@ -19,10 +19,26 @@ dependencies {
     implementation(libs.json.schema.validator)
     implementation(libs.jackson.dataformat.yaml)
     runtimeOnly(libs.postgresql)
+    // Phase 3B 산출물 저장: 벤더 무관 표준 S3 API(AWS SDK v2, 승인 Q12). HTTP 클라이언트는 JDK URLConnection 하나만 — Apache(4·5)·Netty 클라이언트는 제외한다.
+    implementation(platform(libs.awssdk.bom))
+    implementation(libs.awssdk.s3) {
+        exclude(group = "software.amazon.awssdk", module = "apache-client")
+        exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+        exclude(group = "software.amazon.awssdk", module = "apache5-client")
+    }
+    implementation(libs.awssdk.url.connection.client)
 
     // PostgresHarness: 컨테이너 1회 기동 → init-roles.sql → disclosure_migrator로 Flyway → disclosure_app 데이터소스
     testFixturesApi(platform(libs.spring.boot.bom))
     testFixturesApi(libs.testcontainers.postgresql)
+    testFixturesApi(libs.testcontainers)
+    // SeaweedHarness(S3 호환 저장소, Object Lock): 표준 S3 클라이언트를 공개 API로 내준다
+    testFixturesApi(platform(libs.awssdk.bom))
+    testFixturesApi(libs.awssdk.s3) {
+        exclude(group = "software.amazon.awssdk", module = "apache-client")
+        exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+        exclude(group = "software.amazon.awssdk", module = "apache5-client")
+    }
     testFixturesApi(libs.postgresql)
     testFixturesImplementation(project(":disclosure-domain"))
     testFixturesImplementation(project(":disclosure-workflow"))
@@ -65,6 +81,14 @@ testing {
                 implementation(libs.spring.jdbc)
                 // PlaintextLeakScanIT가 로그 출력(스프링 JDBC 바인드 값 TRACE 포함)을 잡아 평문을 찾는다(Phase 2 P4)
                 implementation(libs.logback.classic)
+                // Object Lock 계약 테스트의 원시 S3 호출(우회 헤더 시도 — 포트에는 그 경로가 없다)
+                implementation(platform(libs.awssdk.bom))
+                implementation(libs.awssdk.s3) {
+                    exclude(group = "software.amazon.awssdk", module = "apache-client")
+                    exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+                    exclude(group = "software.amazon.awssdk", module = "apache5-client")
+                }
+                implementation(libs.awssdk.url.connection.client)
                 runtimeOnly(libs.junit.platform.launcher)
             }
             targets.all {

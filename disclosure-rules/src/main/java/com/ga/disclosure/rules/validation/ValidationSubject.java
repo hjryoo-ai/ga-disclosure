@@ -6,11 +6,11 @@ import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.InsurerCode;
 import com.ga.disclosure.domain.vo.ProductKey;
 import com.ga.disclosure.domain.vo.ReasonCode;
+import com.ga.disclosure.rules.template.BindingView;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -35,8 +35,11 @@ public interface ValidationSubject {
     /** 엔진 등급·순위 스냅샷(산출 전이면 비어 있음). */
     Optional<GradeSnapshot> gradeSnapshot();
 
-    /** 확인서당 한 값인 서식 항목({@code render.scope = PER_DOCUMENT})의 값. */
-    Map<String, String> documentFieldValues();
+    /**
+     * 서식 결속이 값을 찾는 단면(3B, {@link com.ga.disclosure.rules.template.BindingView}). 항목 순서는 {@link #items()}와 같다.
+     * R-FIELD-REQUIRED가 {@link com.ga.disclosure.rules.template.BindingResolver}로 존재를 판정한다 — 렌더러와 같은 함수다.
+     */
+    BindingView bindings();
 
     /** 받은 서명(서명 시각 순). */
     List<SignatureMark> signatures();
@@ -71,9 +74,6 @@ public interface ValidationSubject {
 
         /** 임시등록 상품의 발행(견적서) 번호. */
         Optional<String> quoteDocNo();
-
-        /** 항목(열)마다 한 값인 서식 항목({@code render.scope = PER_ITEM})의 값. */
-        Map<String, String> fieldValues();
 
         /** 추천사유 코드(설계사 선택 + 시스템 자동 부가). */
         List<ReasonCode> reasonCodes();

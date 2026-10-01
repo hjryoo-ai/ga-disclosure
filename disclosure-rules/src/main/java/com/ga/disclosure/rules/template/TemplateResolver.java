@@ -52,6 +52,7 @@ public final class TemplateResolver {
         List<TemplateField> fields = new ArrayList<>();
         for (JsonNode f : template.fields()) {
             JsonNode render = f.path("render");
+            JsonNode labelRef = f.path("labelRef");
             fields.add(new TemplateField(
                     f.path("code").asString(),
                     f.path("label").asString(),
@@ -59,10 +60,13 @@ public final class TemplateResolver {
                     FieldSource.valueOf(f.path("source").asString()),
                     f.path("order").asInt(),
                     FieldScope.valueOf(render.path("scope").asString()),
+                    Bind.valueOf(render.path("bind").asString()),
+                    FieldSection.valueOf(f.path("section").asString()),
+                    labelRef.isString() ? labelRef.asString() : null,
                     render));
         }
         List<String> pending = new ArrayList<>();
         template.pendingConfirmation().forEach(p -> pending.add(p.path("ref").asString()));
-        return new TemplateResolution(template.ref(), fields, template.layout(), pending);
+        return new TemplateResolution(template.ref(), template.templateType(), fields, template.layout(), pending);
     }
 }

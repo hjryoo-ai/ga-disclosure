@@ -1,0 +1,52 @@
+package com.ga.disclosure.workflow.artifact;
+
+import com.ga.disclosure.domain.enums.ArtifactKind;
+import com.ga.disclosure.domain.vo.DisclosureId;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * 문서 키·산출물 기록 포트(V7 {@code document_key}·{@code document_artifact}, 바인딩된 테넌트의 트랜잭션 안). 키·산출물은 봉인된 확인서에만
+ * 생기고(GD092·GD093) 지워지지 않는다. 키 파기는 이 포트에 없다(Phase 5 파기 배치 전용 함수).
+ */
+public interface DocumentRecordStore {
+
+    void insertKey(DisclosureId disclosure, DocumentCryptoPort.StoredKey key, Instant createdAt);
+
+    void insertArtifact(ArtifactRecord record);
+
+    List<ArtifactRecord> artifacts(DisclosureId disclosure);
+
+    /** 감싼 키가 남아 있는 문서 키. 파기됐으면 {@link KeyLookup.Shredded}, 없으면 {@link KeyLookup.Missing}. */
+    KeyLookup key(DisclosureId disclosure);
+
+    /** Object Lock 적용 기록(NULL → 값 1회, GD093). 이미 기록돼 있으면 false. */
+    boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at);
+
+    /** 커밋됐지만 잠금 적용이 기록되지 않은 산출물(재적용 대상)과 그 확인서의 보존기한. */
+    List<Unretained> unretained(int limit);
+
+    /** 그 객체 키를 가리키는 산출물 기록이 있는가(잔여물 정리 판정). */
+    boolean referenced(String storageKey);
+
+    record Unretained(ArtifactRecord record, LocalDate retentionUntil) {
+    }
+
+    sealed interface KeyLookup {
+        record Live(DocumentCryptoPort.StoredKey key) implements KeyLookup {
+        }
+
+        record Shredded(String keyId, Instant shreddedAt) implements KeyLookup {
+        }
+
+        record Missing() implements KeyLookup {
+        }
+    }
+
+    default Optional<DocumentCryptoPort.StoredKey> liveKey(DisclosureId disclosure) {
+        return key(disclosure) instanceof KeyLookup.Live live ? Optional.of(live.key()) : Optional.empty();
+    }
+}
