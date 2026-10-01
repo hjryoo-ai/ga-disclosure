@@ -22,7 +22,8 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d   # 4.48
-    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
+    # 볼륨 한도는 디스크와 무관하게 고정(기본값은 여유 디스크 ÷ 1 GiB이고 버킷마다 볼륨 7개 — 하네스와 같은 값)
+    command: ["server", "-dir=/data", "-volume.max=2000", "-master.volumeSizeLimitMB=64", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
     ports:
       - "8333:8333"
     volumes:

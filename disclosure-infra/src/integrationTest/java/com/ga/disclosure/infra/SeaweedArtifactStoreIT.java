@@ -52,6 +52,28 @@ class SeaweedArtifactStoreIT extends ArtifactStoreContract {
         assertThat(java.nio.file.Files.readString(root.resolve("docker-compose.yml"))).contains("image: " + SeaweedHarness.IMAGE);
     }
 
+    /** 볼륨 한도는 하네스와 compose가 같고 디스크 크기에서 자동 산정되지 않는다(CI 러너에서 버킷이 늘면 쓰기 500이 났던 원인). */
+    @Test
+    void volumeLimitsArePinnedTheSameInHarnessAndCompose() throws Exception {
+        java.nio.file.Path root = java.nio.file.Path.of(System.getProperty("ga.repoRoot"));
+        String compose = java.nio.file.Files.readString(root.resolve("docker-compose.yml"));
+        assertThat(SeaweedHarness.VOLUME_LIMITS).anyMatch(f -> f.matches("-volume\\.max=[1-9][0-9]*"))
+                .anyMatch(f -> f.startsWith("-master.volumeSizeLimitMB="));
+        for (String flag : SeaweedHarness.VOLUME_LIMITS) {
+            assertThat(compose).contains("\"" + flag + "\"");
+        }
+    }
+
+    /** 버킷을 여럿 만들어도 각 버킷의 첫 쓰기가 성공한다(버킷마다 볼륨을 새로 잡는다). */
+    @Test
+    void manyFreshBucketsStayWritable() {
+        for (int i = 0; i < 20; i++) {
+            S3ArtifactStore store = S3.freshStore();
+            store.put("T1/many/" + i, new byte[] {1, 2, 3});
+            assertThat(store.get("T1/many/" + i)).containsExactly(1, 2, 3);
+        }
+    }
+
     @Test
     void unsignedRequestsAreRejected() throws Exception {
         String bucket = S3.freshBucket();
