@@ -12,13 +12,16 @@ import com.ga.disclosure.domain.grade.EngineSnapshot;
 import com.ga.disclosure.domain.grade.GradeSnapshot;
 import com.ga.disclosure.domain.grade.GradeSnapshotItem;
 import com.ga.disclosure.domain.grade.RatioLabel;
+import com.ga.disclosure.domain.vo.ChainHash;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
+import com.ga.disclosure.domain.vo.DisclosureNo;
 import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.InsurerCode;
 import com.ga.disclosure.domain.vo.ProductKey;
 import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.domain.vo.RuleVersionId;
+import com.ga.disclosure.domain.vo.Sha256;
 import com.ga.disclosure.domain.vo.SnapshotId;
 import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.workflow.disclosure.CanonicalValue;
@@ -27,6 +30,9 @@ import com.ga.disclosure.workflow.disclosure.DisclosureItem;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.disclosure.DisclosureRecord;
 import com.ga.disclosure.workflow.disclosure.DisclosureStore;
+import com.ga.disclosure.workflow.disclosure.Lineage;
+import com.ga.disclosure.workflow.disclosure.SealStamp;
+import com.ga.disclosure.workflow.disclosure.VoidMark;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
@@ -79,11 +85,13 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         params.put("issuerMode", d.issuerMode().name());
         params.put("status", d.status().name());
         params.put("consultDate", d.consultDate());
+        params.put("version", d.lineage().version());
+        params.put("supersedesId", d.lineage().supersedesIdOrNull() == null ? null : d.lineage().supersedesIdOrNull().value());
         update("""
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
-                                        rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date)
+                                        rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date, version, supersedes_id)
                 VALUES (:tenantId, :id, :agentId, :customerRef, :groupCode, :templateId, :templateVersion,
-                        :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate)
+                        :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate, :version, :supersedesId)
                 """, params);
         writeChildren(d);
     }
@@ -93,7 +101,9 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         Optional<Header> header = queryAtMostOne("""
                 SELECT disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, rule_version_id,
                        tenant_rule_version_id, issuer_mode, status, consult_date, grade_snapshot_id, grading_policy_version_id,
-                       ranking_policy_version_id, tie_break, grade_basis::text AS grade_basis, snapshot_generated_at
+                       ranking_policy_version_id, tie_break, grade_basis::text AS grade_basis, snapshot_generated_at, version, supersedes_id,
+                       superseded_by_id, disclosure_no, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq, retention_until,
+                       voided_at, void_reason
                   FROM disclosure
                  WHERE tenant_id = :tenantId
                    AND disclosure_id = :id
@@ -117,14 +127,45 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     }
 
     /**
-     * 애그리게이트 상태를 저장한다: 헤더의 상태·스냅샷 컬럼, 그리고 항목·추천사유 전부를 지우고 다시 쓴다(가변 상태에서만 — V3 트리거).
-     * 상태 컬럼을 바꾸는 유일한 경로다.
+     * 애그리게이트 상태를 저장한다. 상태 컬럼을 바꾸는 유일한 경로다.
+     * <ul>
+     *   <li>가변 상태로: 헤더의 상태·고정 룰·서식(재기준)·스냅샷 컬럼, 그리고 항목·추천사유 전부를 지우고 다시 쓴다.</li>
+     *   <li>봉인 이후 상태로(봉인·무효·정정): 상태·봉인 컬럼·무효·후속 ID만 쓰고 항목은 건드리지 않는다 — 봉인되는 순간 항목은 불변이다(V3 GD010).
+     *       이미 봉인된 행의 봉인 컬럼은 같은 값을 다시 쓴다(V3 본문 비교에서 변화 없음).</li>
+     * </ul>
      */
     @Override
     public void save(Disclosure d) {
+        if (d.status().isSealedOrLater()) {
+            Map<String, Object> p = closedParams(d);
+            int closed = update("""
+                    UPDATE disclosure
+                       SET status = :status,
+                           disclosure_no = :no,
+                           sealed_at = :sealedAt,
+                           canonical_hash = :canonicalHash,
+                           pdf_hash = :pdfHash,
+                           chain_hash = :chainHash,
+                           chain_seq = :chainSeq,
+                           retention_until = :retentionUntil,
+                           voided_at = :voidedAt,
+                           void_reason = :voidReason,
+                           superseded_by_id = :supersededBy
+                     WHERE tenant_id = :tenantId
+                       AND disclosure_id = :id
+                    """, p);
+            if (closed != 1) {
+                throw new IllegalStateException("disclosure " + d.id() + " was not saved (" + closed + " rows)");
+            }
+            return;
+        }
         Map<String, Object> params = new HashMap<>();
         params.put("id", d.id().value());
         params.put("status", d.status().name());
+        params.put("ruleVersionId", d.ruleVersionId().value());
+        params.put("tenantRuleVersionId", d.tenantRuleVersionId().map(RuleVersionId::value).orElse(null));
+        params.put("templateId", d.template().templateId());
+        params.put("templateVersion", d.template().version());
         Optional<EngineSnapshot> s = d.engineSnapshot();
         params.put("snapshotId", s.map(x -> x.snapshot().snapshotId().value()).orElse(null));
         params.put("grading", s.map(x -> x.snapshot().gradingPolicyVersionId()).orElse(null));
@@ -135,6 +176,10 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         int updated = update("""
                 UPDATE disclosure
                    SET status = :status,
+                       rule_version_id = :ruleVersionId,
+                       tenant_rule_version_id = :tenantRuleVersionId,
+                       template_id = :templateId,
+                       template_version = :templateVersion,
                        grade_snapshot_id = :snapshotId,
                        grading_policy_version_id = :grading,
                        ranking_policy_version_id = :ranking,
@@ -158,6 +203,25 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                    AND disclosure_id = :id
                 """, Map.of("id", d.id().value()));
         writeChildren(d);
+    }
+
+    /** 봉인 이후 상태 저장의 파라미터: 상태·봉인 컬럼 7개·무효·후속 ID(SQL은 {@link #save}에만 — DisclosureWriteScanTest). */
+    private static Map<String, Object> closedParams(Disclosure d) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("id", d.id().value());
+        p.put("status", d.status().name());
+        Optional<SealStamp> seal = d.sealStamp();
+        p.put("no", seal.map(x -> x.number().value()).orElse(null));
+        p.put("sealedAt", seal.map(x -> Timestamp.from(x.sealedAt())).orElse(null));
+        p.put("canonicalHash", seal.map(x -> x.canonicalHash().hex()).orElse(null));
+        p.put("pdfHash", seal.map(x -> x.pdfHash().hex()).orElse(null));
+        p.put("chainHash", seal.map(x -> x.chainHash().toString()).orElse(null));
+        p.put("chainSeq", seal.map(SealStamp::chainSeq).orElse(null));
+        p.put("retentionUntil", seal.map(SealStamp::retentionUntil).orElse(null));
+        p.put("voidedAt", d.voidMark().map(v -> Timestamp.from(v.at())).orElse(null));
+        p.put("voidReason", d.voidMark().map(VoidMark::reason).orElse(null));
+        p.put("supersededBy", d.supersededBy().map(DisclosureId::value).orElse(null));
+        return p;
     }
 
     private void writeChildren(Disclosure d) {
@@ -242,19 +306,34 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     private record Header(DisclosureId id, String agentId, CustomerRef customerRef, GroupCode group, TemplateRef template,
                           RuleVersionId rule, RuleVersionId tenantRuleOrNull, IssuerMode issuerMode, DisclosureStatus status,
                           java.time.LocalDate consultDate, String snapshotIdOrNull, String grading, String ranking, String tieBreak,
-                          String basis, java.time.Instant generatedAt) {
+                          String basis, java.time.Instant generatedAt, Lineage lineage,
+                          SealStamp sealOrNull, VoidMark voidOrNull,
+                          DisclosureId supersededByOrNull) {
     }
 
     private static Header header(ResultSet rs) throws SQLException {
         String tenantRule = rs.getString("tenant_rule_version_id");
         Timestamp generated = rs.getTimestamp("snapshot_generated_at");
+        UUID supersedes = rs.getObject("supersedes_id", UUID.class);
+        UUID supersededBy = rs.getObject("superseded_by_id", UUID.class);
+        String no = rs.getString("disclosure_no");
+        SealStamp seal = no == null ? null : new SealStamp(
+                DisclosureNo.parse(no), rs.getTimestamp("sealed_at").toInstant(),
+                Sha256.of(rs.getString("canonical_hash")), Sha256.of(rs.getString("pdf_hash")),
+                ChainHash.of(rs.getString("chain_hash")), rs.getLong("chain_seq"),
+                rs.getObject("retention_until", java.time.LocalDate.class));
+        Timestamp voidedAt = rs.getTimestamp("voided_at");
+        VoidMark voidMark = voidedAt == null ? null
+                : new VoidMark(voidedAt.toInstant(), rs.getString("void_reason"));
         return new Header(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), rs.getString("agent_id"),
                 CustomerRef.of(rs.getString("customer_ref")), GroupCode.of(rs.getString("group_code")),
                 TemplateRef.of(rs.getString("template_id"), rs.getInt("template_version")), RuleVersionId.of(rs.getString("rule_version_id")),
                 tenantRule == null ? null : RuleVersionId.of(tenantRule), IssuerMode.valueOf(rs.getString("issuer_mode")),
                 DisclosureStatus.valueOf(rs.getString("status")), rs.getObject("consult_date", java.time.LocalDate.class),
                 rs.getString("grade_snapshot_id"), rs.getString("grading_policy_version_id"), rs.getString("ranking_policy_version_id"),
-                rs.getString("tie_break"), rs.getString("grade_basis"), generated == null ? null : generated.toInstant());
+                rs.getString("tie_break"), rs.getString("grade_basis"), generated == null ? null : generated.toInstant(),
+                new Lineage(rs.getInt("version"), supersedes == null ? null : DisclosureId.of(supersedes)),
+                seal, voidMark, supersededBy == null ? null : DisclosureId.of(supersededBy));
     }
 
     private record Row(DisclosureItem item, GradeSnapshotItem engineOrNull) {
@@ -294,7 +373,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 new GradeSnapshot(SnapshotId.of(h.snapshotIdOrNull()), h.grading(), h.ranking(), TieBreak.valueOf(h.tieBreak()), engineItems),
                 new String(Canonicalizer.canonicalize(Canonicalizer.parseStrict(h.basis())), StandardCharsets.UTF_8), h.generatedAt());
         return new DisclosureRecord(h.id(), h.agentId(), h.customerRef(), h.group(), h.consultDate(), h.rule(), h.tenantRuleOrNull(),
-                h.template(), h.issuerMode(), h.status(), items, snapshot);
+                h.template(), h.issuerMode(), h.lineage(), h.status(), items, snapshot, h.sealOrNull(), h.voidOrNull(), h.supersededByOrNull());
     }
 
     private static Row row(ResultSet rs, Map<Integer, Recommendation> recs) throws SQLException {

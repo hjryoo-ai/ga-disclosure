@@ -5,7 +5,6 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 통합 테스트 시드 SQL. 호출자가 연 트랜잭션({@code app.tenant_id} 설정됨) 안에서 쓴다.
@@ -25,7 +24,6 @@ public final class SeedData {
     public static final List<String> ALL_STATUSES = List.of(
             "DRAFT", "COMPARED", "GRADED", "REASONED", "SEALED", "PARTIALLY_SIGNED", "COMPLETED", "VOID", "SUPERSEDED", "EXPIRED");
 
-    private static final AtomicInteger SEQUENCE = new AtomicInteger();
 
     private SeedData() {
     }
@@ -46,29 +44,97 @@ public final class SeedData {
     /** 산출 전 상태(스냅샷 헤더가 없어야 한다, V6 {@code ck_disclosure_snapshot_state}). */
     public static final List<String> UNGRADED_STATUSES = List.of("DRAFT", "COMPARED");
 
+    /** 시드 봉인 시각(Asia/Seoul 2026년 — 번호 연도 2026, V7 GD095)과 보존기한(봉인일 + 5년). */
+    public static final String SEALED_AT = "2026-09-23 10:00:00+09";
+    public static final String RETENTION_UNTIL = "2031-09-23";
+    public static final String PDF_HASH = hash('b');
+
     /**
-     * 확인서 헤더 1건. 봉인 이후 상태면 봉인 컬럼을, 산출 이후 상태(GRADED~)면 엔진 스냅샷 헤더 6개를 함께 채운다(V6 헤더 전부-또는-없음).
+     * 확인서 헤더 1건. 산출 이후 상태(GRADED~)면 엔진 스냅샷 헤더 6개를 채운다(V6 헤더 전부-또는-없음). 봉인 이후 상태면 REASONED로
+     * 넣은 뒤 {@link #seal}로 봉인 경로 그대로 봉인하고 그 상태로 옮긴다 — 봉인 컬럼은 카운터·체인 머리와 맞아야 한다(V7 GD095).
      */
     public static UUID disclosure(Connection c, String tenant, String status, String canonicalHash) throws SQLException {
         UUID id = UUID.randomUUID();
         boolean sealed = !MUTABLE_STATUSES.contains(status);
-        boolean graded = !UNGRADED_STATUSES.contains(status);
+        String inserted = sealed ? "REASONED" : status;
+        boolean graded = !UNGRADED_STATUSES.contains(inserted);
         exec(c, """
-                INSERT INTO disclosure (tenant_id, disclosure_id, disclosure_no, agent_id, customer_ref, group_code,
+                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code,
                                         template_id, template_version, rule_version_id, issuer_mode, status, consult_date,
                                         grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break, grade_basis,
-                                        snapshot_generated_at, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq)
-                VALUES (?, ?, ?, 'AGENT-1', 'C-0001', 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
+                                        snapshot_generated_at)
+                VALUES (?, ?, 'AGENT-1', 'C-0001', 'PG-HEALTH', 'STANDARD', 1, 'DISC-2026-07', 'SELF', ?, DATE '2026-09-23',
                         CASE WHEN ? THEN 'GRD-1' END, CASE WHEN ? THEN 'GRADING-2026-07' END, CASE WHEN ? THEN 'RANK-2026-07' END,
                         CASE WHEN ? THEN 'SHARED_RANK' END,
                         CASE WHEN ? THEN '{"groupAvgSource": "ASSOC_DISCLOSURE", "period": "2026Q2", "groupPopulation": 27}'::jsonb END,
-                        CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 09:30:00+09' END,
-                        CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 10:00:00+09' END, ?, ?, ?, ?)
+                        CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 09:30:00+09' END)
                 """,
-                tenant, id, sealed ? tenant + "-2026-" + String.format("%06d", SEQUENCE.incrementAndGet()) : null,
-                sealed ? "DISC-2026-07" : null, status, graded, graded, graded, graded, graded, graded, sealed,
-                sealed ? canonicalHash : null, sealed ? hash('b') : null, sealed ? hash('c') : null, sealed ? 1L : null);
+                tenant, id, inserted, graded, graded, graded, graded, graded, graded);
+        if (sealed) {
+            seal(c, tenant, id, canonicalHash, status);
+        }
         return id;
+    }
+
+    /**
+     * 가변 상태의 확인서를 봉인 경로 그대로 봉인한다: 카운터 채번(테넌트, 2026) → 체인 머리 잠금 → 봉인 컬럼 UPDATE(번호·해시·체인·
+     * 보존기한) → 머리 이동. {@code status}가 SEALED가 아니면 그 상태로 옮긴다(VOID는 무효 시각·사유, SUPERSEDED는 후속 ID를 함께 —
+     * V7 일관성 CHECK). 상태표를 거치지 않는 시드 경로이므로 DB가 허용하는 조합만 만든다.
+     */
+    public static void seal(Connection c, String tenant, UUID id, String canonicalHash, String status) throws SQLException {
+        long seq = longValue(c, """
+                INSERT INTO disclosure_counter (tenant_id, year, seq) VALUES (?, 2026, 1)
+                ON CONFLICT (tenant_id, year) DO UPDATE SET seq = disclosure_counter.seq + 1
+                RETURNING seq
+                """, tenant);
+        long headSeq = 0;
+        String headHash = hash('0');
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT chain_seq, chain_hash FROM disclosure_chain_head WHERE tenant_id = ? FOR UPDATE")) {
+            ps.setString(1, tenant);
+            try (var rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    headSeq = rs.getLong(1);
+                    headHash = rs.getString(2);
+                }
+            }
+        }
+        String chainHash = chainHash(headHash, canonicalHash, PDF_HASH);
+        exec(c, """
+                UPDATE disclosure SET status = 'SEALED', disclosure_no = ?, sealed_at = CAST(? AS timestamptz), canonical_hash = ?,
+                                      pdf_hash = ?, chain_hash = ?, chain_seq = ?, retention_until = CAST(? AS date)
+                 WHERE tenant_id = ? AND disclosure_id = ?
+                """, tenant + "-2026-" + String.format("%06d", seq), SEALED_AT, canonicalHash, PDF_HASH, chainHash, headSeq + 1,
+                RETENTION_UNTIL, tenant, id);
+        if (headSeq == 0) {
+            exec(c, "INSERT INTO disclosure_chain_head (tenant_id, chain_seq, chain_hash) VALUES (?, 1, ?)", tenant, chainHash);
+        } else {
+            exec(c, "UPDATE disclosure_chain_head SET chain_seq = ?, chain_hash = ? WHERE tenant_id = ?", headSeq + 1, chainHash, tenant);
+        }
+        switch (status) {
+            case "SEALED" -> {
+            }
+            case "VOID" -> exec(c, """
+                    UPDATE disclosure SET status = 'VOID', voided_at = TIMESTAMPTZ '2026-09-24 09:00:00+09', void_reason = '시드 무효'
+                     WHERE tenant_id = ? AND disclosure_id = ?
+                    """, tenant, id);
+            case "SUPERSEDED" -> exec(c, """
+                    UPDATE disclosure SET status = 'SUPERSEDED', superseded_by_id = gen_random_uuid()
+                     WHERE tenant_id = ? AND disclosure_id = ?
+                    """, tenant, id);
+            default -> exec(c, "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", status, tenant, id);
+        }
+    }
+
+    /** 봉인 체인 식(설계서 §6.4): SHA-256(prev ‖ canonical ‖ pdf), 세 값은 소문자 hex ASCII. */
+    public static String chainHash(String prev, String canonicalHash, String pdfHash) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((prev + canonicalHash + pdfHash).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public static void item(Connection c, String tenant, UUID disclosure, int itemNo, String ratioToAvg) throws SQLException {
@@ -93,11 +159,31 @@ public final class SeedData {
                 """, tenant, UUID.randomUUID(), disclosure, role, signedDocHash, hash('e'));
     }
 
-    public static void artifact(Connection c, String tenant, UUID disclosure, String kind) throws SQLException {
+    /** 봉인된 확인서의 문서 키 ID(시드 규약: {@code DOC-} + 확인서 UUID hex). */
+    public static String documentKeyId(UUID disclosure) {
+        return "DOC-" + disclosure.toString().replace("-", "");
+    }
+
+    /** 문서 키 1건(감싼 키 자리값 = 형식 머리 0x01 + 28바이트, V7 — 부모는 봉인돼 있어야 한다, GD092). */
+    public static void documentKey(Connection c, String tenant, UUID disclosure) throws SQLException {
         exec(c, """
-                INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at)
-                VALUES (?, ?, ?, 'store/key', ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09')
-                """, tenant, disclosure, kind, hash('f'));
+                INSERT INTO document_key (tenant_id, key_id, disclosure_id, kek_key_id, wrapped_dek, created_at)
+                VALUES (?, ?, ?, 'KEK-SEED', decode('01' || repeat('00', 28), 'hex'), TIMESTAMPTZ '2026-09-23 10:00:00+09')
+                """, tenant, documentKeyId(disclosure), disclosure);
+    }
+
+    /** 산출물 행 1건(V7 형식: 평문·암호문 해시, 길이 + 29, 객체 키 = 테넌트/확인서/종류/암호문 해시). 문서 키가 없으면 만든다. */
+    public static void artifact(Connection c, String tenant, UUID disclosure, String kind) throws SQLException {
+        if (longValue(c, "SELECT count(*) FROM document_key WHERE tenant_id = ? AND disclosure_id = ?", tenant, disclosure) == 0) {
+            documentKey(c, tenant, disclosure);
+        }
+        String cipher = hash('9');
+        exec(c, """
+                INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256,
+                                               cipher_bytes, key_id)
+                VALUES (?, ?, ?, ?, ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09', ?, 39, ?)
+                """, tenant, disclosure, kind, tenant + "/" + disclosure + "/" + kind + "/" + cipher, hash('f'), cipher,
+                documentKeyId(disclosure));
     }
 
     public static void auditLog(Connection c, String tenant, long seq) throws SQLException {
@@ -157,7 +243,7 @@ public final class SeedData {
                 bundleIdOrNull == null ? null : EMPTY_OBJECT_HASH);
     }
 
-    /** 테넌트 테이블 전부(V5 기준 20개)에 한 행 이상을 넣는다(RLS 격리 검증용). */
+    /** 테넌트 테이블 전부(V7 기준 24개)에 한 행 이상을 넣는다(RLS 격리 검증용). 봉인 시드가 카운터·체인 머리를, 산출물 시드가 문서 키를 만든다. */
     public static void everyTable(Connection c, String tenant) throws SQLException {
         tenant(c, tenant);
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'sub-1', 'AGENT-1', ARRAY['AGENT'], '/HQ/B1')", tenant);
@@ -224,12 +310,16 @@ public final class SeedData {
                 """, tenant, UUID.randomUUID());
     }
 
-    /** 관리자 예외 승인 1건(V6 review, 부모는 가변 상태여야 한다 — GD080). */
+    /** 관리자 예외 승인 1건(V6 review, 부모는 가변 상태여야 한다 — GD080; 부모의 고정 룰 버전 2종을 싣는다 — V7 GD081). */
     public static void review(Connection c, String tenant, UUID disclosure, String ruleId) throws SQLException {
         exec(c, """
-                INSERT INTO review (tenant_id, review_id, disclosure_id, rule_id, subject_hash, approved_by, approved_role, approved_at, reason)
-                VALUES (?, ?, ?, ?, repeat('0', 64), 'manager@seed', 'MANAGER', TIMESTAMPTZ '2026-09-23 11:00:00+09', '시드 승인')
-                """, tenant, UUID.randomUUID(), disclosure, ruleId);
+                INSERT INTO review (tenant_id, review_id, disclosure_id, rule_id, subject_hash, approved_by, approved_role, approved_at, reason,
+                                    rule_version_id, tenant_rule_version_id)
+                SELECT ?, ?, d.disclosure_id, ?, repeat('0', 64), 'manager@seed', 'MANAGER', TIMESTAMPTZ '2026-09-23 11:00:00+09', '시드 승인',
+                       d.rule_version_id, d.tenant_rule_version_id
+                  FROM disclosure d
+                 WHERE d.tenant_id = ? AND d.disclosure_id = ?
+                """, tenant, UUID.randomUUID(), ruleId, tenant, disclosure);
     }
 
     /** 감싼 키 자리값(32바이트 0)을 가진 ACTIVE 데이터 키. 암호화 IT는 실제 키 저장소 어댑터로 만든다. */
@@ -238,6 +328,20 @@ public final class SeedData {
                 INSERT INTO customer_data_key (tenant_id, key_id, kek_id, wrapped_key, status, created_at)
                 VALUES (?, ?, 'KEK-SEED', decode(repeat('00', 32), 'hex'), 'ACTIVE', TIMESTAMPTZ '2026-09-01 00:00:00+09')
                 """, tenant, keyId);
+    }
+
+    public static long longValue(Connection c, String sql, Object... params) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                ps.setObject(i + 1, params[i]);
+            }
+            try (var rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException("no row: " + sql);
+                }
+                return rs.getLong(1);
+            }
+        }
     }
 
     public static int exec(Connection c, String sql, Object... params) throws SQLException {

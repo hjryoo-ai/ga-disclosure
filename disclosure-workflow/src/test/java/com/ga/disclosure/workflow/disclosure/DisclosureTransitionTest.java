@@ -24,14 +24,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
- * 3A W1(애그리게이트): 구현된 명령 4종 × 상태 10종 전수 — 표 안이면 전이하고(결과 상태가 표의 결과 중 하나), 표 밖이면
+ * 3A W1(애그리게이트): 구현된 명령(3A 4종 + 3B SEAL·VOID·SUPERSEDE·REBASE) × 상태 10종 전수 — 표 안이면 전이하고(결과 상태가 표의 결과 중 하나), 표 밖이면
  * {@link IllegalTransition}(from, command)이며 상태가 바뀌지 않는다. 구현된 명령 목록은 이 테스트가 따로 가진다(계획 승인 B3) —
  * 3B·Phase 4가 명령을 구현할 때 이 목록만 늘린다. 표 자체와 설계서의 대조는 {@code disclosure-domain}의 DisclosureStateTableTest.
  */
 class DisclosureTransitionTest {
 
     static final List<DisclosureCommand> IMPLEMENTED = List.of(DisclosureCommand.REPLACE_ITEMS, DisclosureCommand.COMPARE,
-            DisclosureCommand.APPLY_SNAPSHOT, DisclosureCommand.SET_RECOMMENDATIONS);
+            DisclosureCommand.APPLY_SNAPSHOT, DisclosureCommand.SET_RECOMMENDATIONS, DisclosureCommand.SEAL, DisclosureCommand.VOID,
+            DisclosureCommand.SUPERSEDE, DisclosureCommand.REBASE);
+
+    static final java.time.Instant AT = java.time.Instant.parse("2026-09-23T03:00:00Z");
+
+    static SealStamp stamp() {
+        return new SealStamp(com.ga.disclosure.domain.vo.DisclosureNo.parse("DEMO1-2026-000001"), AT,
+                com.ga.disclosure.domain.vo.Sha256.of("a".repeat(64)), com.ga.disclosure.domain.vo.Sha256.of("b".repeat(64)),
+                com.ga.disclosure.domain.vo.ChainHash.of("c".repeat(64)), 1, java.time.LocalDate.of(2031, 9, 23));
+    }
 
     record State(DisclosureStatus status, List<DisclosureItem> items, Optional<EngineSnapshot> snapshot) {
         static State of(Disclosure d) {
@@ -59,7 +68,9 @@ class DisclosureTransitionTest {
             return d;
         }
         return Disclosure.restore(d.id(), d.agentId(), d.customerRef(), d.groupCode(), d.consultDate(), d.ruleVersionId(), null,
-                d.template(), d.issuerMode(), Fixtures.CONTEXT, status, d.disclosureItems(), d.engineSnapshot().orElseThrow());
+                d.template(), d.issuerMode(), Fixtures.CONTEXT, Lineage.FIRST, status, d.disclosureItems(), d.engineSnapshot().orElseThrow(),
+                stamp(), status == DisclosureStatus.VOID ? new VoidMark(AT, "상담 취소") : null,
+                status == DisclosureStatus.SUPERSEDED ? com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()) : null);
     }
 
     static List<AgentReason> reasons() {
@@ -77,7 +88,11 @@ class DisclosureTransitionTest {
             case COMPARE -> d.compare(Fixtures.CHECK);
             case APPLY_SNAPSHOT -> d.applySnapshot(Fixtures.snapshotFor(d.engineRequest()), Fixtures.CHECK);
             case SET_RECOMMENDATIONS -> d.setRecommendations(reasons(), Fixtures.RULE.autoReasonCodes(), Fixtures.CHECK);
-            default -> throw new IllegalArgumentException(command + " is not implemented in 3A");
+            case SEAL -> d.seal(stamp());
+            case VOID -> d.voidWith(new VoidMark(AT, "상담 취소"));
+            case SUPERSEDE -> d.supersede(com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()));
+            case REBASE -> d.rebase(d.ruleVersionId(), null, d.template(), Fixtures.CONTEXT, Fixtures.CHECK);
+            default -> throw new IllegalArgumentException(command + " is not implemented before Phase 4");
         };
     }
 
@@ -109,7 +124,8 @@ class DisclosureTransitionTest {
         List<String> commandMethods = Arrays.stream(Disclosure.class.getDeclaredMethods())
                 .filter(m -> Modifier.isPublic(m.getModifiers()) && m.getReturnType() == TransitionOutcome.class)
                 .map(Method::getName).sorted().toList();
-        assertThat(commandMethods).containsExactly("applySnapshot", "compare", "replaceItems", "setRecommendations");
+        assertThat(commandMethods).containsExactly("applySnapshot", "compare", "rebase", "replaceItems", "seal", "setRecommendations",
+                "supersede", "voidWith");
         assertThat(IMPLEMENTED).hasSize(commandMethods.size());
     }
 

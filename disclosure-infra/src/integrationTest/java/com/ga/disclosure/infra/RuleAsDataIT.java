@@ -152,7 +152,8 @@ class RuleAsDataIT {
     void scenarioB_templateGainsARequiredField() {
         Bundle v1 = Bundles.load(Bundles.STANDARD_V1);
         Bundle v2 = BundleFiles.fixture("templates/STANDARD-v2.bundle.json");
-        assertThat(diff(v1.body(), v2.body())).containsExactly("/fields/9");
+        // 데이터 변경 = 항목 1개 추가 + 그 항목의 배치(3B: 모든 항목은 배치 섹션 하나에 있어야 한다 — TemplateLayoutCheck). 식별부 4개가 앞에 있다.
+        assertThat(diff(v1.body(), v2.body())).containsExactly("/fields/13", "/layout/sections/2/fields/7");
 
         TenantId t = tenantWith(Bundles.load(Bundles.DISC_2026_07), v1, v2);
         Evaluation before = evaluate(t, EVE, List.of(), List.of());

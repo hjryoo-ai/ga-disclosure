@@ -54,7 +54,8 @@ class DisclosureFlowIT {
         assertThat(r.items()).extracting(i -> ((ItemGrade.Ok) i.gradeOrNull()).rankInSet()).containsExactly(1, 3, 2);
         assertThat(r.items().get(0).recommendation().orElseThrow().codes()).containsExactly(ReasonCode.of("PREMIUM"));
         assertThat(r.items().get(1).recommendation()).isEmpty();
-        assertThat(r.items().get(0).draft().fieldValues()).containsKeys("PREMIUM", "SURRENDER_VALUE_EXAMPLE", "INSURER_NAME", "PRODUCT_NAME");
+        // 카탈로그 defaults 중 CATALOG_DEFAULT 결속 항목만 복사된다(보험사명·상품명은 구조 결속 — 패널·상품명에서 온다, 3B)
+        assertThat(r.items().get(0).draft().fieldValues()).containsOnlyKeys("PREMIUM", "SURRENDER_VALUE_EXAMPLE");
         assertThat(s.engine.requestViolations()).isEmpty();
         assertThat(s.engine.selfCheckFailures()).isEmpty();
     }
@@ -64,8 +65,6 @@ class DisclosureFlowIT {
         DisclosureId id = s.draft();
         s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
                 new ItemInput.Temp(InsurerCode.of("INS-D"), "(가상) 임시등록 상품", "Q-2026-0001", true, false, Map.of(
-                        "INSURER_NAME", tools.jackson.databind.node.JsonNodeFactory.instance.stringNode("(가상) INS-D"),
-                        "PRODUCT_NAME", tools.jackson.databind.node.JsonNodeFactory.instance.stringNode("(가상) 임시등록 상품"),
                         "PREMIUM", tools.jackson.databind.node.JsonNodeFactory.instance.numberNode(30000),
                         "SURRENDER_VALUE_EXAMPLE", tools.jackson.databind.node.JsonNodeFactory.instance.stringNode("가입설계서 참조"))),
                 WorkflowSetup.catalogItem("INS-C:PRD-3120", false)));

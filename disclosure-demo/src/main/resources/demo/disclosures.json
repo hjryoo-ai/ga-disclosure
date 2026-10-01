@@ -26,8 +26,7 @@
       "items": [
         { "productKey": "INS-A:PRD-1001", "recommended": true },
         { "temp": { "insurer": "INS-B", "productName": "(가상) 다라생명 신상품", "quoteDocNo": "Q-2026-0001" }, "recommended": true,
-          "values": { "INSURER_NAME": "(가상) 다라생명", "PRODUCT_NAME": "(가상) 다라생명 신상품", "PREMIUM": 30100,
-                      "SURRENDER_VALUE_EXAMPLE": "가입설계서 Q-2026-0001 참조" } },
+          "values": { "PREMIUM": 30100, "SURRENDER_VALUE_EXAMPLE": "가입설계서 Q-2026-0001 참조" } },
         { "productKey": "INS-C:PRD-3120" }
       ],
       "reasons": [

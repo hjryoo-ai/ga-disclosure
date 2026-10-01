@@ -13,10 +13,10 @@ import com.ga.disclosure.domain.enums.ValidationStage;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.GroupCode;
+import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.rules.resolve.EffectiveRule;
 import com.ga.disclosure.rules.resolve.RuleResolver;
-import com.ga.disclosure.rules.template.FieldScope;
-import com.ga.disclosure.rules.template.FieldSource;
+import com.ga.disclosure.rules.template.Bind;
 import com.ga.disclosure.rules.template.TemplateField;
 import com.ga.disclosure.rules.template.TemplateResolution;
 import com.ga.disclosure.rules.template.TemplateResolver;
@@ -120,7 +120,7 @@ public final class DisclosureService {
             DisclosureId id = DisclosureId.of(UUID.randomUUID());
             Disclosure d = Disclosure.draft(id, agent.subject(), customerRef, group, consultDate, rule.globalRuleVersionId(),
                     rule.tenantRuleVersion().orElse(null), template.ref(), profile.issuerMode(),
-                    new DisclosureContext(profile.largeGa(), panel.lookupFor(tenant), template));
+                    context(tenant, profile, rule, template, group, consultDate));
             store.insert(d);
             ObjectNode detail = JSON.createObjectNode()
                     .put("customerRef", customerRef.value())
@@ -258,10 +258,15 @@ public final class DisclosureService {
                 throw new CommandRejectedException("APPROVAL_SUBJECT_MISMATCH",
                         "no current overridable failure of " + ruleId + " with the given subject hash");
             }
-            Review review = new Review(UUID.randomUUID(), id, ruleId, subjectHash, manager.subject(), manager.role(), clock.instant(), reason);
+            Disclosure d = l.disclosure();
+            Review review = new Review(UUID.randomUUID(), id, ruleId, subjectHash, d.ruleVersionId(), d.tenantRuleVersionId().orElse(null),
+                    manager.subject(), manager.role(), clock.instant(), reason);
             reviews.append(review);
-            record(manager, AuditAction.EXCEPTION_APPROVE, id, JSON.createObjectNode().put("reviewId", review.reviewId().toString())
-                    .put("ruleId", ruleId).put("subjectHash", subjectHash));
+            ObjectNode detail = JSON.createObjectNode().put("reviewId", review.reviewId().toString()).put("ruleId", ruleId)
+                    .put("subjectHash", subjectHash).put("ruleVersionId", d.ruleVersionId().value());
+            d.tenantRuleVersionId().ifPresentOrElse(v -> detail.put("tenantRuleVersionId", v.value()),
+                    () -> detail.putNull("tenantRuleVersionId"));
+            record(manager, AuditAction.EXCEPTION_APPROVE, id, detail);
             return review;
         });
     }
@@ -272,7 +277,7 @@ public final class DisclosureService {
             Loaded l = load(tenant, id);
             List<ValidationResult> results = l.check().run(ValidationStage.SEAL, l.disclosure());
             recordValidation(actor, l, ValidationStage.SEAL, results, true);
-            return SealGate.unapproved(results, reviews.findFor(id));
+            return SealGate.unapproved(results, reviews.findFor(id), l.disclosure().ruleVersionId(), l.disclosure().tenantRuleVersionId());
         });
     }
 
@@ -289,18 +294,34 @@ public final class DisclosureService {
         EffectiveRule rule = rules.load(tenant, rec.consultDate(), rec.ruleVersionId(), rec.tenantRuleVersionIdOrNull());
         TemplateResolution template = templates.load(tenant, rec.template());
         TenantProfilePort.TenantProfile profile = tenants.profile(tenant);
-        Disclosure d = rec.restore(new DisclosureContext(profile.largeGa(), panel.lookupFor(tenant), template));
+        Disclosure d = rec.restore(context(tenant, profile, rule, template, rec.groupCode(), rec.consultDate()));
         StageCheck check = (stage, subject) -> registry.run(stage, subject, rule, template);
         return new Loaded(d, rule, template, check);
+    }
+
+    /** 애그리게이트 판단 재료: 고정 서식, 상담일 상품군 이름·패널, 고정 룰의 사유 라벨(서식 결속이 가리키는 사실). */
+    private DisclosureContext context(TenantId tenant, TenantProfilePort.TenantProfile profile, EffectiveRule rule,
+                                      TemplateResolution template, GroupCode group, LocalDate consultDate) {
+        String groupName = catalog.listGroups(tenant, consultDate).stream().filter(g -> g.code().equals(group))
+                .map(com.ga.disclosure.workflow.catalog.ProductGroup::name).findFirst().orElse(null);
+        Map<ReasonCode, String> labels = new LinkedHashMap<>();
+        rule.reasonCodes().forEach(r -> labels.put(r.code(), r.label()));
+        return new DisclosureContext(profile.largeGa(), panel.lookupFor(tenant), template, groupName, panel.panel(tenant, consultDate),
+                labels);
     }
 
     private static GradeSnapshotPort.Allowance allowance(EffectiveRule rule) {
         return new GradeSnapshotPort.Allowance(rule.allowedGradingPolicies(), rule.allowedRankingPolicies(), rule.allowedTieBreaks());
     }
 
+    /**
+     * 항목 입력 → 초안. 카탈로그 상품은 상담일 카탈로그 {@code defaults}에서 {@link Bind#CATALOG_DEFAULT}에 결속된 항목의 같은 코드 값을
+     * 복사한다(카탈로그 파일 스키마: defaults = {항목 코드: 값}). 설계사가 입력할 수 있는 항목은 {@link Bind#AGENT_INPUT}이고, 임시등록은
+     * 카탈로그 기본값이 없으므로 {@link Bind#CATALOG_DEFAULT} 항목도 설계사가 입력한다.
+     */
     private ItemDraft draft(TenantId tenant, Loaded l, ItemInput input) {
-        Set<FieldSource> editable = input instanceof ItemInput.Temp ? EnumSet.of(FieldSource.AGENT, FieldSource.CATALOG)
-                : EnumSet.of(FieldSource.AGENT);
+        Set<Bind> editable = input instanceof ItemInput.Temp ? EnumSet.of(Bind.AGENT_INPUT, Bind.CATALOG_DEFAULT)
+                : EnumSet.of(Bind.AGENT_INPUT);
         Map<String, FieldValue> values = new LinkedHashMap<>();
         return switch (input) {
             case ItemInput.Catalog c -> {
@@ -309,7 +330,7 @@ public final class DisclosureService {
                                 "product " + c.productKey() + " is not on sale on " + l.disclosure().consultDate()));
                 for (TemplateField f : l.template().fields()) {
                     JsonNode v = p.defaults() == null ? null : p.defaults().get(f.code());
-                    if (f.scope() == FieldScope.PER_ITEM && f.source() == FieldSource.CATALOG && v != null && !v.isNull()) {
+                    if (f.bind() == Bind.CATALOG_DEFAULT && v != null && !v.isNull()) {
                         values.put(f.code(), new FieldValue(canonical(v), FieldValue.Origin.CATALOG));
                     }
                 }
@@ -324,13 +345,13 @@ public final class DisclosureService {
         };
     }
 
-    private static void agentValues(TemplateResolution template, Map<String, JsonNode> input, Set<FieldSource> editable,
+    private static void agentValues(TemplateResolution template, Map<String, JsonNode> input, Set<Bind> editable,
                                      Map<String, FieldValue> into) {
         input.forEach((code, value) -> {
-            TemplateField f = template.fields().stream().filter(x -> x.code().equals(code)).findFirst()
+            TemplateField f = template.field(code)
                     .orElseThrow(() -> new CommandRejectedException("UNKNOWN_FIELD", "template has no field " + code));
-            if (f.scope() != FieldScope.PER_ITEM || !editable.contains(f.source())) {
-                throw new CommandRejectedException("FIELD_NOT_EDITABLE", "field " + code + " (" + f.source() + ") is not entered by the agent");
+            if (!editable.contains(f.bind())) {
+                throw new CommandRejectedException("FIELD_NOT_EDITABLE", "field " + code + " (" + f.bind() + ") is not entered by the agent");
             }
             into.put(code, new FieldValue(canonical(value), FieldValue.Origin.AGENT));
         });

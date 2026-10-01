@@ -57,8 +57,8 @@ class StageValidationIT {
 
     private static Map<String, JsonNode> tempValues(String name) {
         JsonNodeFactory f = JsonNodeFactory.instance;
-        return Map.of("INSURER_NAME", f.stringNode("(가상) INS-D"), "PRODUCT_NAME", f.stringNode(name), "PREMIUM", f.numberNode(30000),
-                "SURRENDER_VALUE_EXAMPLE", f.stringNode("가입설계서 참조"));
+        // 임시등록은 카탈로그 기본값 결속 항목을 설계사가 입력한다(보험사명·상품명은 구조 결속, 3B). name은 상품명으로 ItemInput에 들어간다.
+        return Map.of("PREMIUM", f.numberNode(30000), "SURRENDER_VALUE_EXAMPLE", f.stringNode("가입설계서 참조 " + name));
     }
 
     private static List<ItemInput> withTemp(String quote) {
@@ -141,8 +141,9 @@ class StageValidationIT {
         UUID[] sealed = new UUID[1];
         s.db.seed(t, c -> sealed[0] = SeedData.disclosure(c, t, "SEALED", SeedData.hash('a')));
         assertRejected(s.db, t, "GD080", """
-                INSERT INTO review (tenant_id, review_id, disclosure_id, rule_id, subject_hash, approved_by, approved_role, approved_at, reason)
-                VALUES (?, gen_random_uuid(), ?, 'R-TEMP-PRODUCT', repeat('0', 64), 'm', 'MANAGER', now(), '사유')""", t, sealed[0]);
+                INSERT INTO review (tenant_id, review_id, disclosure_id, rule_id, subject_hash, approved_by, approved_role, approved_at, reason,
+                                    rule_version_id)
+                VALUES (?, gen_random_uuid(), ?, 'R-TEMP-PRODUCT', repeat('0', 64), 'm', 'MANAGER', now(), '사유', 'DISC-2026-07')""", t, sealed[0]);
         UUID[] draft = new UUID[1];
         s.db.seed(t, c -> {
             draft[0] = SeedData.disclosure(c, t, "DRAFT", null);

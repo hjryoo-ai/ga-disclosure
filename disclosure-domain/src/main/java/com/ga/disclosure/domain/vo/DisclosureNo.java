@@ -37,7 +37,7 @@ public record DisclosureNo(TenantId tenant, int year, int sequence) {
     }
 
     public String value() {
-        return String.format("%s-%04d-%06d", tenant.value(), year, sequence);
+        return String.format(java.util.Locale.ROOT, "%s-%04d-%06d", tenant.value(), year, sequence);   // 로케일 숫자 표기 배제
     }
 
     @Override

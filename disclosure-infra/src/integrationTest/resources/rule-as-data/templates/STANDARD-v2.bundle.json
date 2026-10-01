@@ -1,5 +1,5 @@
 {
-  "bundleId": "STANDARD.v2@ef387321b4d2",
+  "bundleId": "STANDARD.v2@3b4808cef60a",
   "kind": "TEMPLATE",
   "scope": "GLOBAL",
   "templateId": "STANDARD",
@@ -13,13 +13,71 @@
   "body": {
     "fields": [
       {
+        "code": "DISCLOSURE_NO",
+        "label": "확인서 번호",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 1,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_DISCLOSURE_NO",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "CONSULT_DATE",
+        "label": "상담일",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 2,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_CONSULT_DATE",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "AGENT",
+        "label": "설계사",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 3,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_AGENT",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "CUSTOMER_NAME",
+        "label": "고객명",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 4,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_CUSTOMER_NAME",
+          "readOnly": true
+        }
+      },
+      {
         "code": "INSURER_NAME",
         "label": "보험회사명",
         "required": true,
         "source": "CATALOG",
-        "order": 1,
+        "order": 5,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_ITEM"
+          "scope": "PER_ITEM",
+          "bind": "ITEM_INSURER_NAME"
         }
       },
       {
@@ -27,9 +85,11 @@
         "label": "비교상품군",
         "required": true,
         "source": "CATALOG",
-        "order": 2,
+        "order": 6,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_DOCUMENT"
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_PRODUCT_GROUP"
         }
       },
       {
@@ -37,9 +97,11 @@
         "label": "상품명",
         "required": true,
         "source": "CATALOG",
-        "order": 3,
+        "order": 7,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_ITEM"
+          "scope": "PER_ITEM",
+          "bind": "ITEM_PRODUCT_NAME"
         }
       },
       {
@@ -47,9 +109,11 @@
         "label": "보험료",
         "required": true,
         "source": "CATALOG",
-        "order": 4,
+        "order": 8,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_ITEM"
+          "scope": "PER_ITEM",
+          "bind": "CATALOG_DEFAULT"
         }
       },
       {
@@ -57,9 +121,11 @@
         "label": "해약환급예시",
         "required": true,
         "source": "CATALOG",
-        "order": 5,
+        "order": 9,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_ITEM"
+          "scope": "PER_ITEM",
+          "bind": "CATALOG_DEFAULT"
         }
       },
       {
@@ -67,9 +133,11 @@
         "label": "판매수수료등급",
         "required": true,
         "source": "ENGINE",
-        "order": 6,
+        "order": 10,
+        "section": "COMPARISON",
         "render": {
           "scope": "PER_ITEM",
+          "bind": "ENGINE_GRADE_LABEL",
           "readOnly": true,
           "unavailableText": "산출불가"
         }
@@ -79,9 +147,11 @@
         "label": "판매수수료순위",
         "required": true,
         "source": "ENGINE",
-        "order": 7,
+        "order": 11,
+        "section": "COMPARISON",
         "render": {
           "scope": "PER_ITEM",
+          "bind": "ENGINE_RANK",
           "readOnly": true,
           "unavailableText": "산출불가"
         }
@@ -91,9 +161,11 @@
         "label": "추천사유",
         "required": true,
         "source": "AGENT",
-        "order": 8,
+        "order": 12,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_ITEM"
+          "scope": "PER_ITEM",
+          "bind": "RECOMMENDATION"
         }
       },
       {
@@ -101,9 +173,11 @@
         "label": "추천가능보험사",
         "required": true,
         "source": "SYSTEM",
-        "order": 9,
+        "order": 13,
+        "section": "COMPARISON",
         "render": {
           "scope": "PER_DOCUMENT",
+          "bind": "PANEL_INSURERS",
           "readOnly": true
         }
       },
@@ -112,17 +186,39 @@
         "label": "테스트 전용 항목(가상)",
         "required": true,
         "source": "AGENT",
-        "order": 10,
+        "order": 14,
+        "section": "COMPARISON",
         "render": {
-          "scope": "PER_ITEM"
+          "scope": "PER_ITEM",
+          "bind": "AGENT_INPUT"
         }
       }
     ],
     "layout": {
+      "title": "보험상품 비교설명 확인서",
       "sections": [
+        {
+          "code": "HEADER",
+          "orientation": "DOCUMENT",
+          "fields": [
+            "DISCLOSURE_NO",
+            "CONSULT_DATE",
+            "AGENT",
+            "CUSTOMER_NAME"
+          ]
+        },
+        {
+          "code": "SUMMARY",
+          "orientation": "DOCUMENT",
+          "fields": [
+            "PRODUCT_GROUP",
+            "RECOMMENDABLE_INSURERS"
+          ]
+        },
         {
           "code": "COMPARISON",
           "orientation": "COLUMN_PER_ITEM",
+          "columnsPerTable": 4,
           "fields": [
             "INSURER_NAME",
             "PRODUCT_NAME",
@@ -130,15 +226,8 @@
             "SURRENDER_VALUE_EXAMPLE",
             "COMMISSION_GRADE",
             "COMMISSION_RANK",
-            "RECOMMENDATION_REASON"
-          ]
-        },
-        {
-          "code": "HEADER",
-          "orientation": "DOCUMENT",
-          "fields": [
-            "PRODUCT_GROUP",
-            "RECOMMENDABLE_INSURERS"
+            "RECOMMENDATION_REASON",
+            "TEST_ONLY_FIELD"
           ]
         }
       ]
@@ -146,7 +235,7 @@
     "pendingConfirmation": [
       {
         "ref": "TODO(confirm#2)",
-        "note": "협회 표준확인서(2026.7 개정판) 필수 항목 중 위 9개(금융위 보도자료 예시 항목) 외의 항목 — 정본 목록·문구·배치 확인 후 fields에 추가한다. 항목명을 지어 넣지 않는다."
+        "note": "협회 표준확인서(2026.7 개정판) 필수 항목 중 비교 항목(section COMPARISON) 9개(금융위 보도자료 예시 항목) 외의 항목 — 정본 목록·문구·배치 확인 후 fields에 추가한다. 항목명을 지어 넣지 않는다."
       }
     ]
   }

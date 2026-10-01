@@ -25,5 +25,10 @@ public enum DisclosureCommand {
     /** 무효(사유·승인). */
     VOID,
     /** 정정(새 버전 생성, 3B). */
-    SUPERSEDE
+    SUPERSEDE,
+    /**
+     * 재기준(3B, 3A 수용심사 §3-8): 소급 배포로 고정 룰·서식이 상담일 재해석과 달라진 초안을 새 해석으로 다시 고정한다. 스냅샷·추천사유를 버리고,
+     * 새 룰의 COMPARE 검증을 통과하면 COMPARED, 아니면 DRAFT(3B 계획 승인 Q3). {@code RULE_SUPERSEDED_DRAFT} 플래그가 있을 때만(유스케이스).
+     */
+    REBASE
 }

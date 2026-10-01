@@ -13,12 +13,14 @@ import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.InsurerCode;
+import com.ga.disclosure.domain.vo.ReasonCode;
+import com.ga.disclosure.domain.enums.InsuranceLine;
+import com.ga.disclosure.workflow.catalog.PanelEntry;
 import com.ga.disclosure.domain.vo.ProductKey;
 import com.ga.disclosure.domain.vo.SnapshotId;
 import com.ga.disclosure.rules.resolve.EffectiveRule;
 import com.ga.disclosure.rules.resolve.RuleResolver;
-import com.ga.disclosure.rules.template.FieldScope;
-import com.ga.disclosure.rules.template.FieldSource;
+import com.ga.disclosure.rules.template.Bind;
 import com.ga.disclosure.rules.template.TemplateResolution;
 import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.rules.testing.Bundles;
@@ -47,7 +49,8 @@ final class Fixtures {
             TemplateResolver.resolution(Bundles.template(Bundles.template(Bundles.STANDARD_V1), null));
     static final ValidationRegistry REGISTRY = StandardValidations.registry();
     static final StageCheck CHECK = (stage, subject) -> REGISTRY.run(stage, subject, RULE, TEMPLATE);
-    static final DisclosureContext CONTEXT = new DisclosureContext(true, (insurer, date) -> true, TEMPLATE);
+    static final DisclosureContext CONTEXT = new DisclosureContext(true, (insurer, date) -> true, TEMPLATE, "건강(간편)",
+            panel("INS-A", "INS-B", "INS-C", "INS-D", "INS-E"), labels());
 
     private Fixtures() {
     }
@@ -57,12 +60,27 @@ final class Fixtures {
                 CONSULT, RULE.globalRuleVersionId(), null, TEMPLATE.ref(), IssuerMode.SELF, CONTEXT);
     }
 
-    /** 서식의 CATALOG·PER_ITEM 항목 전부에 값(코드는 서식 데이터에서 읽는다 — 카탈로그 defaults가 같은 코드로 준 값에 해당). */
+    /** 서식의 카탈로그 기본값 결속 항목 전부에 값(코드는 서식 데이터에서 읽는다 — 카탈로그 defaults가 같은 코드로 준 값에 해당). */
     static Map<String, FieldValue> catalogValues() {
         Map<String, FieldValue> values = new LinkedHashMap<>();
-        TEMPLATE.fields().stream().filter(f -> f.scope() == FieldScope.PER_ITEM && f.source() == FieldSource.CATALOG)
+        TEMPLATE.fields().stream().filter(f -> f.bind() == Bind.CATALOG_DEFAULT)
                 .forEach(f -> values.put(f.code(), new FieldValue("\"값\"", FieldValue.Origin.CATALOG)));
         return values;
+    }
+
+    /** 상담일 패널(이름 = "보험사 " + 코드). */
+    static List<PanelEntry> panel(String... insurers) {
+        List<PanelEntry> out = new ArrayList<>();
+        for (String i : insurers) {
+            out.add(new PanelEntry(InsurerCode.of(i), "보험사 " + i, InsuranceLine.LIFE, LocalDate.of(2026, 1, 1), null));
+        }
+        return out;
+    }
+
+    static Map<ReasonCode, String> labels() {
+        Map<ReasonCode, String> out = new LinkedHashMap<>();
+        RULE.reasonCodes().forEach(r -> out.put(r.code(), r.label()));
+        return out;
     }
 
     static ItemDraft catalog(String key, boolean recommended) {

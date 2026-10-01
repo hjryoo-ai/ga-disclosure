@@ -1,11 +1,13 @@
 package com.ga.disclosure.infra;
 
+import com.ga.disclosure.domain.disclosure.AgentReason;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.domain.enums.ValidationStage;
 import com.ga.disclosure.domain.vo.DisclosureId;
+import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.rules.validation.ValidationResult;
@@ -18,12 +20,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 3A W6: 룰·서식 버전은 초안 생성 때 상담일로 한 번 해석해 고정되고, 이후 룰 데이터가 바뀌어도(사규 신설, 상담일에 걸치는 서식 새 버전
  * 배포) 그 확인서에는 영향이 없다. 경계일 2026-12-31(DISC-2026-07, 최소 3)·2027-01-01(DISC-2027-01, 최소 4) 두 초안으로 확인한다.
+ * 3B S13: 서식 v2의 TEST_ONLY_FIELD(AGENT_INPUT 결속)는 추천사유로 충족되지 않고 설계사 입력으로만 충족된다.
  */
 class RuleFreezeIT {
 
@@ -111,6 +115,27 @@ class RuleFreezeIT {
         s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, later, four());
         assertThat(fieldRequired(newYear)).contains("COMMISSION_GRADE@INS-A:PRD-1001").doesNotContain("TEST_ONLY_FIELD");
         assertThat(fieldRequired(later)).contains("COMMISSION_GRADE@INS-A:PRD-1001", "TEST_ONLY_FIELD@INS-A:PRD-1001");
+
+        // 3B S13: TEST_ONLY_FIELD는 AGENT_INPUT 결속 — 추천 항목의 추천사유가 모두 있어도 그것으로 충족되지 않는다(3A D2의 과대 충족 폐기).
+        assertThat(s.service.compare(s.tenant, WorkflowSetup.AGENT, later).applied()).isTrue();
+        assertThat(s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, later).applied()).isTrue();
+        List<AgentReason> reasons = List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
+                new AgentReason(3, List.of(ReasonCode.of("COVERAGE")), null));
+        CommandResult reasonsOnly = s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, later, reasons);
+        assertThat(reasonsOnly.rejectionOrNull()).isEqualTo(CommandResult.Rejection.VALIDATION_BLOCKED);
+        String missing = reasonsOnly.results().stream().filter(r -> r.ruleId().equals("R-FIELD-REQUIRED")).findFirst().orElseThrow().message();
+        assertThat(missing).contains("TEST_ONLY_FIELD@INS-A:PRD-1001", "TEST_ONLY_FIELD@INS-C:PRD-3120")   // 추천사유가 있는 두 항목
+                .doesNotContain("RECOMMENDATION_REASON");
+        // 설계사가 그 항목에 값을 입력하면 충족된다(입력은 항목 교체 → 재비교·재산출)
+        List<ItemInput> withAgentInput = four().stream().<ItemInput>map(i -> {
+            ItemInput.Catalog c = (ItemInput.Catalog) i;
+            return new ItemInput.Catalog(c.productKey(), c.recommended(), c.requestedByCustomer(),
+                    Map.of("TEST_ONLY_FIELD", JSON.getNodeFactory().stringNode("설계사 입력")));
+        }).toList();
+        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, later, withAgentInput);
+        s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, later);
+        assertThat(s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, later, reasons).status()).isEqualTo(DisclosureStatus.REASONED);
+        assertThat(fieldRequired(later)).doesNotContain("TEST_ONLY_FIELD");
     }
 
     private String fieldRequired(DisclosureId id) {

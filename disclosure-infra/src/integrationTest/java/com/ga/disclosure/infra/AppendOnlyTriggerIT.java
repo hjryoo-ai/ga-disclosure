@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * C8: signed_doc_hash ≠ canonical_hash 인 signature INSERT 거부; 부모가 SEALED·PARTIALLY_SIGNED일 때만 INSERT 허용,
  * 나머지 8개 상태 전부 거부; signature·audit_log·document_artifact·audit_anchor UPDATE·DELETE 거부.
+ * V7(3B): document_artifact는 Object Lock 적용 기록({@code retention_applied_at} NULL→값 1회)만 UPDATE를 허용한다 — 애플리케이션 롤은 그
+ * 컬럼만 UPDATE 권한이 있고(나머지 42501), 소유 롤의 다른 변경은 GD093, 삭제는 여전히 GD030.
  */
 class AppendOnlyTriggerIT {
 
@@ -97,13 +99,35 @@ class AppendOnlyTriggerIT {
             "DELETE FROM signature WHERE tenant_id = ?",
             "UPDATE audit_log SET detail = '{}'::jsonb WHERE tenant_id = ?",
             "DELETE FROM audit_log WHERE tenant_id = ?",
-            "UPDATE document_artifact SET sha256 = repeat('0', 64) WHERE tenant_id = ?",
-            "DELETE FROM document_artifact WHERE tenant_id = ?",
             "UPDATE audit_anchor SET head_hash = repeat('0', 64) WHERE tenant_id = ?",
             "DELETE FROM audit_anchor WHERE tenant_id = ?",
     })
     void appendOnlyTablesRejectUpdateAndDelete(String sql) {
         assertRejected(DB, T, "GD030", sql, T);
+    }
+
+    @Test
+    void documentArtifactChangesOnlyByRecordingRetentionOnce() {
+        UUID[] id = new UUID[1];
+        DB.seed(T, c -> {
+            id[0] = SeedData.disclosure(c, T, "SEALED", SeedData.hash('5'));
+            SeedData.artifact(c, T, id[0], "PDF");
+        });
+        String where = " WHERE tenant_id = ? AND disclosure_id = ?";
+        // 애플리케이션 롤: retention_applied_at 외 UPDATE·DELETE 권한이 없다
+        assertRejected(DB, T, "42501", "UPDATE document_artifact SET sha256 = repeat('0', 64)" + where, T, id[0]);
+        assertRejected(DB, T, "42501", "DELETE FROM document_artifact" + where, T, id[0]);
+        // 소유 롤도 트리거가 막는다
+        assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c, "UPDATE document_artifact SET sha256 = repeat('0', 64)" + where, T, id[0]))))
+                .isEqualTo("GD093");
+        assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c, "DELETE FROM document_artifact" + where, T, id[0]))))
+                .isEqualTo("GD030");
+        // 적용 기록은 NULL → 값 한 번만
+        String record = "UPDATE document_artifact SET retention_applied_at = TIMESTAMPTZ '2026-09-23 10:00:05+09'" + where;
+        assertRejected(DB, T, "GD093", "UPDATE document_artifact SET retention_applied_at = NULL" + where, T, id[0]);
+        DB.asAppCommitting(T, c -> SeedData.exec(c, record, T, id[0]));
+        assertRejected(DB, T, "GD093", record, T, id[0]);
+        assertRejected(DB, T, "GD093", "UPDATE document_artifact SET retention_applied_at = NULL" + where, T, id[0]);
     }
 
     @ParameterizedTest

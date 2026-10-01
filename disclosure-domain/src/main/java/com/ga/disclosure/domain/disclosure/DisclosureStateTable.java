@@ -11,6 +11,7 @@ import java.util.Set;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.APPLY_SNAPSHOT;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.COMPARE;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.COMPLETE;
+import static com.ga.disclosure.domain.disclosure.DisclosureCommand.REBASE;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.EXPIRE;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.REPLACE_ITEMS;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.SEAL;
@@ -30,7 +31,7 @@ import static com.ga.disclosure.domain.enums.DisclosureStatus.SUPERSEDED;
 
 /**
  * 상태 × 명령 → 결과 상태 표(설계서 §6.1). 데이터 구조(EnumMap)이며 전이 조건(검증 단계 통과 등)은 애그리게이트가 따로 검사한다.
- * 결과가 둘 이상인 칸(SIGN → PARTIALLY_SIGNED 또는 COMPLETED)은 조건이 결과를 고른다. 표에 없는 칸은 {@link IllegalTransition}.
+ * 결과가 둘 이상인 칸(SIGN → PARTIALLY_SIGNED 또는 COMPLETED, REBASE → COMPARED 또는 DRAFT)은 조건이 결과를 고른다. 표에 없는 칸은 {@link IllegalTransition}.
  * 설계서의 {@code state-table} 블록과 이 표가 양방향으로 같다는 것을 {@code DisclosureStateTableTest}가 증명한다(3A W1).
  */
 public final class DisclosureStateTable {
@@ -52,17 +53,20 @@ public final class DisclosureStateTable {
         put(t, COMPARED, REPLACE_ITEMS, COMPARED);
         put(t, COMPARED, APPLY_SNAPSHOT, GRADED);
         put(t, COMPARED, VOID, DisclosureStatus.VOID);
+        put(t, COMPARED, REBASE, COMPARED, DRAFT);
 
         put(t, GRADED, REPLACE_ITEMS, COMPARED);
         put(t, GRADED, APPLY_SNAPSHOT, GRADED);
         put(t, GRADED, SET_RECOMMENDATIONS, REASONED);
         put(t, GRADED, VOID, DisclosureStatus.VOID);
+        put(t, GRADED, REBASE, COMPARED, DRAFT);
 
         put(t, REASONED, REPLACE_ITEMS, COMPARED);
         put(t, REASONED, APPLY_SNAPSHOT, GRADED);
         put(t, REASONED, SET_RECOMMENDATIONS, REASONED);
         put(t, REASONED, SEAL, SEALED);
         put(t, REASONED, VOID, DisclosureStatus.VOID);
+        put(t, REASONED, REBASE, COMPARED, DRAFT);
 
         put(t, SEALED, SIGN, PARTIALLY_SIGNED, COMPLETED);
         put(t, SEALED, EXPIRE, EXPIRED);

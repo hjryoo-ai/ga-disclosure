@@ -27,6 +27,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 메타 컬럼 UPDATE 허용, DRAFT~REASONED는 UPDATE 허용; 봉인된 부모의 disclosure_item·recommendation INSERT·UPDATE·DELETE 거부;
  * 봉인 이후 → 가변 상태 status UPDATE 거부(6×4 전수), 봉인 이후 상태 간 UPDATE 허용; superseded_by_id 두 번째 쓰기 거부.
  * 모든 시도는 disclosure_app으로, 트랜잭션은 시도마다 롤백한다(시드는 disclosure_migrator로 커밋).
+ *
+ * <p>V7(3B S4): 메타 컬럼 변경은 본문 가드(GD001)에 걸리지 않지만 이제 봉인 결속 CHECK의 판정을 받는다 — 결과 행이 규칙에 맞으면 허용,
+ * 아니면 23514. 기대값은 DDL이 아니라 설계서 §5 v1.8의 규칙 문장에서 계산한다({@link #expectedMeta}): 봉인 컬럼 7개(보존기한 포함)는
+ * 가변 상태에서 없고, VOID ⇔ 무효 시각 ⇔ 무효 사유, SUPERSEDED ⇔ 후속 ID, 후속 ID는 한 번만 쓴다(GD004가 CHECK보다 먼저), 보존기한은
+ * 연장만(GD094). 가변 상태 행에 봉인 컬럼을 쓰는 본문 UPDATE도 같은 이유로 23514다.
  */
 class ImmutabilityTriggerIT {
 
@@ -137,23 +142,50 @@ class ImmutabilityTriggerIT {
 
     // ------------------------------------------------------------------ 헤더 본문 / 메타
 
+    /** 봉인 컬럼(V7 결속 대상). 가변 상태 행에 하나만 쓰면 전부-또는-없음 CHECK가 거부한다. */
+    static final java.util.Set<String> SEAL_COLUMNS = java.util.Set.of("disclosure_no", "sealed_at", "canonical_hash", "pdf_hash",
+            "chain_hash", "chain_seq");
+
     @ParameterizedTest(name = "{0} × body {1}")
     @MethodSource("statusTimesBody")
     void bodyColumnUpdateAllowedOnlyWhileMutable(String status, String column) {
         UUID id = seedDisclosure(status);
         String sql = "UPDATE disclosure SET " + column + " = " + BODY.get(column) + " WHERE tenant_id = ? AND disclosure_id = ?";
-        if (SeedData.MUTABLE_STATUSES.contains(status)) {
-            assertAllowed(DB, T, sql, T, id);
-        } else {
+        if (!SeedData.MUTABLE_STATUSES.contains(status)) {
             assertRejected(DB, T, "GD001", sql, T, id);
+        } else if (SEAL_COLUMNS.contains(column)) {
+            assertRejected(DB, T, "23514", sql, T, id);      // 봉인 컬럼은 봉인 경로에서 한꺼번에만(V7)
+        } else {
+            assertAllowed(DB, T, sql, T, id);
         }
+    }
+
+    /**
+     * 메타 컬럼 하나를 바꾼 결과 행의 판정(설계서 §5 v1.8 규칙 문장): {@code null} = 허용, 아니면 기대 SQLSTATE. 시드 행은 상태와 일관된다
+     * (봉인 이후 상태만 봉인 컬럼·보존기한, VOID만 무효 시각·사유, SUPERSEDED만 후속 ID).
+     */
+    static String expectedMeta(String status, String column) {
+        boolean sealed = !SeedData.MUTABLE_STATUSES.contains(status);
+        return switch (column) {
+            case "superseded_by_id" -> status.equals("SUPERSEDED") ? "GD004" : "23514";   // 한 번만 쓰고, SUPERSEDED에만 있다
+            case "voided_at", "void_reason" -> status.equals("VOID") ? null : "23514";     // VOID ⇔ 무효 시각 ⇔ 사유
+            case "retention_until" -> sealed ? null : "23514";                             // 봉인 컬럼과 함께만, 연장은 허용
+            case "completed_at", "policy_no", "contract_date" -> null;
+            default -> throw new IllegalArgumentException(column);
+        };
     }
 
     @ParameterizedTest(name = "{0} × meta {1}")
     @MethodSource("statusTimesMeta")
-    void metaColumnUpdateAlwaysAllowed(String status, String column) {
+    void metaColumnUpdateNeverHitsTheBodyGuard(String status, String column) {
         UUID id = seedDisclosure(status);
-        assertAllowed(DB, T, "UPDATE disclosure SET " + column + " = " + META.get(column) + " WHERE tenant_id = ? AND disclosure_id = ?", T, id);
+        String sql = "UPDATE disclosure SET " + column + " = " + META.get(column) + " WHERE tenant_id = ? AND disclosure_id = ?";
+        String expected = expectedMeta(status, column);
+        if (expected == null) {
+            assertAllowed(DB, T, sql, T, id);
+        } else {
+            assertRejected(DB, T, expected, sql, T, id);
+        }
     }
 
     @ParameterizedTest
@@ -170,12 +202,47 @@ class ImmutabilityTriggerIT {
             case "VOID" -> "EXPIRED";
             default -> "VOID";
         };
-        assertAllowed(DB, T, "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", next, T, id);
+        String move = "UPDATE disclosure SET status = ?, " + companions(next) + " WHERE tenant_id = ? AND disclosure_id = ?";
+        if (status.equals("SUPERSEDED")) {
+            // 후속 ID는 한 번만 쓰고(GD004) SUPERSEDED에만 있으므로(V7) SUPERSEDED는 어느 상태로도 옮길 수 없다 — 상태표에서도 끝 상태다.
+            assertRejected(DB, T, "23514", move, next, T, id);
+            return;
+        }
+        assertAllowed(DB, T, move, next, T, id);
 
-        StringBuilder all = new StringBuilder("UPDATE disclosure SET status = ?");
-        META.forEach((col, expr) -> all.append(", ").append(col).append(" = ").append(expr));
+        // 메타 전부를 상태와 함께 한 문장으로 바꿔도 본문 가드에 걸리지 않는다(값은 다음 상태와 일관되게)
+        StringBuilder all = new StringBuilder("UPDATE disclosure SET status = ?, ").append(companions(next));
+        all.append(", completed_at = ").append(META.get("completed_at"))
+                .append(", policy_no = ").append(META.get("policy_no"))
+                .append(", contract_date = ").append(META.get("contract_date"));
+        if (!SeedData.MUTABLE_STATUSES.contains(next)) {
+            all.append(", retention_until = ").append(META.get("retention_until"));
+        }
         all.append(" WHERE tenant_id = ? AND disclosure_id = ?");
         assertAllowed(DB, T, all.toString(), next, T, id);
+    }
+
+    /** 다음 상태와 일관된 VOID 동반 컬럼(SUPERSEDED로 옮기지는 않는다 — 후속 ID 쓰기는 {@link #supersededByIdIsWriteOnce}). */
+    private static String companions(String next) {
+        return next.equals("VOID")
+                ? "voided_at = " + META.get("voided_at") + ", void_reason = " + META.get("void_reason")
+                : "voided_at = NULL, void_reason = NULL";
+    }
+
+    /** 보존기한(메타)은 연장만: 같은 값·더 늦은 값 허용, 앞당기기·NULL 거부(V7 GD094, 승인 Q6). */
+    @ParameterizedTest
+    @FieldSource("STATUSES")
+    void retentionUntilOnlyExtends(String status) {
+        UUID id = seedDisclosure(status);
+        String sql = "UPDATE disclosure SET retention_until = CAST(? AS date) WHERE tenant_id = ? AND disclosure_id = ?";
+        if (SeedData.MUTABLE_STATUSES.contains(status)) {
+            assertRejected(DB, T, "23514", sql, SeedData.RETENTION_UNTIL, T, id);    // 봉인 전에는 보존기한이 없다
+            return;
+        }
+        assertAllowed(DB, T, sql, SeedData.RETENTION_UNTIL, T, id);
+        assertAllowed(DB, T, sql, "2036-09-23", T, id);
+        assertRejected(DB, T, "GD094", sql, "2031-09-22", T, id);
+        assertRejected(DB, T, "GD094", "UPDATE disclosure SET retention_until = NULL WHERE tenant_id = ? AND disclosure_id = ?", T, id);
     }
 
     @ParameterizedTest
@@ -206,21 +273,35 @@ class ImmutabilityTriggerIT {
         assertRejected(DB, T, "GD003", "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", to, T, id);
     }
 
-    @ParameterizedTest(name = "{0} → {1} allowed")
+    /**
+     * 봉인 이후 상태 간 전이는 본문 가드가 막지 않는다(전이 규칙은 상태표·애그리게이트). 동반 컬럼은 다음 상태와 일관되게 쓴다. 예외는
+     * SUPERSEDED에서 나가는 전이 — 후속 ID가 남아 V7 CHECK가 거부한다(상태표에서도 끝 상태).
+     */
+    @ParameterizedTest(name = "{0} → {1}")
     @MethodSource("sealedTimesOtherSealed")
-    void sealedToSealedAllowed(String from, String to) {
+    void sealedToSealedNotBlockedByTheBodyGuard(String from, String to) {
         UUID id = seedDisclosure(from);
-        assertAllowed(DB, T, "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", to, T, id);
+        String sql = "UPDATE disclosure SET status = ?, " + companions(to)
+                + (to.equals("SUPERSEDED") ? ", superseded_by_id = gen_random_uuid()" : "")
+                + " WHERE tenant_id = ? AND disclosure_id = ?";
+        if (from.equals("SUPERSEDED")) {
+            assertRejected(DB, T, "23514", sql, to, T, id);
+        } else {
+            assertAllowed(DB, T, sql, to, T, id);
+        }
     }
 
+    /** 후속 ID는 SUPERSEDED에만 있고(V7) 한 번만 쓴다(GD004 — CHECK보다 먼저 트리거가 거부한다). */
     @ParameterizedTest
     @FieldSource("STATUSES")
     void supersededByIdIsWriteOnce(String status) {
         UUID id = seedDisclosure(status);
-        DB.asAppCommitting(T, c -> SeedData.exec(c,
-                "UPDATE disclosure SET superseded_by_id = gen_random_uuid() WHERE tenant_id = ? AND disclosure_id = ?", T, id));
-        assertRejected(DB, T, "GD004",
-                "UPDATE disclosure SET superseded_by_id = gen_random_uuid() WHERE tenant_id = ? AND disclosure_id = ?", T, id);
+        String set = "UPDATE disclosure SET superseded_by_id = gen_random_uuid() WHERE tenant_id = ? AND disclosure_id = ?";
+        if (!status.equals("SUPERSEDED")) {
+            assertRejected(DB, T, "23514", set, T, id);
+            return;
+        }
+        assertRejected(DB, T, "GD004", set, T, id);                     // 시드 봉인 경로가 이미 썼다
         assertRejected(DB, T, "GD004",
                 "UPDATE disclosure SET superseded_by_id = NULL WHERE tenant_id = ? AND disclosure_id = ?", T, id);
         assertAllowed(DB, T, "UPDATE disclosure SET superseded_by_id = superseded_by_id, policy_no = 'P' WHERE tenant_id = ? AND disclosure_id = ?", T, id);
@@ -236,11 +317,10 @@ class ImmutabilityTriggerIT {
             id[0] = SeedData.disclosure(c, T, "DRAFT", null);
             SeedData.item(c, T, id[0], 1, "0.84");
             SeedData.recommendation(c, T, id[0], 1);
-            if (!status.equals("DRAFT")) {
-                SeedData.exec(c, """
-                        UPDATE disclosure SET status = ?, disclosure_no = ?, canonical_hash = ?
-                         WHERE tenant_id = ? AND disclosure_id = ?
-                        """, status, T + "-2026-" + id[0].toString().substring(0, 6), SeedData.hash('a'), T, id[0]);
+            if (SeedData.MUTABLE_STATUSES.contains(status)) {
+                SeedData.exec(c, "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", status, T, id[0]);
+            } else {
+                SeedData.seal(c, T, id[0], SeedData.hash('a'), status);      // 봉인 경로 그대로(V7 결속·정합)
             }
         });
         String sql = switch (table + ":" + op) {
@@ -278,8 +358,7 @@ class ImmutabilityTriggerIT {
         DB.seed(T, c -> {
             ids[0] = SeedData.disclosure(c, T, "DRAFT", null);
             SeedData.item(c, T, ids[0], 1, "0.84");
-            SeedData.exec(c, "UPDATE disclosure SET status = 'SEALED', canonical_hash = ? WHERE tenant_id = ? AND disclosure_id = ?",
-                    SeedData.hash('a'), T, ids[0]);
+            SeedData.seal(c, T, ids[0], SeedData.hash('a'), "SEALED");
             ids[1] = SeedData.disclosure(c, T, "DRAFT", null);
         });
         assertRejected(DB, T, "GD010", "UPDATE disclosure_item SET disclosure_id = ? WHERE tenant_id = ? AND disclosure_id = ?",
