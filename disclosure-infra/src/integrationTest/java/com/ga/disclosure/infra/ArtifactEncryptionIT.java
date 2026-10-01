@@ -123,4 +123,30 @@ class ArtifactEncryptionIT {
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED
                 && r.entry().detail().path("reason").asString().equals("UNREADABLE"));
     }
+
+    @Test
+    void viewDeniesPlaintextThatDoesNotMatchTheRecordedHash() {
+        SealService.Outcome o = s.sealReasoned();
+        DisclosureId id = o.id();
+        // 복호화는 되지만 평문이 기록된 sha256과 다르다(같은 키·AAD로 다시 만든 바이트를 흉내 낸다) — 열람은 거부되고 감사된다
+        DocumentCryptoPort altering = new DocumentCryptoPort() {
+            @Override
+            public Sealed seal(com.ga.platform.core.tenant.TenantId tenant, DisclosureId disclosure, java.util.Map<ArtifactKind, byte[]> plaintexts) {
+                return s.cipher.seal(tenant, disclosure, plaintexts);
+            }
+
+            @Override
+            public byte[] open(com.ga.platform.core.tenant.TenantId tenant, DisclosureId disclosure, StoredKey key, ArtifactKind kind, byte[] ciphertext) {
+                byte[] plain = s.cipher.open(tenant, disclosure, key, kind, ciphertext);
+                plain[plain.length - 1] ^= 0x01;
+                return plain;
+            }
+        };
+        ArtifactService view = new ArtifactService(s.records, altering, s.store, s.w.audit, s.w.tx, s.w.clock, SealService.DEFAULT_TRANSACTION_TIMEOUT);
+        assertThat(view.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF))
+                .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.HASH_MISMATCH));
+        assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED
+                && r.entry().detail().path("reason").asString().equals("HASH_MISMATCH"));
+        assertThat(s.audit()).noneMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW);
+    }
 }
