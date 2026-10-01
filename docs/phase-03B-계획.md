@@ -1,11 +1,19 @@
-# Phase 3B 계획 — 봉인·정정·무효 (승인 요청)
+# Phase 3B 계획 — 봉인·정정·무효 (승인 2026-10-01)
 
 기준: `docs/phase-03B-지시문.md` v1.0, `docs/phase-03A-수용심사.md` §3 결정 1~8, 설계서 v1.7 §5·§6.4·§6.6·§9. 브랜치 `work/phase-3B`(main `3eb77f5` = 3A PR #5 병합에서 분기).
 
 지시문이 요구한 여섯 항목(①~⑥)은 §1~§6이다.
 - 지시문과 다르게 가야 하는 지점이 하나 있다. **MinIO 이미지가 더는 공개 배포되지 않는다**(§6).
 - 문언끼리 충돌하거나 해석이 필요한 지점은 §9 질문으로 모았다.
-- 각 질문에 권장안을 적었다. 권장안대로 승인되면 이 문서를 한 커밋으로 갱신하고 §10 순서로 진행한다.
+
+**승인 반영(`docs/phase-03B-계획승인.md`, 2026-10-01)** — Q1~Q12 전부 권장안 채택, 보강 B1~B4. 이 커밋에서 본문을 다음과 같이 고쳤다.
+- Q1·B1: 객체 저장소는 **SeaweedFS 4.48, 이미지 digest 고정**. 어댑터는 벤더 무관 S3 API만 쓴다(SeaweedFS 전용 API·헤더 금지). 지시문 §5·S9와 설계서 §3.2·§11의 "MinIO"를 정정했다(§6).
+- B2: Object Lock 계약 테스트 5종을 추상 `ArtifactStoreContract`로 두고 SeaweedFS 구현이 상속한다. 저장소 교체 시 수용 기준이다(§6·§8 S9).
+- Q2·B3: 헤더 항목 4개는 비교 항목이 아니라 **문서 식별부**다. 필드 속성 `section: HEADER`로 구분하고 `pendingConfirmation`과 섞지 않는다. 라벨의 미확정 표시는 필드 속성 `labelRef: "TODO(confirm#2)"`로 단다(§1).
+- Q6: `retention_until`은 봉인 시 확정하고 이후 **증가만** 허용하는 트리거(GD094)를 V7에 둔다. 단축 경로는 코드에 없다(§4).
+- Q7: 잠금 순서 확인서 → 카운터 → 체인 머리 고정. 연말 경계 동시 봉인 테스트를 S5에 추가(§8).
+- Q9: 해소 사유 이름은 `RESOLVED_AT_SEAL`(§3·§7).
+- Garage는 Object Lock 엔드포인트를 구현하지 않는다(공식 S3 호환표에서 `PutObjectRetention` 등 missing, 합의 알고리즘 부재가 이유) — 승인문의 판단과 같다.
 
 ---
 
@@ -44,7 +52,11 @@
   - `RECOMMENDATION_REASON` → `RECOMMENDATION`
   - `RECOMMENDABLE_INSURERS` → `PANEL_INSURERS`
 - `bundleId`가 `STANDARD.v1@{새 해시 12자}`로 바뀐다. 로더가 ID와 본문 해시의 일치를 검사하기 때문이다. `released-bundles.txt`는 비어 있으므로(운영 배포 없음) 동결 테스트와 충돌하지 않는다.
-- 헤더 항목 4개(확인서 번호·상담일·설계사·고객 성명)를 서식에 넣을지는 Q2다.
+- **헤더 항목 4개 추가(Q2 승인)**: `DISCLOSURE_NO`(확인서 번호)·`CONSULT_DATE`(상담일)·`AGENT`(설계사)·`CUSTOMER_NAME`(고객명), 각각 `HEADER_DISCLOSURE_NO`·`HEADER_CONSULT_DATE`·`HEADER_AGENT`·`HEADER_CUSTOMER_NAME`에 결속, `required=true`, `source=SYSTEM`, `scope=PER_DOCUMENT`.
+  - 모든 필드에 필수 속성 `section`(`HEADER`|`COMPARISON`)을 둔다. 스키마가 `section=HEADER ⇔ bind ∈ {위 4개}`를 강제한다. 기존 9개는 `COMPARISON`이고 `pendingConfirmation`의 "위 9개"는 이 9개를 가리킨다.
+  - 헤더 4개는 필드 속성 `labelRef: "TODO(confirm#2)"`(형식 `^TODO\(confirm#[0-9]+\)$`)로 라벨이 가정임을 표시한다. `pendingConfirmation`에는 넣지 않는다.
+  - 레이아웃: 섹션 `HEADER`(DOCUMENT, 식별부 4개) → `SUMMARY`(DOCUMENT, 상품군·추천가능보험사) → `COMPARISON`(COLUMN_PER_ITEM). 기존 레이아웃 섹션 `HEADER`는 `SUMMARY`로 이름을 바꾼다(필드 `section`과 이름이 겹쳐 뜻이 갈리지 않게).
+  - 성명은 봉인 유스케이스만 채운다. 렌더러는 canonical의 `customerName`을 읽을 뿐 복호화 경로가 없다(B3, ArchUnit: 렌더러 → `workflow.customer`·`infra.crypto` 의존 0).
 - `layout`에 `title`(문서 제목)과 섹션 `label`(선택)을 추가한다. 제목·섹션명도 서식 데이터이고 렌더러 리터럴이 아니다.
 
 **테스트 픽스처 `STANDARD-v2`**
@@ -235,7 +247,7 @@
 13  UPDATE disclosure_chain_head
 14  감사 DISCLOSURE_SEAL(번호·해시 3종·체인·판정 룰 정체·검증 결과 요약)
 15  VALIDATION_OVERRIDE 플래그 해소: 승인이 있는 규칙 → APPROVED(resolved_by = 승인자)
-                                    봉인 시점에 더는 실패하지 않는 규칙 → CLEARED_AT_SEAL(SYSTEM)(Q9)
+                                    봉인 시점에 더는 실패하지 않는 규칙 → RESOLVED_AT_SEAL(SYSTEM)(Q9)
 16  COMMIT
 17  (커밋 후, 별도 트랜잭션) 객체마다 applyRetention(retention_until) 성공 시
      UPDATE document_artifact SET retention_applied_at = clock + 감사 ARTIFACT_RETAIN
@@ -358,6 +370,11 @@ ALTER TABLE review ALTER COLUMN rule_version_id SET NOT NULL;
 -- ga_review_guard_insert 교체 → GD081: NEW의 (rule_version_id, tenant_rule_version_id)가 부모의 현재 고정 ID와 다르면 거부
 --   (IS NOT DISTINCT FROM). 승인은 "지금 고정된 룰 아래의 실패"에만 기록할 수 있다. 재기준 뒤 옛 승인은 SealGate가 무시한다.
 
+-- ── 6b. 보존기한 단조 증가(Q6 승인) ────────────────────────────────────────────────
+-- ga_disclosure_guard_retention(BEFORE UPDATE OF retention_until) → GD094:
+--   OLD.retention_until IS NOT NULL AND (NEW.retention_until IS NULL OR NEW.retention_until < OLD.retention_until) 이면 거부.
+--   봉인이 처음 값을 정하고(NULL → 값), 이후는 같거나 큰 값만. Object Lock COMPLIANCE의 "연장만"과 같은 의미를 DB에도.
+
 -- ── 7. RLS·권한 ─────────────────────────────────────────────────────────────────────
 -- 새 테이블 3개: ENABLE·FORCE RLS + tenant_isolation 정책(V2 규약), PUBLIC 회수, app 최소 권한.
 -- RlsIsolationIT·TenantPredicateScanTest의 테이블 수 21 → 24.
@@ -372,6 +389,7 @@ ALTER TABLE review ALTER COLUMN rule_version_id SET NOT NULL;
 | GD091 | disclosure_chain_head | 같음 |
 | GD092 | document_key | 봉인 전 INSERT, 파기 외 UPDATE, DELETE·TRUNCATE |
 | GD093 | document_artifact | 봉인 전 INSERT, `retention_applied_at` 외 UPDATE·재기록 |
+| GD094 | disclosure UPDATE | `retention_until` 단축 또는 값 → NULL |
 
 **가드와 쓰기 경로**
 - 봉인 UPDATE(REASONED → SEALED)는 OLD가 가변 상태이므로 V3 가드를 통과한다.
@@ -440,7 +458,7 @@ ALTER TABLE review ALTER COLUMN rule_version_id SET NOT NULL;
 
 ---
 
-## 6. 객체 저장소 구성 (⑥) — **MinIO 대신 SeaweedFS를 제안**
+## 6. 객체 저장소 구성 (⑥) — **MinIO 대신 SeaweedFS(승인 Q1)**
 
 **MinIO를 쓸 수 없다(2026-09-30 확인)**
 - `docker manifest inspect minio/minio:latest`와 `minio/minio:RELEASE.2025-09-07T16-13-09Z`는 `denied: requested access to the resource is denied`를 낸다.
@@ -462,12 +480,15 @@ ALTER TABLE review ALTER COLUMN rule_version_id SET NOT NULL;
 | 보존기한 연장 | 허용(Phase 4 완료 시) | 허용 | 허용 |
 | 같은 키 덮어쓰기 뒤 잠금 버전 열람 | 원본 유지 | 유지 | 유지 |
 
-- **권장: SeaweedFS 4.48**(Apache-2.0, 2012년부터 개발, 이 실측에서 Object Lock 의미가 AWS와 같음).
-  - Testcontainers `GenericContainer` + 태그·다이제스트 고정. 버전 카탈로그에 `seaweedfs-image = "chrislusf/seaweedfs:4.48@sha256:4e61d15f…"`를 둔다.
+- **채택: SeaweedFS 4.48**(Apache-2.0, 2012년부터 개발, 이 실측에서 Object Lock 의미가 AWS와 같음).
+  - Testcontainers `GenericContainer` + **digest 고정**(태그는 사라질 수 있다 — 이번 MinIO가 실례). 버전 카탈로그에 `seaweedfs-image = "chrislusf/seaweedfs@sha256:<64자>"`(태그는 주석)를 둔다. compose도 같은 digest.
   - 기동은 `server -s3` + S3 신원 설정 파일(테스트용 허구 키)이다.
   - 실측 때는 인증 없이 기동했지만, 구성에서는 인증을 켠다. 서명 없는 요청이 거부됨을 테스트로 확인한다.
-- **대안: RustFS 1.0.0**(Apache-2.0). 같은 동작을 보였지만 1.0 정식이 2026-09-16이라 이력이 짧다.
-- 설계서 §11 "S3 호환(개발: MinIO)"·"Testcontainers(PostgreSQL·MinIO)"·compose 구성을 이 결정으로 고친다. D-6(S3 호환 + Object Lock)은 그대로다.
+- 기각: RustFS 1.0.0(같은 동작이지만 1.0 정식이 2026-09-16), Garage(Object Lock 미구현).
+- **벤더 무관(승인 Q1)**: 어댑터는 표준 S3 API만 쓴다. SeaweedFS 전용 API·헤더·관리 명령을 어댑터와 테스트 하니스 어느 쪽에서도 쓰지 않는다. 버킷 생성도 표준 `CreateBucket(ObjectLockEnabledForBucket=true)`로 한다. 운영은 Object Lock을 지원하는 어떤 S3 호환 저장소든 설정만 바꿔 붙는다.
+- **계약 테스트(B2)**: 추상 `ArtifactStoreContract`(infra `integrationTest`)가 Object Lock 5종(잠긴 버전 삭제 거부·우회 헤더 삭제 거부·기한 단축 거부·기한 연장 허용·잠기지 않은 객체 삭제 허용)과 put/get/exists/list 의미를 정의한다. 하위 클래스는 저장소와 원시 S3 클라이언트(우회 헤더 시도용 — 포트에는 우회 경로가 없다)만 공급한다. `SeaweedArtifactStoreIT`가 첫 구현이고, 저장소를 바꿀 때 같은 계약을 상속한 테스트가 수용 기준이다.
+- 설계서 §3.2·§11 "S3 호환(개발: MinIO)"·"Testcontainers(PostgreSQL·MinIO)"·compose 구성을 이 결정으로 고쳤다(계획 승인 커밋). D-6(S3 호환 + Object Lock)은 그대로다.
+- CLAUDE.md "통합 테스트는 Testcontainers(PostgreSQL·MinIO)" 문구는 저장소 규칙 파일이라 손대지 않고 보고서 질문으로 올린다.
 
 **클라이언트(Q12)**
 - AWS SDK for Java v2 `s3`(BOM `software.amazon.awssdk:bom:2.55.8`, 오늘 최신)를 쓴다.
@@ -557,13 +578,14 @@ ALTER TABLE review ALTER COLUMN rule_version_id SET NOT NULL;
 | S2 | `RenderDeterminismIT` | 봉인 → 저장된 PDF를 복호화 → 별도 JVM 2개(다른 tz·로케일·인코딩)에서 복원한 canonical로 재렌더 → 바이트 동일. 상담일·항목 하나 변경 시 두 해시 모두 변경 |
 | S3 | `CanonicalSchemaTest` | §2 |
 | S4 | `ImmutabilityTriggerIT`(봉인된 확인서 행·항목·사유·산출물·키 편입), `SealColumnCheckIT` | 봉인 컬럼 6개의 NULL/값 2^6 × 상태 10 = 640조합 + VOID·SUPERSEDED·번호 형식·해시 형식 변형 전수. 기대는 독립 오라클 함수로 계산한다(3A W8 방식) |
-| S5 | `NumberingIT` | 같은 테넌트 REASONED 50건을 동시에 봉인 → 번호 {1..50} 정확히, 중복 0. 50 + 거부 유도 20건 혼합에서도 {1..50}. 다른 테넌트 병행 시 서로 독립 |
+| S5 | `NumberingIT` | 같은 테넌트 REASONED 50건을 동시에 봉인 → 번호 {1..50} 정확히, 중복 0. 50 + 거부 유도 20건 혼합에서도 {1..50}. 다른 테넌트 병행 시 서로 독립. **연말 경계(승인 Q7)**: 시계 12-31 23:59 KST 봉인과 01-01 00:00 KST 봉인을 동시에 → 연도별 카운터가 각각 1, `chain_seq`는 갭·중복 없이 연속, 교착 없음 |
 | S6 | `SealRejectionIT` | 조건 6종 각각 단독 실패 + 6종 동시 실패(목록에 6개 전부). 매번 상태·번호·카운터·체인 머리·`document_*`·버킷 객체 수·감사 증가분 1행을 단언 |
 | S7 | `SealGateTest`(단위), `RebaseIT` | 대상 해시만 같고 룰 버전이 다른 승인은 무시. 재기준 뒤 옛 승인으로 봉인 시도 → `APPROVAL_MISSING`. 새 승인 후 봉인 성공 |
 | S8 | `ArtifactEncryptionIT` | 버킷에서 직접 받은 바이트에 평문 SHA-256(hex·바이트)과 성명(UTF-8)이 없음. 형식 머리 0x01. 복호화 뒤 `sha256` 일치. AAD 교차(다른 kind·확인서로 옮김) 시 태그 실패. `ga_shred_document_key` 뒤 `artifacts get`은 `ArtifactKeyShreddedException`, 감사 `ARTIFACT_VIEW_DENIED` |
+| S9 | `SeaweedArtifactStoreIT extends ArtifactStoreContract`(B2) | Object Lock 계약 5종: 잠긴 버전 삭제 거부, 거버넌스 우회 헤더 삭제 거부, 기한 단축 거부, 기한 연장 허용, 잠기지 않은 객체 삭제 허용. 추가로 서명 없는 요청 거부, 덮어쓰기 뒤 잠긴 버전 열람 |
 | S9 | `RetentionOrderIT` | (a) 커밋 직전 실패 주입 → 롤백, 버킷에 잠금 없는 고아 2, `gc`(grace 0, 시계 이동) 후 0. (b) 진행 중 봉인의 객체는 grace 안이라 `gc`가 건드리지 않음. (c) `applyRetention` 실패 주입 → `retention_applied_at` NULL → `reconcile` → 값, 저장소 보존기한 = `retention_until`. (d) 잠금 객체 삭제 시 저장소 거부 |
 | S10 | `SealChainIT` | 테넌트별 `chain_seq` 1..n 갭 0, `chain_hash` 재계산 일치, 다른 테넌트 체인 독립. 체인 머리 = 마지막 행 |
-| S11 | `LifecycleIT` | 표의 VOID·SUPERSEDE·REBASE 행 전부. Supersede 새 버전의 고정 ID = 원본 상담일 재해석(원본 고정 이후 소급 배포된 룰로). 플래그 해소 규칙 3종(APPROVED·CLEARED_AT_SEAL·SUPERSEDED_BY_DOCUMENT_STATE·REBASED) |
+| S11 | `LifecycleIT` | 표의 VOID·SUPERSEDE·REBASE 행 전부. Supersede 새 버전의 고정 ID = 원본 상담일 재해석(원본 고정 이후 소급 배포된 룰로). 플래그 해소 규칙 4종(APPROVED·RESOLVED_AT_SEAL·SUPERSEDED_BY_DOCUMENT_STATE·REBASED) |
 | S12 | CI `pdfa-verify` 로그 + `PdfAMarkersTest` | §5 |
 | S13 | `RuleFreezeIT` 갱신 + `NoFieldCodeLiteralsTest` | §1·§5 |
 | S14 | 전체 빌드 | 평문 유출 스캔에 봉인 경로 로그 포함(`PlaintextLeakScanIT`에 봉인 후 DB 덤프·서버 로그·**버킷 전 객체 바이트** 스캔 추가). BOM(`checkBom`)·jqwik 0 |
@@ -578,64 +600,64 @@ ALTER TABLE review ALTER COLUMN rule_version_id SET NOT NULL;
 
 ---
 
-## 9. 질문 (권장안 먼저)
+## 9. 질문 (권장안 먼저) — 2026-10-01 전부 권장안 승인
 
-**Q1. 객체 저장소.**
+**Q1. 객체 저장소.** → **승인: SeaweedFS 4.48(digest 고정), 벤더 무관 S3 API, 계약 테스트(B2).**
 - **권장**: SeaweedFS 4.48(§6 실측).
 - 대안: RustFS 1.0.0. 둘 다 지시문의 "MinIO"와 다르므로 결정이 필요하다.
 
-**Q2. 헤더 항목(확인서 번호·상담일·설계사·고객 성명)을 서식 항목으로 둘지.**
+**Q2. 헤더 항목(확인서 번호·상담일·설계사·고객 성명)을 서식 항목으로 둘지.** → **승인: 추가, `section: HEADER`, `pendingConfirmation`과 분리(§1).**
 - `STANDARD-v1`의 확인된 9개 항목에는 이 넷이 없다. 확인되지 않은 항목명은 넣지 않는 것이 `pendingConfirmation` 원칙이다.
 - 그런데 서식에 항목이 없으면 성명이 canonical에는 있으면서 PDF에는 찍히지 않는다. 이는 §6.4-8("서명자가 누구인지 문서 자체가 말해야 증거")과 어긋난다.
 - **권장**: 항목 4개를 `required=true`로 추가한다. 코드는 `DISCLOSURE_NO`·`CONSULT_DATE`·`AGENT`·`CUSTOMER_NAME`이고, 라벨은 "확인서 번호"·"상담일"·"설계사"·"고객명"이다. 새 `HEADER` 섹션에 두고, `pendingConfirmation`에 "헤더 4개 라벨·배치는 협회 서식 확인 전 가정(`TODO(confirm#2)`)"을 남긴다.
 - 대안: 서식에 넣지 않는다. 확인서 번호만 각주에 찍고 성명은 인쇄하지 않는다.
 
-**Q3. 재기준 결과.**
+**Q3. 재기준 결과.** → **승인: `COMPARED|DRAFT`, 검증 결과는 감사에.**
 - 지시문은 "COMPARED 회귀"다. 그런데 새 룰의 COMPARE 검증(예: `minCompare` 3 → 4)을 지금 항목이 통과하지 못하면 COMPARED 불변식(3A W2)이 깨진다.
 - **권장**: 결과를 `COMPARED|DRAFT`로 한다. 새 룰로 통과하면 COMPARED, 아니면 DRAFT(검증 없는 작성 상태)이다. 교착이 없다.
 - 대안: 통과하지 못하면 재기준을 업무 거부한다. 이 경우 설계사가 옛 룰 아래에서 항목을 먼저 고쳐야 하고, 두 룰이 상충하면 VOID 말고는 길이 없다.
 
-**Q4. 객체 키의 해시.**
+**Q4. 객체 키의 해시.** → **승인: 암호문 해시.**
 - 지시문의 `{sha256}`은 평문 해시로 읽힌다.
 - **권장**: 암호문 해시(`cipher_sha256`)를 쓴다. 이유는 둘이다.
   1. 버킷 목록에 평문 해시가 드러나지 않는다(S8의 "평문 해시 없음"을 키에도 적용).
   2. 봉인 재시도마다 DEK·nonce가 달라 키가 달라진다. 실패한 시도의 고아가 성공한 시도의 키와 같은 이름의 옛 버전으로 숨지 않는다.
 - 평문 해시로 하면 같은 키에 버전이 쌓이고, gc가 "참조된 키의 잠금 없는 옛 버전"까지 따로 다뤄야 한다.
 
-**Q5. 확인서 번호의 연도.**
+**Q5. 확인서 번호의 연도.** → **승인: 봉인일 연도(설계서 §6.4에 명시).**
 - **권장**: 봉인일(Asia/Seoul, 주입 Clock) 연도. 발급 연도이고, 카운터 행이 발급 순서와 같이 움직인다.
 - 대안: 상담일 연도. 12-31 상담·01-02 봉인 건이 전년도 번호를 받는다.
 
-**Q6. `retention_until`을 봉인 때 정할지.**
+**Q6. `retention_until`을 봉인 때 정할지.** → **승인: 봉인일 + 보존연수, 이후 연장만(GD094).**
 - 설계서 §9는 "완료일(또는 계약일) + `retentionYears`"이고, 완료는 Phase 4다. 그런데 커밋 후 잠금에는 기한이 필요하다.
 - **권장**: 봉인 때 `봉인일 + retentionYears`(고정 룰)를 하한으로 설정하고, 잠금도 그 값으로 건다.
   - Phase 4 완료 시 재계산해 **연장만** 한다. COMPLIANCE 모드는 연장만 허용하며, §6 실측으로 확인했다.
   - 미체결·VOID 건의 보존(§14 #3)도 이 하한이 막는다.
-  - Phase 4에서 `retention_until` 단조 증가 트리거를 추가한다.
+  - ~~Phase 4에서~~ **V7에서** `retention_until` 단조 증가 트리거(GD094)를 둔다(승인 Q6).
 
-**Q7. 체인 직렬화.**
+**Q7. 체인 직렬화.** → **승인: 체인 머리 행, 잠금 순서 카운터 → 체인 머리, 연말 경계 테스트.**
 - 카운터 잠금은 (테넌트, 연도) 단위이고 체인은 테넌트 단위다. 연말 경계에서 두 봉인이 서로 다른 연도 카운터를 잡으면 `max(chain_seq)` 방식은 경합한다.
 - **권장**: V7에 `disclosure_chain_head`(테넌트당 1행, +1만 허용 트리거)를 두고 `FOR UPDATE`로 잠근다.
 - 대안: `pg_advisory_xact_lock(테넌트 해시)` + `max(chain_seq)`. 테이블이 없는 대신 DB가 +1을 강제하지 못한다.
 
-**Q8. 결속 CHECK의 VOID.**
+**Q8. 결속 CHECK의 VOID.** → **승인: 전부 있거나 전부 없음. 봉인 후 VOID는 번호 유지.**
 - 지시문 문언은 "봉인 이후 상태 ⇔ 봉인 컬럼 전부 NOT NULL"이다. 그런데 VOID는 가변 상태(DRAFT~REASONED)에서도 들어갈 수 있고, 그때 번호가 없다. V3의 `ga_is_mutable_status`에서도 VOID는 불변 쪽이다.
 - **권장**: VOID는 "전부 있거나 전부 없음"만 요구한다(§4 DDL). 나머지 봉인 이후 상태는 전부 NOT NULL이고, 가변 상태는 전부 NULL이다.
 
-**Q9. 봉인 시점에 더는 실패하지 않는 규칙의 열린 오버라이드 플래그.**
+**Q9. 봉인 시점에 더는 실패하지 않는 규칙의 열린 오버라이드 플래그.** → **승인: `RESOLVED_AT_SEAL`.**
 - 예: 임시등록 항목을 중간에 빼서 R-TEMP-PRODUCT 실패가 사라진 경우다. 3A는 실패가 사라져도 플래그를 닫지 않았다.
-- **권장**: 봉인 성공 시 `CLEARED_AT_SEAL`(해소자 `SYSTEM`)로 닫는다. 승인이 있는 규칙은 결정 7대로 `APPROVED`(해소자 = 승인자)다.
+- **권장**: 봉인 성공 시 `RESOLVED_AT_SEAL`(해소자 `SYSTEM`)로 닫는다. 승인이 있는 규칙은 결정 7대로 `APPROVED`(해소자 = 승인자)다.
 
-**Q10. 값 표기.**
+**Q10. 값 표기.** → **승인: 로케일 없는 원문. 표시 서식은 서식 데이터(`render.format`), 코드 기본값 없음.**
 - 카탈로그 기본값의 정수(`PREMIUM: 32100`)와 배열·객체(해약환급예시 표)의 표기가 문제다.
 - **권장**: 3B는 로케일 없는 원문 표기로 한다. 정수는 자릿수 구분 없이, 배열·객체는 키·값 중첩 표로 찍는다. 표기 규칙(`render.format` — 천 단위 구분, 표 열 라벨)은 서식 데이터로 Phase 7에서 정한다.
 - 금액 표기를 지금 코드에 넣으면 규칙 4(서식 배치는 데이터)와 결정론(로케일) 둘 다 건드린다.
 
-**Q11. canonical에 패널·상품군명·사유 라벨 포함(§2).**
+**Q11. canonical에 패널·상품군명·사유 라벨 포함(§2).** → **승인: 고정 룰·서식 버전에서 해석한 문자열 결과를 넣는다.**
 - **권장**: 포함한다. 렌더러 입력이 canonical + 서식 + 번호로 닫힌다.
 - 대안: ID만 두고 렌더 때 카탈로그·룰에서 조회한다. 이 경우 봉인 뒤 카탈로그 정정이 재렌더 바이트를 바꾼다.
 
-**Q12. S3 클라이언트.**
+**Q12. S3 클라이언트.** → **승인: AWS SDK v2, 착수 시 최신 안정판 확인·고정, 사유는 보고서에.**
 - **권장**: AWS SDK v2(`s3` + `url-connection-client`, BOM 2.55.8).
 - 대안: JDK `HttpClient` + 직접 구현한 SigV4. 의존이 0이지만 서명 코드를 우리가 소유하게 된다.
 

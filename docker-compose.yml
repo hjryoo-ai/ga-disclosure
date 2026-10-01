@@ -1,4 +1,4 @@
-# 로컬 개발용. PostgreSQL 18 + 롤 초기화(init-roles.sql). MinIO는 Phase 3에서 추가한다.
+# 로컬 개발용. PostgreSQL 18 + 롤 초기화(init-roles.sql). 객체 저장소(SeaweedFS)는 Phase 3B에서 추가한다.
 # 애플리케이션은 disclosure_app(RLS 대상)으로, Flyway는 disclosure_migrator(소유자)로 접속한다(application.yaml).
 services:
   postgres:
