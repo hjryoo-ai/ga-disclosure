@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "데모 확인서 흐름(설계서 부록 A-1·A-2). 고객은 customers.json의 행 ID로 지목한다(등록 멱등 키 = customerKeyPrefix + ID). 전부 가상 데이터.",
+  "note": "데모 확인서 흐름(설계서 부록 A-1·A-2, 3B 봉인·정정). 고객은 customers.json의 행 ID로 지목한다(등록 멱등 키 = customerKeyPrefix + ID). 전부 가상 데이터. seal.approve = 관리자 예외 승인 사유(있으면 승인 후 봉인), supersede.reason = 정정 사유(파일 안의 허구 텍스트).",
   "customerKeyPrefix": "demo:customers.json#",
   "cases": [
     {
@@ -16,7 +16,15 @@
       "reasons": [
         { "itemNo": 1, "codes": ["PREMIUM"] },
         { "itemNo": 3, "codes": ["COVERAGE"] }
-      ]
+      ],
+      "seal": {},
+      "supersede": {
+        "reason": "(가상) 보험료 예시 오기 정정",
+        "reasons": [
+          { "itemNo": 1, "codes": ["PREMIUM"] },
+          { "itemNo": 3, "codes": ["COVERAGE"] }
+        ]
+      }
     },
     {
       "id": "A-2",
@@ -32,7 +40,8 @@
       "reasons": [
         { "itemNo": 1, "codes": ["PREMIUM"] },
         { "itemNo": 2, "codes": ["OTHER"], "text": "고객이 지정한 보장 구성" }
-      ]
+      ],
+      "seal": { "approve": "(가상) 가입설계서 Q-2026-0001 대조 확인" }
     },
     {
       "id": "A-1-REQUEST",

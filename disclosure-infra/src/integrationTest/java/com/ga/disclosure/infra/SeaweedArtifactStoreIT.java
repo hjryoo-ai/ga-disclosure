@@ -43,6 +43,15 @@ class SeaweedArtifactStoreIT extends ArtifactStoreContract {
         }
     }
 
+    /** 이미지 digest는 하네스·버전 카탈로그·로컬 compose에서 같다(한 곳만 바뀌면 실패). */
+    @Test
+    void imageDigestIsPinnedTheSameEverywhere() throws Exception {
+        java.nio.file.Path root = java.nio.file.Path.of(System.getProperty("ga.repoRoot"));
+        assertThat(SeaweedHarness.IMAGE).matches("chrislusf/seaweedfs@sha256:[0-9a-f]{64}");
+        assertThat(java.nio.file.Files.readString(root.resolve("gradle/libs.versions.toml"))).contains("\"" + SeaweedHarness.IMAGE + "\"");
+        assertThat(java.nio.file.Files.readString(root.resolve("docker-compose.yml"))).contains("image: " + SeaweedHarness.IMAGE);
+    }
+
     @Test
     void unsignedRequestsAreRejected() throws Exception {
         String bucket = S3.freshBucket();

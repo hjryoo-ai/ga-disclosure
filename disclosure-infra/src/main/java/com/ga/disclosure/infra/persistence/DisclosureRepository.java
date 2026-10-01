@@ -126,6 +126,23 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 (rs, n) -> DisclosureId.of(rs.getObject("disclosure_id", UUID.class)));
     }
 
+    @Override
+    public List<Summary> summariesFor(CustomerRef customer, java.time.LocalDate consultDate, GroupCode group) {
+        return query("""
+                SELECT disclosure_id, status, version, supersedes_id
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND customer_ref = :customerRef
+                   AND consult_date = :consultDate
+                   AND group_code = :groupCode
+                 ORDER BY version, disclosure_id
+                """, Map.of("customerRef", customer.value(), "consultDate", consultDate, "groupCode", group.value()), (rs, n) -> {
+            UUID supersedes = rs.getObject("supersedes_id", UUID.class);
+            return new Summary(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), DisclosureStatus.valueOf(rs.getString("status")),
+                    rs.getInt("version"), supersedes == null ? null : DisclosureId.of(supersedes));
+        });
+    }
+
     /**
      * 애그리게이트 상태를 저장한다. 상태 컬럼을 바꾸는 유일한 경로다.
      * <ul>

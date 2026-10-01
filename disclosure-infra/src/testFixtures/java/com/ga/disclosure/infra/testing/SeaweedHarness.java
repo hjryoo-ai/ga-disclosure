@@ -23,7 +23,7 @@ public final class SeaweedHarness {
     /** chrislusf/seaweedfs:4.48 — digest는 2026-09-30 실측·2026-10-01 재확인(다중 아키텍처 인덱스). */
     public static final String IMAGE = "chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d";
     public static final String ACCESS_KEY = "ga-local-test-access";
-    static final String SECRET_KEY = "ga-local-test-secret-not-a-real-key";
+    public static final String SECRET_KEY = "ga-local-test-secret-not-a-real-key";   // 허구 키(seaweedfs/s3.json)
     private static final int S3_PORT = 8333;
 
     private static SeaweedHarness instance;

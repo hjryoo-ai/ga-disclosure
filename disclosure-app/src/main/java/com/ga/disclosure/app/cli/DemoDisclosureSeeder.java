@@ -16,6 +16,9 @@ import com.ga.disclosure.workflow.disclosure.CommandResult;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.disclosure.DisclosureService;
 import com.ga.disclosure.workflow.disclosure.ItemInput;
+import com.ga.disclosure.workflow.disclosure.LifecycleService;
+import com.ga.disclosure.workflow.disclosure.SealService;
+import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
@@ -29,11 +32,12 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 데모 확인서 흐름(설계서 부록 A-1·A-2, 3A 지시문 §5): 고객(등록 멱등 키로 찾는다) → 초안 → 항목 → 비교 → 산출 → 사유 → REASONED, 그리고
- * 고객 요청 보험사 추가(→ COMPARED → 재산출 → 사유). 전부 운영과 같은 유스케이스를 부른다.
+ * 데모 확인서 흐름(설계서 부록 A-1·A-2, 3A 지시문 §5, 3B 지시문 §7): 고객(등록 멱등 키로 찾는다) → 초안 → 항목 → 비교 → 산출 → 사유 →
+ * REASONED, 고객 요청 보험사 추가(→ COMPARED → 재산출 → 사유), 그리고 3B — 봉인(필요하면 관리자 예외 승인 먼저)과 정정(봉인본 → 새 버전 →
+ * 다시 REASONED). 전부 운영과 같은 유스케이스를 부른다.
  *
- * <p><b>데모 편의 규칙(운영 동작이 아님):</b> 같은 고객·상담일·상품군의 확인서가 이미 있으면 그 사례를 NOOP으로 건너뛴다 — 시드를 두 번 돌려도
- * 확인서가 늘지 않게 하려는 것뿐이다. 운영에서는 같은 고객·상담일·상품군으로 여러 확인서를 만들 수 있다.
+ * <p><b>데모 편의 규칙(운영 동작이 아님):</b> 같은 고객·상담일·상품군의 확인서가 이미 있으면 생성을 NOOP으로 건너뛰고, 그 중 봉인 이후 상태가
+ * 있으면 봉인을, 정정본(supersedes가 있는 버전)이 있으면 정정을 NOOP으로 건너뛴다 — 시드를 두 번 돌려도 확인서·번호가 늘지 않게 하려는 것뿐이다.
  */
 final class DemoDisclosureSeeder {
 
@@ -41,38 +45,43 @@ final class DemoDisclosureSeeder {
     private final DisclosureLookup lookup;
     private final CustomerVault customers;
     private final TenantTransactions transactions;
+    private final SealService seal;
+    private final LifecycleService lifecycle;
     private final PrintStream out;
 
     DemoDisclosureSeeder(DisclosureService disclosures, DisclosureLookup lookup, CustomerVault customers, TenantTransactions transactions,
-                         PrintStream out) {
+                         SealService seal, LifecycleService lifecycle, PrintStream out) {
         this.disclosures = Objects.requireNonNull(disclosures, "disclosures");
         this.lookup = Objects.requireNonNull(lookup, "lookup");
         this.customers = Objects.requireNonNull(customers, "customers");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
+        this.seal = Objects.requireNonNull(seal, "seal");
+        this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
         this.out = Objects.requireNonNull(out, "out");
     }
 
-    void seed(TenantId tenant, Actor agent, String json) {
+    void seed(TenantId tenant, Actor agent, Actor manager, String json) {
         JsonNode root = Canonicalizer.parseStrict(json);
         if (root.path("schemaVersion").asInt(-1) != 1) {
             throw new CliFailure("demo disclosures file needs schemaVersion 1");
         }
         String prefix = root.path("customerKeyPrefix").asString();
         for (JsonNode c : root.path("cases")) {
-            runCase(tenant, agent, prefix, c);
+            runCase(tenant, agent, manager, prefix, c);
         }
     }
 
-    private void runCase(TenantId tenant, Actor agent, String prefix, JsonNode c) {
+    private void runCase(TenantId tenant, Actor agent, Actor manager, String prefix, JsonNode c) {
         String id = c.get("id").asString();
         RegistrationKey key = new RegistrationKey(prefix + c.get("customer").asString());
         CustomerRef customer = transactions.inTenant(tenant, () -> customers.findByRegistrationKey(key))
                 .orElseThrow(() -> new CliFailure("case " + id + ": customer " + key + " is not registered — run customer import first"));
         GroupCode group = GroupCode.of(c.get("groupCode").asString());
         LocalDate consult = LocalDate.parse(c.get("consultDate").asString());
-        List<DisclosureId> existing = transactions.inTenant(tenant, () -> lookup.findFor(customer, consult, group));
+        List<DisclosureLookup.Summary> existing = transactions.inTenant(tenant, () -> lookup.summariesFor(customer, consult, group));
         if (!existing.isEmpty()) {
-            out.println("DEMO_DISCLOSURE " + tenant + " " + id + " NOOP existing=" + existing.getFirst() + " (demo rule: same customer, date, group)");
+            out.println("DEMO_DISCLOSURE " + tenant + " " + id + " NOOP existing=" + existing.getFirst().id() + " (demo rule: same customer, date, group)");
+            sealAndSupersede(tenant, agent, manager, id, c, existing.getFirst().id(), existing);
             return;
         }
         DisclosureId d = disclosures.createDraft(tenant, agent, customer, group, consult, TemplateType.STANDARD);
@@ -90,6 +99,49 @@ final class DemoDisclosureSeeder {
             last = step(id, "reason", disclosures.setRecommendations(tenant, agent, d, reasons(request.get("reasons"))));
         }
         out.println("DEMO_DISCLOSURE " + tenant + " " + id + " CREATED id=" + d + " status=" + last.status());
+        sealAndSupersede(tenant, agent, manager, id, c, d, List.of());
+    }
+
+    /** 3B: 사례에 {@code seal}이 있으면 봉인(승인 필요 시 관리자 예외 승인 먼저), {@code supersede}가 있으면 봉인본을 정정해 새 버전을 REASONED까지. */
+    private void sealAndSupersede(TenantId tenant, Actor agent, Actor manager, String id, JsonNode c, DisclosureId d,
+                                  List<DisclosureLookup.Summary> existing) {
+        JsonNode sealSpec = c.get("seal");
+        if (sealSpec != null) {
+            if (existing.stream().anyMatch(x -> x.status().isSealedOrLater())) {
+                out.println("  " + id + " seal NOOP (already sealed)");
+            } else {
+                if (sealSpec.path("approve").isString()) {
+                    for (ValidationResult r : disclosures.sealBlockers(tenant, manager, d)) {
+                        if (r.overridable()) {
+                            disclosures.approveException(tenant, manager, d, r.ruleId(), r.subjectHash().orElseThrow(), sealSpec.get("approve").asString());
+                            out.println("  " + id + " approve " + r.ruleId() + " by " + manager.subject());
+                        }
+                    }
+                }
+                SealService.Outcome o = seal.seal(tenant, agent, d);
+                if (!o.sealed()) {
+                    throw new CliFailure("case " + id + " could not be sealed: " + o.rejections());
+                }
+                out.println("  " + id + " seal -> " + o.status() + " no=" + o.number().orElseThrow() + (o.retentionPending() ? " RETENTION_PENDING" : ""));
+            }
+        }
+        JsonNode supersedeSpec = c.get("supersede");
+        if (supersedeSpec != null) {
+            if (existing.stream().anyMatch(x -> x.supersedesIdOrNull() != null)) {
+                out.println("  " + id + " supersede NOOP (a corrected version exists)");
+                return;
+            }
+            LifecycleService.Outcome o = lifecycle.supersede(tenant, manager, d, supersedeSpec.get("reason").asString());
+            if (!o.applied()) {
+                throw new CliFailure("case " + id + " could not be superseded: " + o.rejection().orElseThrow());
+            }
+            DisclosureId next = o.newVersion().orElseThrow();
+            out.println("  " + id + " supersede -> " + o.status() + " next=" + next);
+            step(id, "next compare", disclosures.compare(tenant, agent, next));
+            step(id, "next grade", disclosures.requestGrades(tenant, agent, next));
+            CommandResult last = step(id, "next reason", disclosures.setRecommendations(tenant, agent, next, reasons(supersedeSpec.get("reasons"))));
+            out.println("DEMO_DISCLOSURE " + tenant + " " + id + " CORRECTED id=" + next + " version=2 status=" + last.status());
+        }
     }
 
     private CommandResult step(String caseId, String step, CommandResult r) {

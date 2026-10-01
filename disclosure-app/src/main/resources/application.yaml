@@ -23,6 +23,20 @@ ga:
   # 운영은 KMS 어댑터로 교체한다(설계서 §9). 비어 있으면 고객 정보를 다루는 순간 실패한다.
   crypto:
     local-kek-file: ${GA_LOCAL_KEK_FILE:}
+  # 봉인 산출물 저장소(Phase 3B): 표준 S3 API + Object Lock. 기본값은 로컬 compose의 SeaweedFS와 허구 키(docker/seaweedfs/s3.json) —
+  # 운영은 배포 설정으로 덮는다. create-bucket은 개발·데모 전용(운영 버킷은 인프라가 Object Lock 활성으로 만든다).
+  storage:
+    s3:
+      endpoint: ${GA_S3_ENDPOINT:http://localhost:8333}
+      region: ${GA_S3_REGION:us-east-1}
+      bucket: ${GA_S3_BUCKET:ga-disclosure-local}
+      access-key-id: ${GA_S3_ACCESS_KEY_ID:ga-local-access}
+      secret-access-key: ${GA_S3_SECRET_ACCESS_KEY:ga-local-secret-not-a-real-key}
+      path-style: true
+      create-bucket: ${GA_S3_CREATE_BUCKET:false}
+  # 봉인 트랜잭션 제한 시간(잔여물 정리 유예는 이보다 커야 한다)
+  seal:
+    transaction-timeout: PT60S
 
 management:
   endpoints:

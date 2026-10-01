@@ -12,4 +12,11 @@ public interface DisclosureLookup {
 
     /** 같은 고객·상담일·상품군의 확인서 ID(생성 순). 데모 시드의 2회 실행 NOOP 판정에 쓴다 — 운영 동작의 규칙이 아니다. */
     List<DisclosureId> findFor(CustomerRef customer, LocalDate consultDate, GroupCode group);
+
+    /** 같은 고객·상담일·상품군의 확인서 요약(버전 순). 데모 시드의 봉인·정정 NOOP 판정용(3B). */
+    List<Summary> summariesFor(CustomerRef customer, LocalDate consultDate, GroupCode group);
+
+    /** 상태·버전·계보만(본문 없음). */
+    record Summary(DisclosureId id, com.ga.disclosure.domain.enums.DisclosureStatus status, int version, DisclosureId supersedesIdOrNull) {
+    }
 }

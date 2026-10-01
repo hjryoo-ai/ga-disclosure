@@ -112,6 +112,88 @@ class OperatorCliIT {
     }
 
     /**
+     * 3B 데모(지시문 §7): 새 테넌트에 번들·카탈로그·고객을 넣고 데모 확인서 시드를 <b>두 번</b> 돌린다 — 1회차는 봉인 2건(A-1 정상, A-2 임시등록 +
+     * 관리자 승인)과 정정 1건(A-1 → 새 버전 REASONED), 2회차는 전부 NOOP(번호·버전이 늘지 않는다). 이어서 산출물 열람(평문 해시 대조), 잔여물
+     * 정리·재적용, 봉인 거부의 종료 코드 2, 사유 파일로 받는 무효.
+     */
+    @Test
+    void demoSeedSealsTwoSupersedesOneAndIsIdempotent() throws Exception {
+        String tenant = SeedData.uniqueTenant("CLI_SEAL");
+        DB.seed(tenant, c -> SeedData.tenant(c, tenant));
+        com.ga.disclosure.infra.testing.SeaweedHarness s3 = com.ga.disclosure.infra.testing.SeaweedHarness.get();
+        String bucket = s3.freshBucket();
+        Path kek = java.nio.file.Files.createTempDirectory("cli-seal-kek").resolve("kek.json");
+        run("crypto", "init-kek", "--file", kek.toString());
+        Path demo = ROOT.resolve("disclosure-demo/src/main/resources");
+        String[] storage = {"--ga.crypto.local-kek-file=" + kek, "--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + bucket,
+                "--ga.storage.s3.access-key-id=" + com.ga.disclosure.infra.testing.SeaweedHarness.ACCESS_KEY,
+                "--ga.storage.s3.secret-access-key=" + com.ga.disclosure.infra.testing.SeaweedHarness.SECRET_KEY,
+                "--ga.engine.mode=stub", "--ga.engine.stub-table=" + demo.resolve("demo/engine-table.json")};
+        for (String b : List.of("rules/DISC-2026-07.bundle.json", "rules/DISC-2027-01.bundle.json", "templates/STANDARD-v1.bundle.json")) {
+            run("rules", "distribute", "--bundle", bundle(b), "--tenants", tenant, "--operator", "cli-test");
+        }
+        run("rules", "activate", "--as-of", "2026-09-23", "--tenants", tenant, "--operator", "cli-test");
+        for (String file : List.of("product-groups.json", "insurer-panel.json", "products.json")) {
+            run("catalog", "import", "--tenant", tenant, "--file", demo.resolve("demo/catalog").resolve(file).toString(), "--operator", "cli-test");
+        }
+        run(with(storage, "customer", "import", "--tenant", tenant, "--file", demo.resolve("customers.json").toString(), "--operator", "cli-test"));
+
+        String first = run(with(storage, "demo", "disclosures", "--tenant", tenant, "--file", demo.resolve("demo/disclosures.json").toString(),
+                "--operator", "cli-test"));
+        assertThat(first).contains("A-1 seal -> SEALED no=" + tenant + "-2026-", "A-2 approve R-TEMP-PRODUCT", "A-2 seal -> SEALED no=",
+                "A-1 supersede -> SUPERSEDED next=", "A-1 CORRECTED id=").contains("version=2 status=REASONED");
+        String second = run(with(storage, "demo", "disclosures", "--tenant", tenant, "--file", demo.resolve("demo/disclosures.json").toString(),
+                "--operator", "cli-test"));
+        assertThat(second).contains("A-1 NOOP", "A-2 NOOP", "A-1 seal NOOP", "A-2 seal NOOP", "A-1 supersede NOOP")
+                .doesNotContain("SEALED no=", "CORRECTED");
+        assertThat(column(tenant, "SELECT status || ':' || version FROM disclosure WHERE tenant_id = ? ORDER BY consult_date, version"))
+                .containsExactly("SUPERSEDED:1", "REASONED:2", "SEALED:1", "REASONED:1");
+        assertThat(column(tenant, "SELECT seq FROM disclosure_counter WHERE tenant_id = ?")).containsExactly("2");
+        assertThat(column(tenant, "SELECT count(*) FROM document_artifact WHERE tenant_id = ? AND retention_applied_at IS NOT NULL"))
+                .containsExactly("4");
+
+        String sealedId = column(tenant, "SELECT disclosure_id::text FROM disclosure WHERE tenant_id = ? AND status = 'SEALED'").getFirst();
+        Path pdf = java.nio.file.Files.createTempFile("cli-seal", ".pdf");
+        assertThat(run(with(storage, "artifacts", "get", "--tenant", tenant, "--id", sealedId, "--kind", "PDF", "--out", pdf.toString(),
+                "--operator", "auditor-1"))).contains("ARTIFACT_GET " + tenant + " " + sealedId + " PDF sha256=");
+        assertThat(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(java.nio.file.Files.readAllBytes(pdf))))
+                .isEqualTo(column(tenant, "SELECT pdf_hash FROM disclosure WHERE tenant_id = ? AND status = 'SEALED'").getFirst());
+        assertThat(run(with(storage, "artifacts", "gc", "--tenants", tenant, "--operator", "cli-test")))
+                .contains("ARTIFACT_GC " + tenant + " scanned=4 deleted=0 referenced=4");
+        assertThat(run(with(storage, "artifacts", "reconcile", "--tenants", tenant, "--operator", "cli-test")))
+                .contains("ARTIFACT_RECONCILE " + tenant + " applied=0 failed=0");
+
+        // 봉인 거부 → 종료 코드 2와 거부 코드 목록(A-1-REQUEST의 추천사유 행을 지워 SEAL 단계 검증을 막는다)
+        String reasoned = column(tenant, "SELECT disclosure_id::text FROM disclosure WHERE tenant_id = ? AND status = 'REASONED' AND version = 1")
+                .getFirst();
+        DB.seed(tenant, c -> SeedData.exec(c, "DELETE FROM recommendation WHERE tenant_id = ? AND disclosure_id = ?::uuid", tenant, reasoned));
+        assertThatThrownBy(() -> run(with(storage, "disclosure", "seal", "--tenant", tenant, "--id", reasoned, "--operator", "cli-test")))
+                .hasStackTraceContaining("seal rejected: [VALIDATION_BLOCKED, APPROVAL_MISSING]")   // 이 사례는 승인 없는 산출불가 항목도 있다
+                .satisfies(e -> assertThat(rootCause(e)).isInstanceOf(org.springframework.boot.ExitCodeGenerator.class)
+                        .extracting(t -> ((org.springframework.boot.ExitCodeGenerator) t).getExitCode()).isEqualTo(2));
+        Path reason = java.nio.file.Files.createTempFile("void-reason", ".txt");
+        java.nio.file.Files.writeString(reason, "(가상) 고객 상담 철회");
+        assertThat(run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-file", reason.toString(),
+                "--operator", "manager-1", "--role", "MANAGER"))).contains("VOID " + tenant + " " + sealedId + " VOID");
+        assertThat(column(tenant, "SELECT status || ':' || coalesce(disclosure_no, '-') FROM disclosure WHERE tenant_id = ? AND voided_at IS NOT NULL"))
+                .singleElement().satisfies(v -> assertThat(v).startsWith("VOID:" + tenant + "-2026-"));
+    }
+
+    private static String[] with(String[] prefix, String... args) {
+        String[] all = java.util.Arrays.copyOf(prefix, prefix.length + args.length);
+        System.arraycopy(args, 0, all, prefix.length, args.length);
+        return all;
+    }
+
+    private static Throwable rootCause(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null && !(t instanceof org.springframework.boot.ExitCodeGenerator)) {
+            t = t.getCause();
+        }
+        return t;
+    }
+
+    /**
      * Phase 2: 카탈로그 수입(상품군 → 패널 → 상품, 데모 파일) — 같은 파일 재수입은 NOOP. 로컬 KEK 파일 생성은 한 번만(덮어쓰기 거부).
      * 고객 데이터 키 순환은 두 번째 실행에서 첫 키를 은퇴·파기한다(쓰는 행이 없으므로).
      */
