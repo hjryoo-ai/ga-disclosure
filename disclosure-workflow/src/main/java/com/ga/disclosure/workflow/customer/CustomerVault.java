@@ -1,5 +1,7 @@
 package com.ga.disclosure.workflow.customer;
 
+import com.ga.disclosure.domain.pii.CustomerName;
+import com.ga.disclosure.domain.pii.Sensitive;
 import com.ga.disclosure.domain.vo.CustomerRef;
 
 import java.time.Instant;
@@ -31,6 +33,15 @@ public interface CustomerVault {
 
     /** 복호화 없이 존재만 본다(확인서 초안이 고객 참조를 가리킬 때, Phase 3A). */
     boolean exists(CustomerRef ref);
+
+    /**
+     * 복호화 없이 성명을 풀 수 있는지만 본다(3B 봉인 조건 ⑥): 행이 있고 그 행의 데이터 키가 파기(DESTROYED)되지 않았다. 거부 경로에 열람 기록이
+     * 남지 않게 하려는 판정이다 — 실제 복호화는 조건이 전부 통과한 뒤 {@link #name} 한 번.
+     */
+    boolean nameReadable(CustomerRef ref);
+
+    /** 성명만 복호화한다(봉인 본문용, 3A 수용심사 §3-3). 연락처·생년월일은 풀지 않는다. 호출자가 감사 {@code CUSTOMER_VIEW}를 남긴다. */
+    Optional<Sensitive<CustomerName>> name(CustomerRef ref);
 
     /** 활성 키를 RETIRED로, 새 키를 ACTIVE로(같은 트랜잭션). 활성 키가 없었으면 새 키만. */
     KeyRotation rotate(Instant at);

@@ -67,6 +67,6 @@ public final class TemplateResolver {
         }
         List<String> pending = new ArrayList<>();
         template.pendingConfirmation().forEach(p -> pending.add(p.path("ref").asString()));
-        return new TemplateResolution(template.ref(), fields, template.layout(), pending);
+        return new TemplateResolution(template.ref(), template.templateType(), fields, template.layout(), pending);
     }
 }

@@ -28,6 +28,7 @@ import com.ga.disclosure.workflow.catalog.CatalogProduct;
 import com.ga.disclosure.workflow.catalog.InsurerPanelPort;
 import com.ga.disclosure.workflow.catalog.ProductCatalogPort;
 import com.ga.disclosure.workflow.customer.CustomerVault;
+import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -75,6 +76,7 @@ public final class DisclosureService {
     private final AuditPort audit;
     private final Clock clock;
     private final CommandRunner runner;
+    private final DisclosureLoader loader;
 
     public DisclosureService(DisclosureStore store, ReviewStore reviews, DisclosureFlagPort flags, TenantProfilePort tenants,
                              GradeSnapshotPort engine, ProductCatalogPort catalog, InsurerPanelPort panel, CustomerVault customers,
@@ -94,6 +96,7 @@ public final class DisclosureService {
         this.audit = Objects.requireNonNull(audit, "audit");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.runner = new CommandRunner(transactions, audit, clock);
+        this.loader = new DisclosureLoader(store, tenants, catalog, panel, rules, templates, registry);
     }
 
     // ------------------------------------------------------------------ 초안
@@ -120,7 +123,7 @@ public final class DisclosureService {
             DisclosureId id = DisclosureId.of(UUID.randomUUID());
             Disclosure d = Disclosure.draft(id, agent.subject(), customerRef, group, consultDate, rule.globalRuleVersionId(),
                     rule.tenantRuleVersion().orElse(null), template.ref(), profile.issuerMode(),
-                    context(tenant, profile, rule, template, group, consultDate));
+                    loader.context(tenant, rule, template, group, consultDate));
             store.insert(d);
             ObjectNode detail = JSON.createObjectNode()
                     .put("customerRef", customerRef.value())
@@ -283,31 +286,11 @@ public final class DisclosureService {
 
     // ------------------------------------------------------------------ 내부
 
-    private record Loaded(Disclosure disclosure, EffectiveRule rule, TemplateResolution template, StageCheck check) {
-    }
-
     private record Prepared(EngineRequest request, String fingerprint, GradeSnapshotPort.Allowance allowance) {
     }
 
     private Loaded load(TenantId tenant, DisclosureId id) {
-        DisclosureRecord rec = store.loadForUpdate(id).orElseThrow(() -> new DisclosureNotFoundException(id));
-        EffectiveRule rule = rules.load(tenant, rec.consultDate(), rec.ruleVersionId(), rec.tenantRuleVersionIdOrNull());
-        TemplateResolution template = templates.load(tenant, rec.template());
-        TenantProfilePort.TenantProfile profile = tenants.profile(tenant);
-        Disclosure d = rec.restore(context(tenant, profile, rule, template, rec.groupCode(), rec.consultDate()));
-        StageCheck check = (stage, subject) -> registry.run(stage, subject, rule, template);
-        return new Loaded(d, rule, template, check);
-    }
-
-    /** 애그리게이트 판단 재료: 고정 서식, 상담일 상품군 이름·패널, 고정 룰의 사유 라벨(서식 결속이 가리키는 사실). */
-    private DisclosureContext context(TenantId tenant, TenantProfilePort.TenantProfile profile, EffectiveRule rule,
-                                      TemplateResolution template, GroupCode group, LocalDate consultDate) {
-        String groupName = catalog.listGroups(tenant, consultDate).stream().filter(g -> g.code().equals(group))
-                .map(com.ga.disclosure.workflow.catalog.ProductGroup::name).findFirst().orElse(null);
-        Map<ReasonCode, String> labels = new LinkedHashMap<>();
-        rule.reasonCodes().forEach(r -> labels.put(r.code(), r.label()));
-        return new DisclosureContext(profile.largeGa(), panel.lookupFor(tenant), template, groupName, panel.panel(tenant, consultDate),
-                labels);
+        return loader.load(tenant, id);
     }
 
     private static GradeSnapshotPort.Allowance allowance(EffectiveRule rule) {

@@ -68,6 +68,34 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
         return new ComplianceFlagPort.RaisedFlag(open, false);
     }
 
+    /** 워크플로 유형의 열린 플래그만(준법 배치가 확인서에 단 다른 유형은 이 포트의 몫이 아니다). */
+    @Override
+    public List<DisclosureFlagPort.OpenFlag> openFor(DisclosureId disclosureId) {
+        return query("""
+                SELECT flag_id, type, target_kind, target_id
+                  FROM compliance_flag
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :disclosureId
+                   AND resolved_at IS NULL
+                   AND type = ANY(:types)
+                 ORDER BY raised_at, flag_id
+                """, Map.of("disclosureId", disclosureId.value(), "types",
+                java.util.Arrays.stream(DisclosureFlagPort.Type.values()).map(Enum::name).toArray(String[]::new)),
+                (rs, n) -> new DisclosureFlagPort.OpenFlag(rs.getObject("flag_id", UUID.class),
+                DisclosureFlagPort.Type.valueOf(rs.getString("type")), rs.getString("target_kind"), rs.getString("target_id")));
+    }
+
+    @Override
+    public boolean resolve(UUID flagId, DisclosureFlagPort.Resolution resolution, String resolvedBy, Instant at) {
+        return update("""
+                UPDATE compliance_flag
+                   SET resolved_at = :at, resolved_by = :by, resolution = :resolution
+                 WHERE tenant_id = :tenantId
+                   AND flag_id = :flagId
+                   AND resolved_at IS NULL
+                """, Map.of("flagId", flagId, "at", Timestamp.from(at), "by", resolvedBy, "resolution", resolution.name())) == 1;
+    }
+
     /** 미해소 플래그 ID(유형별). */
     public List<UUID> findOpen(String type) {
         return query("""

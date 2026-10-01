@@ -78,6 +78,7 @@ final class WorkflowSetup implements AutoCloseable {
     final Clock clock;
     final FakeEngine engine;
     final EngineClientSettings settings;
+    final LocalFileKeyProvider keys;
     final CustomerVaultRepository vault;
     final DisclosureService service;
     final TenantId tenant;
@@ -88,25 +89,31 @@ final class WorkflowSetup implements AutoCloseable {
     }
 
     WorkflowSetup(String instant, EngineClientSettings settings) {
+        this(instant, settings, List.of(Bundles.DISC_2026_07, Bundles.DISC_2027_01, Bundles.STANDARD_V1));
+    }
+
+    /** 배포할 정본 번들을 고른다(3B: 2027 룰 없이 2026 룰을 소급 대체하는 시나리오). */
+    WorkflowSetup(String instant, EngineClientSettings settings, List<String> bundles) {
         this.clock = Clock.fixed(Instant.parse(instant), Governance.SEOUL);
         this.settings = settings;
         this.engine = new FakeEngine(TableEngineStub.load(resource("/workflow/engine-table.json")), TOKEN, clock);
-        this.vault = new CustomerVaultRepository(gateway, LocalFileKeyProvider.load(CatalogCustomerSetup.newKekFile()));
+        this.keys = LocalFileKeyProvider.load(CatalogCustomerSetup.newKekFile());
+        this.vault = new CustomerVaultRepository(gateway, keys);
         this.service = new DisclosureService(disclosures, reviews, flags, new TenantRepository(gateway),
                 new EngineGradeClient(new HttpEngineTransport(settings, t -> Optional.of(TOKEN), t -> engine.baseUrl())),
                 catalog, catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx,
                 clock);
-        this.tenant = freshTenant();
+        this.tenant = freshTenant(bundles);
         this.customer = new CustomerRefService(vault, audit, tx, clock).register(tenant, CatalogCustomerSetup.OPERATOR,
                 new NewCustomer(CustomerName.of("가상고객"), null, null));
     }
 
-    private TenantId freshTenant() {
+    private TenantId freshTenant(List<String> bundles) {
         String t = SeedData.uniqueTenant("WF");
         db.seed(t, c -> SeedData.tenant(c, t));
         TenantId tenant = TenantId.of(t);
         Governance g = new Governance();
-        for (String b : List.of(Bundles.DISC_2026_07, Bundles.DISC_2027_01, Bundles.STANDARD_V1)) {
+        for (String b : bundles) {
             g.distribution.distribute(Bundles.load(b), tenant, Governance.OPERATOR);
         }
         for (String day : List.of("2026-09-23", "2027-01-01")) {
@@ -149,6 +156,22 @@ final class WorkflowSetup implements AutoCloseable {
 
     static List<ItemInput> threeItems() {
         return List.of(catalogItem("INS-A:PRD-1001", true), catalogItem("INS-B:PRD-2044", false), catalogItem("INS-C:PRD-3120", true));
+    }
+
+    /** 봉인·정정·무효 유스케이스가 함께 쓰는 포트 묶음(같은 저장소 어댑터·시계). */
+    com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps deps(Clock at) {
+        return new com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps(disclosures, reviews, flags, new TenantRepository(gateway), catalog,
+                catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx, at);
+    }
+
+    /** 3사 비교 → 산출 → 추천사유(항목 1·3)까지 = 봉인 직전(REASONED). */
+    DisclosureId reasoned() {
+        DisclosureId id = compared();
+        service.requestGrades(tenant, AGENT, id);
+        service.setRecommendations(tenant, AGENT, id, List.of(
+                new com.ga.disclosure.domain.disclosure.AgentReason(1, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("PREMIUM")), null),
+                new com.ga.disclosure.domain.disclosure.AgentReason(3, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("COVERAGE")), null)));
+        return id;
     }
 
     DisclosureId draft() {
