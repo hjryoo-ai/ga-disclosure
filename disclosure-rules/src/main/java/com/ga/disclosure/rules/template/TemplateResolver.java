@@ -4,6 +4,8 @@ import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.rules.resolve.ResolutionFailure;
 import com.ga.disclosure.rules.resolve.RuleResolutionException;
+import com.ga.platform.canonical.Canonicalizer;
+import com.ga.platform.canonical.Sha256;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
 
@@ -45,6 +47,14 @@ public final class TemplateResolver {
                 .orElseThrow(() -> new RuleResolutionException(ResolutionFailure.PINNED_VERSION_MISSING,
                         "pinned template " + ref + " does not exist for " + tenant));
         return resolution(t);
+    }
+
+    /** 고정 서식 본문의 내용 해시(증거 매니페스트 {@code pinned}): 번들 출처면 번들 해시, 아니면 같은 식 SHA-256(JCS(body)). */
+    public String contentHash(TenantId tenant, TemplateRef ref) {
+        FormTemplate t = port.findByRef(Objects.requireNonNull(tenant, "tenant"), Objects.requireNonNull(ref, "ref"))
+                .orElseThrow(() -> new RuleResolutionException(ResolutionFailure.PINNED_VERSION_MISSING,
+                        "pinned template " + ref + " does not exist for " + tenant));
+        return t.bundleHash() != null ? t.bundleHash() : Sha256.of(Canonicalizer.canonicalize(t.body()));
     }
 
     /** 서식 레코드를 해석 결과로 바꾼다(필드 형식은 서식 스키마가 보장). */

@@ -1,6 +1,8 @@
 package com.ga.disclosure.workflow.disclosure;
 
 import com.ga.disclosure.audit.AuditPort;
+import com.ga.disclosure.audit.outbox.OutboxPort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.rules.validation.ValidationRegistry;
@@ -16,7 +18,7 @@ import java.util.Objects;
 public record DisclosureServiceDeps(DisclosureStore store, ReviewStore reviews, DisclosureFlagPort flags, TenantProfilePort tenants,
                                     ProductCatalogPort catalog, InsurerPanelPort panel, CustomerVault customers, RuleResolver rules,
                                     TemplateResolver templates, ValidationRegistry registry, AuditPort audit, WorkflowTransactions transactions,
-                                    Clock clock) {
+                                    Clock clock, AgentDirectory agents, OutboxPort outbox) {
 
     public DisclosureServiceDeps {
         Objects.requireNonNull(store, "store");
@@ -32,6 +34,8 @@ public record DisclosureServiceDeps(DisclosureStore store, ReviewStore reviews, 
         Objects.requireNonNull(audit, "audit");
         Objects.requireNonNull(transactions, "transactions");
         Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(agents, "agents");
+        Objects.requireNonNull(outbox, "outbox");
     }
 
     DisclosureLoader loader() {

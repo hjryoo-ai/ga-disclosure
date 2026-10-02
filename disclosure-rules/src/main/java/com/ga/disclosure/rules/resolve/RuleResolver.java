@@ -5,6 +5,8 @@ import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.rules.version.RuleVersion;
 import com.ga.disclosure.rules.version.RuleVersionPort;
+import com.ga.platform.canonical.Canonicalizer;
+import com.ga.platform.canonical.Sha256;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -65,12 +67,23 @@ public final class RuleResolver {
         return merge(asOf, global, local);
     }
 
+    /**
+     * 고정 버전 본문의 내용 해시(증거 매니페스트 {@code pinned}, 4 계획 §4): GLOBAL은 번들 해시, TENANT는 같은 식 SHA-256(JCS(body)). 없는 버전이면
+     * {@code PINNED_VERSION_MISSING}.
+     */
+    public String contentHash(TenantId tenant, RuleVersionId id) {
+        RuleVersion r = port.findById(Objects.requireNonNull(tenant, "tenant"), Objects.requireNonNull(id, "id"))
+                .orElseThrow(() -> new RuleResolutionException(ResolutionFailure.PINNED_VERSION_MISSING, "rule " + id + " does not exist for " + tenant));
+        return r.bundleHash() != null ? r.bundleHash() : Sha256.of(Canonicalizer.canonicalize(r.body()));
+    }
+
     private RuleVersion pinned(TenantId tenant, LocalDate asOf, RuleVersionId id, RuleScope scope) {
         RuleVersion r = port.findById(tenant, id).orElseThrow(() -> new RuleResolutionException(ResolutionFailure.PINNED_VERSION_MISSING,
                 "pinned " + scope + " rule " + id + " does not exist for " + tenant));
         boolean wasInForce = r.status() == RuleStatus.ACTIVE || r.status() == RuleStatus.RETIRED;
         if (r.scope() != scope || !wasInForce || r.applyFrom().isAfter(asOf)) {
-            throw new IllegalStateException("pinned rule " + id + " (" + r.scope() + ", " + r.status() + ") had not started on " + asOf);
+            throw new RuleResolutionException(ResolutionFailure.PINNED_VERSION_NOT_IN_FORCE,
+                    "pinned rule " + id + " (" + r.scope() + ", " + r.status() + ") had not started on " + asOf);
         }
         return r;
     }

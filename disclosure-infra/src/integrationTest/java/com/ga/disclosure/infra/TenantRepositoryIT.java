@@ -55,7 +55,8 @@ class TenantRepositoryIT {
             assertThat(t.issuerMode()).isEqualTo(IssuerMode.SELF);
             assertThat(t.gateMode()).isEqualTo(GateMode.WARN);
             assertThat(t.largeGa()).isTrue();
-            assertThat(t.paramsJson().replace(" ", "")).isEqualTo("{\"gateRequiresManager\":true}");
+            // V8: gateRequiresManager는 룰 데이터로 옮겨 갔다(승인 Q7) — 기본 사규 파라미터는 비어 있다
+            assertThat(t.paramsJson().replace(" ", "")).isEqualTo("{}");
         });
     }
 

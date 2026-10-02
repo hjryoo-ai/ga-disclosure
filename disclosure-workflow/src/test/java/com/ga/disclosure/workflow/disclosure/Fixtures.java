@@ -50,7 +50,7 @@ final class Fixtures {
     static final ValidationRegistry REGISTRY = StandardValidations.registry();
     static final StageCheck CHECK = (stage, subject) -> REGISTRY.run(stage, subject, RULE, TEMPLATE);
     static final DisclosureContext CONTEXT = new DisclosureContext(true, (insurer, date) -> true, TEMPLATE, "건강(간편)",
-            panel("INS-A", "INS-B", "INS-C", "INS-D", "INS-E"), labels());
+            panel("INS-A", "INS-B", "INS-C", "INS-D", "INS-E"), labels(), RULE.signDeadlineDays());
 
     private Fixtures() {
     }

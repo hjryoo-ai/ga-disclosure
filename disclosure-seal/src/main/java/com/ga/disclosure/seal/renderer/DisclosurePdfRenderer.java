@@ -139,6 +139,11 @@ public final class DisclosurePdfRenderer {
     /** PDF/A-2b 식별·정보 사전과 일치하는 XMP(고정 템플릿). */
     static String xmp(String title, LocalDate consult) {
         String date = xmpDate(consult);
+        return xmp(title, date, date);
+    }
+
+    /** 같은 고정 템플릿, 만든 시각과 고친 시각을 따로(서명본 증분 갱신 — 고친 시각 = 마지막 서명 시각). */
+    static String xmp(String title, String createDate, String modifyDate) {
         return "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n"
                 + "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n"
                 + "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n"
@@ -149,14 +154,14 @@ public final class DisclosurePdfRenderer {
                 + "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">" + HtmlComposer.esc(title) + "</rdf:li></rdf:Alt></dc:title>\n"
                 + "</rdf:Description>\n"
                 + "<rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n"
-                + "<xmp:CreateDate>" + date + "</xmp:CreateDate>\n<xmp:ModifyDate>" + date + "</xmp:ModifyDate>\n"
-                + "<xmp:MetadataDate>" + date + "</xmp:MetadataDate>\n</rdf:Description>\n"
+                + "<xmp:CreateDate>" + createDate + "</xmp:CreateDate>\n<xmp:ModifyDate>" + modifyDate + "</xmp:ModifyDate>\n"
+                + "<xmp:MetadataDate>" + modifyDate + "</xmp:MetadataDate>\n</rdf:Description>\n"
                 + "<rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n"
                 + "<pdf:Producer>" + PRODUCER + "</pdf:Producer>\n</rdf:Description>\n"
                 + "</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
     }
 
-    private static byte[] sha256(byte[] bytes) {
+    static byte[] sha256(byte[] bytes) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(bytes);
         } catch (NoSuchAlgorithmException e) {
@@ -164,7 +169,7 @@ public final class DisclosurePdfRenderer {
         }
     }
 
-    private static String hex(byte[] bytes) {
+    static String hex(byte[] bytes) {
         return java.util.HexFormat.of().formatHex(bytes);
     }
 }

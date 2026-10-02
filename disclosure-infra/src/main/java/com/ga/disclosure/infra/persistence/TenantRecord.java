@@ -9,7 +9,7 @@ import java.util.Objects;
 /**
  * {@code tenant} 행.
  *
- * @param paramsJson 사규 파라미터 JSON 원문({@code gateRequiresManager} 등). 해석은 Phase 1 이후.
+ * @param paramsJson 사규 파라미터 JSON 원문. 룰 성격의 값은 두지 않는다(V8에서 {@code gateRequiresManager}를 룰 데이터로 옮겼다 — 승인 Q7).
  */
 public record TenantRecord(
         TenantId tenantId,

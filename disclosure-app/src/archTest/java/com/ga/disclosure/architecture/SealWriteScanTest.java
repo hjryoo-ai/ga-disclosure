@@ -18,7 +18,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 3B(계획 §4 "가드와 쓰기 경로"): 채번 카운터·봉인 체인 머리·문서 키·산출물 테이블을 쓰는 SQL은 각 저장소의 정해진 메서드에만 있다. 전 모듈 운영
+ * 3B(계획 §4 "가드와 쓰기 경로"): 채번 카운터·봉인 체인 머리·문서 키·산출물·서명 증거(V8) 테이블을 쓰는 SQL은 각 저장소의 정해진 메서드에만 있다. 전 모듈 운영
  * 소스를 {@link DisclosureWriteScanTest}의 스캐너로 훑는다. 허용 목록 항목이 쓰이지 않으면(폐기) 실패한다. 거짓 양성이면 목록을 넓히지 않고 SQL을
  * 옮긴다. DELETE는 어디에도 없다(키 파기는 DB 함수 {@code ga_shred_document_key}, 행 삭제는 트리거가 거부).
  */
@@ -27,7 +27,7 @@ class SealWriteScanTest {
     static final Map<String, Pattern> KINDS = new LinkedHashMap<>();
 
     static {
-        for (String table : List.of("disclosure_counter", "disclosure_chain_head", "document_key", "document_artifact")) {
+        for (String table : List.of("disclosure_counter", "disclosure_chain_head", "document_key", "document_artifact", "signature_evidence")) {
             KINDS.put("INSERT " + table, Pattern.compile("\\binsert\\s+into\\s+" + table + "\\b"));
             KINDS.put("UPDATE " + table, Pattern.compile("\\bupdate\\s+(?:only\\s+)?" + table + "\\b"));
             KINDS.put("DELETE " + table, Pattern.compile("\\bdelete\\s+from\\s+(?:only\\s+)?" + table + "\\b"));
@@ -43,7 +43,9 @@ class SealWriteScanTest {
             LEDGER + "#advanceChainHead", Set.of("INSERT disclosure_chain_head", "UPDATE disclosure_chain_head"),
             RECORDS + "#insertKey", Set.of("INSERT document_key"),
             RECORDS + "#insertArtifact", Set.of("INSERT document_artifact"),
-            RECORDS + "#markRetentionApplied", Set.of("UPDATE document_artifact"));      // retention_applied_at NULL → 값 1회
+            RECORDS + "#markArtifactRetention", Set.of("UPDATE document_artifact"),      // 첫 적용 시각 1회, 적용 기한 증가만(V8)
+            RECORDS + "#insertEvidence", Set.of("INSERT signature_evidence"),
+            RECORDS + "#markEvidenceRetention", Set.of("UPDATE signature_evidence"));    // 같은 규칙(V8 GD105)
 
     private static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
 

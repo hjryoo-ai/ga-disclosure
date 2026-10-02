@@ -118,8 +118,18 @@ final class FailingPorts {
         }
 
         @Override
-        public boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at) {
-            return delegate.markRetentionApplied(disclosure, kind, at);
+        public void insertEvidence(com.ga.disclosure.workflow.artifact.SignatureEvidenceRecord record) {
+            delegate.insertEvidence(record);
+        }
+
+        @Override
+        public List<com.ga.disclosure.workflow.artifact.SignatureEvidenceRecord> evidence(DisclosureId disclosure) {
+            return delegate.evidence(disclosure);
+        }
+
+        @Override
+        public boolean markRetentionApplied(com.ga.disclosure.workflow.artifact.LockedObject object, Instant at, java.time.LocalDate until) {
+            return delegate.markRetentionApplied(object, at, until);
         }
 
         @Override

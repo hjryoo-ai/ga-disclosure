@@ -18,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -87,11 +88,18 @@ class RuleResolverTest {
         assertThat(catchThrowableOfType(RuleResolutionException.class,
                 () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-NOPE"))).failure())
                 .isEqualTo(ResolutionFailure.PINNED_VERSION_MISSING);
+        // 4 계획 승인 Q1: 고정 로드는 ACTIVE·RETIRED만(DRAFT·APPROVED 거부), scope가 맞고 시작일 ≤ 상담일이어야 한다
         port.add(Bundles.tenant("HOUSE-DRAFT", FROM, null, RuleStatus.DRAFT, json("{}")));
-        assertThatThrownBy(() -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-DRAFT")))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> new RuleResolver(port).load(T, LocalDate.parse("2026-06-30"), RuleVersionId.of("DISC-2026-07"), null))
-                .isInstanceOf(IllegalStateException.class);
+        port.add(Bundles.global("DISC-APPROVED", FROM, null, RuleStatus.APPROVED, Y2026.body()));
+        port.add(Bundles.tenant("HOUSE-ACTIVE", FROM, null, RuleStatus.ACTIVE, json("{}")));
+        for (Runnable notInForce : List.<Runnable>of(
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-DRAFT")),
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-APPROVED"), null),
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("HOUSE-ACTIVE"), null),                    // TENANT를 GLOBAL 자리에
+                () -> new RuleResolver(port).load(T, LocalDate.parse("2026-06-30"), RuleVersionId.of("DISC-2026-07"), null))) {
+            assertThat(catchThrowableOfType(RuleResolutionException.class, notInForce::run).failure())
+                    .isEqualTo(ResolutionFailure.PINNED_VERSION_NOT_IN_FORCE);
+        }
     }
 
     // ------------------------------------------------------------------ C2
@@ -165,14 +173,14 @@ class RuleResolverTest {
     void overridableKeysAreMergedAndNestedObjectsReplacedWhole() {
         JsonNode house = json("""
                 {"signDeadlineDays": 10,
-                 "channels": {"TOUCH_PAD": true, "REMOTE_LINK": true, "PAPER_SCAN": false, "CERTIFIED_ESIGN": false},
+                 "channels": {"TOUCH_PAD": {"enabled": true}, "REMOTE_LINK": {"enabled": true}, "PAPER_SCAN": {"enabled": false, "requiresManagerReview": true}, "CERTIFIED_ESIGN": {"enabled": false}},
                  "identityCheck": {"REMOTE_LINK": ["LINK_POSSESSION", "BIRTH_DATE"], "maxFailures": 3}}
                 """);
         EffectiveRule rule = new RuleResolver(withGlobal().add(Bundles.tenant("HOUSE", FROM, null, RuleStatus.ACTIVE, house)))
                 .resolve(T, D);
         assertThat(rule.tenantRuleVersion()).hasValueSatisfying(id -> assertThat(id.value()).isEqualTo("HOUSE"));
         assertThat(rule.signDeadlineDays()).isEqualTo(10);
-        assertThat(rule.channels()).containsEntry(SignatureChannel.PAPER_SCAN, false);
+        assertThat(rule.channel(SignatureChannel.PAPER_SCAN).enabled()).isFalse();
         // 깊은 병합이 아니다: TENANT의 identityCheck에 TOUCH_PAD가 없으므로 병합 결과에도 없다.
         assertThat(rule.identityCheckMaxFailures()).isEqualTo(3);
         assertThatThrownBy(() -> rule.identityCheck(SignatureChannel.TOUCH_PAD)).isInstanceOf(MissingRuleKeyException.class);

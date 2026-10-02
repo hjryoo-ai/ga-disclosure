@@ -5,8 +5,10 @@ import com.ga.disclosure.domain.disclosure.DisclosureCommand;
 import com.ga.disclosure.domain.disclosure.DisclosureStateTable;
 import com.ga.disclosure.domain.disclosure.IllegalTransition;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
+import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.grade.EngineSnapshot;
 import com.ga.disclosure.domain.vo.ReasonCode;
+import com.ga.disclosure.rules.validation.ValidationSubject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -24,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
- * 3A W1(애그리게이트): 구현된 명령(3A 4종 + 3B SEAL·VOID·SUPERSEDE·REBASE) × 상태 10종 전수 — 표 안이면 전이하고(결과 상태가 표의 결과 중 하나), 표 밖이면
+ * 3A W1(애그리게이트): 구현된 명령(3A 4종 + 3B SEAL·VOID·SUPERSEDE·REBASE + Phase 4 SIGN·COMPLETE·EXPIRE) × 상태 10종 전수 — 표 안이면 전이하고(결과 상태가 표의 결과 중 하나), 표 밖이면
  * {@link IllegalTransition}(from, command)이며 상태가 바뀌지 않는다. 구현된 명령 목록은 이 테스트가 따로 가진다(계획 승인 B3) —
  * 3B·Phase 4가 명령을 구현할 때 이 목록만 늘린다. 표 자체와 설계서의 대조는 {@code disclosure-domain}의 DisclosureStateTableTest.
  */
@@ -32,7 +34,7 @@ class DisclosureTransitionTest {
 
     static final List<DisclosureCommand> IMPLEMENTED = List.of(DisclosureCommand.REPLACE_ITEMS, DisclosureCommand.COMPARE,
             DisclosureCommand.APPLY_SNAPSHOT, DisclosureCommand.SET_RECOMMENDATIONS, DisclosureCommand.SEAL, DisclosureCommand.VOID,
-            DisclosureCommand.SUPERSEDE, DisclosureCommand.REBASE);
+            DisclosureCommand.SUPERSEDE, DisclosureCommand.REBASE, DisclosureCommand.SIGN, DisclosureCommand.COMPLETE, DisclosureCommand.EXPIRE);
 
     static final java.time.Instant AT = java.time.Instant.parse("2026-09-23T03:00:00Z");
 
@@ -69,9 +71,31 @@ class DisclosureTransitionTest {
         }
         return Disclosure.restore(d.id(), d.agentId(), d.customerRef(), d.groupCode(), d.consultDate(), d.ruleVersionId(), null,
                 d.template(), d.issuerMode(), Fixtures.CONTEXT, Lineage.FIRST, status, d.disclosureItems(), d.engineSnapshot().orElseThrow(),
-                stamp(), status == DisclosureStatus.VOID ? new VoidMark(AT, "상담 취소") : null,
-                status == DisclosureStatus.SUPERSEDED ? com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()) : null);
+                stamp(), status == DisclosureStatus.VOID ? new VoidMark(AT, new LifecycleReason("CUSTOMER_CANCELLED", null)) : null,
+                status == DisclosureStatus.SUPERSEDED ? com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()) : null,
+                status == DisclosureStatus.SUPERSEDED ? new LifecycleReason("CONTENT_ERROR", null) : null, signaturesIn(status),
+                status == DisclosureStatus.COMPLETED ? AT.plus(java.time.Duration.ofHours(3)) : null);
     }
+
+    /** 복원 상태의 서명: PARTIALLY_SIGNED는 고객 1건, COMPLETED는 룰 서명자 전원, 나머지는 없음. */
+    static List<ValidationSubject.SignatureMark> signaturesIn(DisclosureStatus status) {
+        return switch (status) {
+            case PARTIALLY_SIGNED -> List.of(new ValidationSubject.SignatureMark(SignerRole.CUSTOMER, AT.plus(java.time.Duration.ofHours(1))));
+            case COMPLETED -> List.of(new ValidationSubject.SignatureMark(SignerRole.CUSTOMER, AT.plus(java.time.Duration.ofHours(1))),
+                    new ValidationSubject.SignatureMark(SignerRole.AGENT, AT.plus(java.time.Duration.ofHours(2))),
+                    new ValidationSubject.SignatureMark(SignerRole.MANAGER, AT.plus(java.time.Duration.ofHours(3))));
+            default -> List.of();
+        };
+    }
+
+    /** 아직 서명하지 않은 첫 역할(표 검사용 — 완료 조건 검증은 CompletionTest). */
+    static SignerRole nextRole(Disclosure d) {
+        return java.util.Arrays.stream(SignerRole.values()).filter(r -> d.signatures().stream().noneMatch(m -> m.role() == r))
+                .findFirst().orElse(SignerRole.CUSTOMER);                // 전원 서명(COMPLETED)이면 아무 역할 — 표가 먼저 거부한다
+    }
+
+    /** 표 검사용 통과 검사기(완료 조건 판정은 이 테스트의 대상이 아니다). */
+    static final StageCheck PASS = (stage, subject) -> List.of();
 
     static List<AgentReason> reasons() {
         return List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
@@ -89,10 +113,13 @@ class DisclosureTransitionTest {
             case APPLY_SNAPSHOT -> d.applySnapshot(Fixtures.snapshotFor(d.engineRequest()), Fixtures.CHECK);
             case SET_RECOMMENDATIONS -> d.setRecommendations(reasons(), Fixtures.RULE.autoReasonCodes(), Fixtures.CHECK);
             case SEAL -> d.seal(stamp());
-            case VOID -> d.voidWith(new VoidMark(AT, "상담 취소"));
-            case SUPERSEDE -> d.supersede(com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()));
+            case VOID -> d.voidWith(new VoidMark(AT, new LifecycleReason("CUSTOMER_CANCELLED", null)));
+            case SUPERSEDE -> d.supersede(com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()),
+                    new LifecycleReason("CONTENT_ERROR", null));
             case REBASE -> d.rebase(d.ruleVersionId(), null, d.template(), Fixtures.CONTEXT, Fixtures.CHECK);
-            default -> throw new IllegalArgumentException(command + " is not implemented before Phase 4");
+            case SIGN -> d.sign(new ValidationSubject.SignatureMark(nextRole(d), AT.plus(java.time.Duration.ofHours(4))), null, PASS);
+            case COMPLETE -> d.complete(new CompletionStamp(AT.plus(java.time.Duration.ofHours(5)), java.time.LocalDate.of(2031, 9, 24)), PASS);
+            case EXPIRE -> d.expire(AT.plus(java.time.Duration.ofDays(30)));
         };
     }
 
@@ -124,8 +151,8 @@ class DisclosureTransitionTest {
         List<String> commandMethods = Arrays.stream(Disclosure.class.getDeclaredMethods())
                 .filter(m -> Modifier.isPublic(m.getModifiers()) && m.getReturnType() == TransitionOutcome.class)
                 .map(Method::getName).sorted().toList();
-        assertThat(commandMethods).containsExactly("applySnapshot", "compare", "rebase", "replaceItems", "seal", "setRecommendations",
-                "supersede", "voidWith");
+        assertThat(commandMethods).containsExactly("applySnapshot", "compare", "complete", "expire", "rebase", "replaceItems", "seal",
+                "setRecommendations", "sign", "supersede", "voidWith");
         assertThat(IMPLEMENTED).hasSize(commandMethods.size());
     }
 

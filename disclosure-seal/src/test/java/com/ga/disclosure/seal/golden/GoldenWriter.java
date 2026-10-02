@@ -17,7 +17,7 @@ import java.util.Map;
 /**
  * 골든 입력·기대값 생성({@code ./gradlew :disclosure-seal:regenerateGolden}, 수동 전용 — 빌드·CI가 부르지 않는다). 기대값은 로컬(macOS)에서
  * 만들고 CI(Linux)가 {@code SealGoldenTest}로 검증한다 — OS 간 결정론 검사다. 기대값을 바꾸는 커밋은 메시지에 사유를 적는다.
- * {@code render <dir>} 모드는 커밋된 골든 입력으로 PDF를 써서 CI {@code pdfa-verify} 잡이 veraPDF로 검증하게 한다.
+ * {@code render <dir>} 모드는 커밋된 골든 입력으로 PDF를 써서 CI {@code pdfa-verify} 잡이 veraPDF로 검증하게 한다(Phase 4: 서명본 골든 포함).
  */
 public final class GoldenWriter {
 
@@ -31,6 +31,11 @@ public final class GoldenWriter {
             for (String name : GoldenCase.NAMES) {
                 GoldenCase g = GoldenCase.of(name);
                 byte[] pdf = new DisclosurePdfRenderer().render(g.canonical(), g.template(), g.disclosureNo()).pdf();
+                Files.write(out.resolve(name + ".pdf"), pdf);
+                System.out.println(name + ".pdf " + pdf.length + " bytes");
+            }
+            for (String name : SignedGolden.NAMES) {
+                byte[] pdf = SignedGolden.of(name).sign().pdf();
                 Files.write(out.resolve(name + ".pdf"), pdf);
                 System.out.println(name + ".pdf " + pdf.length + " bytes");
             }
@@ -58,13 +63,27 @@ public final class GoldenWriter {
             expected.put("canonicalSha256", canonical.sha256());
             expected.put("pdfSha256", pdf.sha256());
             expected.put("pdfBytes", Integer.toString(pdf.pdf().length));
-            expected.put("generatedOn", System.getProperty("os.name") + " " + System.getProperty("os.version") + " "
-                    + System.getProperty("os.arch") + ", " + System.getProperty("java.vendor") + " " + System.getProperty("java.version")
-                    + ", default locale " + java.util.Locale.getDefault() + ", zone " + java.util.TimeZone.getDefault().getID()
-                    + ", file.encoding " + System.getProperty("file.encoding"));
+            expected.put("generatedOn", environment());
             g.write("expected.properties", ("# 기대값 생성: ./gradlew :disclosure-seal:regenerateGolden(수동). 바꾸는 커밋은 사유를 메시지에 적는다.\n"
                     + GoldenCase.lines(expected)).getBytes(StandardCharsets.UTF_8));
             System.out.println(e.getKey() + " canonical=" + canonical.sha256() + " pdf=" + pdf.sha256());
         }
+        for (String name : SignedGolden.NAMES) {
+            SignedGolden g = SignedGolden.of(name);
+            DisclosurePdfRenderer.Rendered signed = g.sign();
+            Map<String, String> expected = new LinkedHashMap<>();
+            expected.put("signedPdfSha256", signed.sha256());
+            expected.put("signedPdfBytes", Integer.toString(signed.pdf().length));
+            expected.put("generatedOn", environment());
+            g.files().write("expected.properties", ("# 기대값 생성: ./gradlew :disclosure-seal:regenerateGolden(수동). 바꾸는 커밋은 사유를 메시지에 적는다.\n"
+                    + GoldenCase.lines(expected)).getBytes(StandardCharsets.UTF_8));
+            System.out.println(name + " signedPdf=" + signed.sha256());
+        }
+    }
+
+    private static String environment() {
+        return System.getProperty("os.name") + " " + System.getProperty("os.version") + " " + System.getProperty("os.arch") + ", "
+                + System.getProperty("java.vendor") + " " + System.getProperty("java.version") + ", default locale " + java.util.Locale.getDefault()
+                + ", zone " + java.util.TimeZone.getDefault().getID() + ", file.encoding " + System.getProperty("file.encoding");
     }
 }

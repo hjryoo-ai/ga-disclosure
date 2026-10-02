@@ -12,4 +12,7 @@ public interface AuditPort {
 
     /** 바인딩된 테넌트의 전 행(seq 오름차순). */
     List<AuditRecord> readAll();
+
+    /** 바인딩된 테넌트에서 그 대상의 행(seq 오름차순) — 증거 패키지의 감사 발췌(4 계획 §4). */
+    List<AuditRecord> readTarget(String targetKind, String targetId);
 }

@@ -135,7 +135,7 @@ class RuleActivationIT {
         TenantId t = distributedTenant();
         String house = """
                 {"signDeadlineDays": 10,
-                 "channels": {"TOUCH_PAD": true, "REMOTE_LINK": true, "PAPER_SCAN": false, "CERTIFIED_ESIGN": false}}
+                 "channels": {"TOUCH_PAD": {"enabled": true}, "REMOTE_LINK": {"enabled": true}, "PAPER_SCAN": {"enabled": false, "requiresManagerReview": true}, "CERTIFIED_ESIGN": {"enabled": false}}}
                 """;
         setup.in(t, () -> {
             setup.rules.insert(new RuleVersion(RuleVersionId.of("HOUSE-2026"), RuleScope.TENANT, LocalDate.parse("2026-07-01"), null,
@@ -174,7 +174,7 @@ class RuleActivationIT {
         EffectiveRule rule = setup.in(t, () -> setup.resolver.resolve(t, LocalDate.parse("2026-09-23")));
         assertThat(rule.tenantRuleVersion()).hasValueSatisfying(id -> assertThat(id.value()).isEqualTo("HOUSE-2026"));
         assertThat(rule.signDeadlineDays()).isEqualTo(10);
-        assertThat(rule.channels()).containsEntry(SignatureChannel.PAPER_SCAN, false);
+        assertThat(rule.channel(SignatureChannel.PAPER_SCAN).enabled()).isFalse();
         assertThat(rule.minCompare()).isEqualTo(3);
     }
 }

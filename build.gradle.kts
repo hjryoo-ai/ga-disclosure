@@ -96,7 +96,7 @@ subprojects {
 // Spring·DB 무의존 모듈: 컴파일·런타임 클래스패스에 org.springframework 그룹이 없어야 한다.
 // (java.sql / javax.sql 은 JDK 모듈이라 클래스패스로 막을 수 없으므로 ArchUnit이 막는다.)
 // ---------------------------------------------------------------------------------------------
-val springFreeModules = listOf("platform-core", "platform-canonical", "disclosure-domain", "disclosure-rules", "disclosure-seal")
+val springFreeModules = listOf("platform-core", "platform-canonical", "disclosure-domain", "disclosure-rules", "disclosure-seal", "disclosure-sign")
 
 // Boot BOM(spring-boot-dependencies)은 버전 제약만 담은 POM이라 클래스가 없다 — 검사에서 제외한다.
 val constraintOnlyPlatforms = setOf("org.springframework.boot:spring-boot-dependencies")

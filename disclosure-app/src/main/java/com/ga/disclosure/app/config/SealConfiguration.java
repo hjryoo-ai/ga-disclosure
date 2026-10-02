@@ -1,6 +1,8 @@
 package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
+import com.ga.disclosure.audit.outbox.OutboxPort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.infra.crypto.DocumentCipher;
 import com.ga.disclosure.infra.storage.S3StorageSettings;
 import com.ga.disclosure.infra.storage.VerifiedArtifactStore;
@@ -25,6 +27,7 @@ import com.ga.disclosure.workflow.disclosure.ReviewStore;
 import com.ga.disclosure.workflow.disclosure.SealLedgerPort;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.TenantProfilePort;
+import com.ga.disclosure.workflow.sign.SignSessionStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -70,8 +73,10 @@ public class SealConfiguration {
     public DisclosureServiceDeps disclosureServiceDeps(DisclosureStore store, ReviewStore reviews, DisclosureFlagPort flags,
                                                        TenantProfilePort tenants, ProductCatalogPort catalog, InsurerPanelPort panel,
                                                        CustomerVault customers, RuleResolver rules, TemplateResolver templates,
-                                                       ValidationRegistry registry, AuditPort audit, WorkflowTransactions tx, Clock clock) {
-        return new DisclosureServiceDeps(store, reviews, flags, tenants, catalog, panel, customers, rules, templates, registry, audit, tx, clock);
+                                                       ValidationRegistry registry, AuditPort audit, WorkflowTransactions tx, Clock clock,
+                                                       AgentDirectory agents, OutboxPort outbox) {
+        return new DisclosureServiceDeps(store, reviews, flags, tenants, catalog, panel, customers, rules, templates, registry, audit, tx, clock,
+                agents, outbox);
     }
 
     @Bean
@@ -82,8 +87,8 @@ public class SealConfiguration {
     }
 
     @Bean
-    public LifecycleService lifecycleService(DisclosureServiceDeps deps) {
-        return new LifecycleService(deps);
+    public LifecycleService lifecycleService(DisclosureServiceDeps deps, SignSessionStore sessions) {
+        return new LifecycleService(deps, sessions);
     }
 
     @Bean

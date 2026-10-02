@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "note": "Phase 4 DEMO2 데모 확인서: 종이 스캔 서명 데모용 봉인 사례 1건(DEMO1은 사규 DEMO1-HOUSE-2026이 channels.PAPER_SCAN을 끈다 — 같은 흐름이 테넌트 룰 데이터에 따라 갈린다). 형식은 disclosures.json과 같다. 전부 가상 데이터.",
+  "customerKeyPrefix": "demo:customers.json#",
+  "cases": [
+    {
+      "id": "A-4-SCAN",
+      "customer": "C03",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "consultDate": "2026-09-25",
+      "items": [
+        { "productKey": "INS-A:PRD-1001", "recommended": true },
+        { "productKey": "INS-B:PRD-2044" },
+        { "productKey": "INS-C:PRD-3120", "recommended": true }
+      ],
+      "reasons": [
+        { "itemNo": 1, "codes": ["PREMIUM"] },
+        { "itemNo": 3, "codes": ["COVERAGE"] }
+      ],
+      "seal": {}
+    }
+  ]
+}

@@ -201,7 +201,7 @@ class ArchitectureRulesTest {
     // (h) 3B: 봉인 본문·렌더러는 벽시계·난수·환경(기본 로케일·시간대)을 읽지 않는다 — 같은 입력이면 어느 JVM에서든 같은 바이트(S1·S2)
     @Test
     void sealBodyAndRendererAreEnvironmentFree() {
-        SealRules.noEnvironmentAccess(List.of(P + "seal.canonical..", P + "seal.renderer..")).check(classes);
+        SealRules.noEnvironmentAccess(List.of(P + "seal.canonical..", P + "seal.renderer..", P + "seal.evidence..")).check(classes);
     }
 
     // (i) 3B: 3A D7의 스칼라 [x] 감싸기(CanonicalValue)는 봉인 경로에 나타나지 않는다 — 봉인 본문은 최상위가 객체다(수용심사 §2 D7)

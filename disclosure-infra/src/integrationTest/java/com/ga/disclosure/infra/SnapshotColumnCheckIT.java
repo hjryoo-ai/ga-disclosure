@@ -179,8 +179,8 @@ class SnapshotColumnCheckIT {
             vals.append(", ").append((mask & (1 << i)) != 0 ? VALUES.get(i) : "NULL");
         }
         if (status.equals("VOID")) {
-            cols.append(", voided_at, void_reason");
-            vals.append(", TIMESTAMPTZ '2026-09-24 09:00:00+09', '상담 취소'");
+            cols.append(", voided_at, void_reason_code");
+            vals.append(", TIMESTAMPTZ '2026-09-24 09:00:00+09', 'CUSTOMER_CANCELLED'");
         }
         String sql = """
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,

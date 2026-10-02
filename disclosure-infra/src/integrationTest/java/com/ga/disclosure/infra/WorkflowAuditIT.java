@@ -105,11 +105,16 @@ class WorkflowAuditIT {
             public List<AuditRecord> readAll() {
                 return s.audit.readAll();
             }
+
+            @Override
+            public List<AuditRecord> readTarget(String targetKind, String targetId) {
+                return s.audit.readTarget(targetKind, targetId);
+            }
         };
         DisclosureService failing = new DisclosureService(s.disclosures, s.reviews, s.flags, new TenantRepository(s.gateway),
                 new EngineGradeClient(new HttpEngineTransport(s.settings, t -> Optional.of(WorkflowSetup.TOKEN), t -> s.engine.baseUrl())),
                 s.catalog, s.catalog, s.vault, new RuleResolver(s.rules), new TemplateResolver(s.templates), StandardValidations.registry(),
-                failingAfterTransition, s.tx, s.clock);
+                failingAfterTransition, s.tx, s.clock, s.agents, s.outbox);
         int before = rowsOf(id).size();
         assertThatThrownBy(() -> failing.requestGrades(s.tenant, WorkflowSetup.AGENT, id)).hasMessageContaining("injected");
         assertThat(status(id)).as("업무 행도 롤백").isEqualTo("COMPARED");

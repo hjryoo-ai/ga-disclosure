@@ -49,9 +49,13 @@ dependencies {
 }
 
 // 엔진 계약(contracts/api)을 클래스패스 ga-contracts/api/에 싣는다 — 클라이언트와 FakeEngine이 같은 스키마로 검증한다.
+// (Phase 4) 이벤트 계약(contracts/events)도 싣는다 — 아웃박스가 적재 전에 envelope를 검증한다.
 val contractResources = tasks.register<Sync>("contractResources") {
     from(rootProject.layout.projectDirectory.dir("contracts/api")) {
         into("ga-contracts/api")
+    }
+    from(rootProject.layout.projectDirectory.dir("contracts/events")) {
+        into("ga-contracts/events")
     }
     into(layout.buildDirectory.dir("generated/contract-resources"))
 }

@@ -8,6 +8,7 @@ import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.workflow.artifact.ObjectLockedException;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
+import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import org.junit.jupiter.api.AfterEach;
@@ -67,14 +68,16 @@ class LifecycleIT {
     @EnumSource(value = DisclosureStatus.class, names = {"DRAFT", "COMPARED", "GRADED", "REASONED"})
     void agentVoidsAMutableDisclosure(DisclosureStatus status) {
         DisclosureId id = in(status);
-        LifecycleService.Outcome o = s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, "고객이 상담을 철회함");
+        LifecycleService.Outcome o = s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("OTHER", "고객이 상담을 철회함"));
         assertThat(o.applied()).isTrue();
         assertThat(o.status()).isEqualTo(DisclosureStatus.VOID);
         assertThat(s.text("SELECT status || '|' || coalesce(disclosure_no, '-') || '|' || (voided_at IS NOT NULL)::text FROM disclosure"
                 + " WHERE tenant_id = ? AND disclosure_id = ?", s.w.tenant.value(), id.value())).isEqualTo("VOID|-|true");
         assertThat(s.actionsFor(id).getLast()).isEqualTo(AuditAction.DISCLOSURE_VOID);
-        assertThat(s.audit().getLast().entry().detail().toString()).doesNotContain("철회").contains("reasonLength");
-        assertThatThrownBy(() -> s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, "두 번")).isInstanceOf(IllegalTransition.class);
+        assertThat(s.audit().getLast().entry().detail().toString()).doesNotContain("철회").contains("\"reasonCode\":\"OTHER\"", "reasonTextLength");
+        assertThat(s.text("SELECT void_reason_code || '|' || void_reason_text FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?",
+                s.w.tenant.value(), id.value())).isEqualTo("OTHER|고객이 상담을 철회함");
+        assertThatThrownBy(() -> s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("DUPLICATE", null))).isInstanceOf(IllegalTransition.class);
     }
 
     @Test
@@ -82,7 +85,7 @@ class LifecycleIT {
         DisclosureId id = SealScenarios.reasonedWithTempProduct(s.w, "Q-2026-0201");
         s.w.in(() -> s.w.flags.raise(DisclosureFlagPort.Type.GRADE_INCONSISTENT, "HIGH", id, "DISCLOSURE", id.toString(), s.w.clock.instant()));
         assertThat(flagResolution(id, "VALIDATION_OVERRIDE")).isEqualTo("OPEN");
-        s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, "임시등록 상품 정보 오류");
+        s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("WRITTEN_IN_ERROR", null));
         assertThat(s.count("SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND disclosure_id = ? AND type = 'VALIDATION_OVERRIDE'"
                 + " AND resolution = 'SUPERSEDED_BY_DOCUMENT_STATE'", s.w.tenant.value(), id.value())).isEqualTo(2);
         assertThat(flagResolution(id, "GRADE_INCONSISTENT")).isEqualTo("OPEN");
@@ -92,12 +95,12 @@ class LifecycleIT {
     void voidAfterSealingNeedsTheExceptionApprovalRoleAndKeepsTheSeal() {
         SealService.Outcome sealed = s.sealReasoned();
         DisclosureId id = sealed.id();
-        LifecycleService.Outcome refused = s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, "설계사가 무효를 요청");
+        LifecycleService.Outcome refused = s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("CUSTOMER_CANCELLED", null));
         assertThat(refused.rejection()).contains(LifecycleService.Rejection.ROLE_REQUIRED);
         assertThat(refused.status()).isEqualTo(DisclosureStatus.SEALED);
         assertThat(s.actionsFor(id).getLast()).isEqualTo(AuditAction.DISCLOSURE_REJECT);
 
-        LifecycleService.Outcome voided = s.lifecycle.voidDisclosure(s.w.tenant, SealSetup.MANAGER, id, "계약 미체결 확인");
+        LifecycleService.Outcome voided = s.lifecycle.voidDisclosure(s.w.tenant, SealSetup.MANAGER, id, new LifecycleReason("CUSTOMER_CANCELLED", null));
         assertThat(voided.status()).isEqualTo(DisclosureStatus.VOID);
         assertThat(s.text("SELECT disclosure_no FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", s.w.tenant.value(), id.value()))
                 .as("봉인 후 무효는 번호를 유지한다(재사용 없음)").isEqualTo(sealed.number().orElseThrow().value());
@@ -110,15 +113,18 @@ class LifecycleIT {
         SealService.Outcome sealed = s.sealReasoned();
         DisclosureId original = sealed.id();
         SealScenarios.retroactiveTenantRule(s.w);                     // 원본 고정 뒤 상담일에 걸치는 사규가 생겼다
-        assertThat(s.lifecycle.supersede(s.w.tenant, WorkflowSetup.AGENT, original, "보험료 오기 정정").rejection())
+        assertThat(s.lifecycle.supersede(s.w.tenant, WorkflowSetup.AGENT, original, new LifecycleReason("CONTENT_ERROR", null)).rejection())
                 .contains(LifecycleService.Rejection.ROLE_REQUIRED);
 
-        LifecycleService.Outcome o = s.lifecycle.supersede(s.w.tenant, SealSetup.MANAGER, original, "보험료 오기 정정");
+        LifecycleService.Outcome o = s.lifecycle.supersede(s.w.tenant, SealSetup.MANAGER, original, new LifecycleReason("CONTENT_ERROR", "보험료 예시 오기"));
         assertThat(o.status()).isEqualTo(DisclosureStatus.SUPERSEDED);
         DisclosureId next = o.newVersion().orElseThrow();
         String t = s.w.tenant.value();
-        assertThat(s.text("SELECT status || '|' || superseded_by_id::text FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", t,
-                original.value())).isEqualTo("SUPERSEDED|" + next.value());
+        assertThat(s.text("SELECT status || '|' || superseded_by_id::text || '|' || supersede_reason_code || '|' || supersede_reason_text"
+                + " FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", t, original.value()))
+                .isEqualTo("SUPERSEDED|" + next.value() + "|CONTENT_ERROR|보험료 예시 오기");
+        assertThat(s.audit().stream().filter(r -> r.entry().action() == AuditAction.DISCLOSURE_SUPERSEDE).toList().getLast().entry().detail()
+                .toString()).as("사유 텍스트는 감사에 없다").doesNotContain("오기").contains("CONTENT_ERROR", "reasonTextLength");
         assertThat(s.text("SELECT status || '|' || version || '|' || supersedes_id::text || '|' || consult_date::text || '|' || rule_version_id"
                 + " || '|' || coalesce(tenant_rule_version_id, '-') || '|' || coalesce(disclosure_no, '-') FROM disclosure"
                 + " WHERE tenant_id = ? AND disclosure_id = ?", t, next.value()))
@@ -143,9 +149,28 @@ class LifecycleIT {
     }
 
     @Test
+    void reasonCodesComeFromThePinnedRuleAndAreWrittenOnce() {
+        DisclosureId id = s.w.reasoned();
+        String t = s.w.tenant.value();
+        assertThat(s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("NOT_IN_RULE", null)).rejection())
+                .contains(LifecycleService.Rejection.REASON_CODE_UNKNOWN);
+        assertThat(s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("OTHER", null)).rejection())
+                .as("OTHER는 requiresText").contains(LifecycleService.Rejection.REASON_TEXT_REQUIRED);
+        assertThat(s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("OTHER", "가".repeat(501))).rejection())
+                .as("lifecycleReasonTextMaxLength 500").contains(LifecycleService.Rejection.REASON_TEXT_TOO_LONG);
+        assertThat(s.text("SELECT status FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", t, id.value())).isEqualTo("REASONED");
+        assertThat(s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, id, new LifecycleReason("OTHER", "가".repeat(500))).applied())
+                .isTrue();
+        // 사유는 한 번만 쓴다(V8 GD100) — 소유 롤로 고쳐 써도 DB가 거부한다
+        assertThat(TriggerAssertions.sqlStateOf(() -> s.w.db.seed(t, c -> com.ga.disclosure.infra.testing.SeedData.exec(c,
+                "UPDATE disclosure SET void_reason_code = 'DUPLICATE' WHERE tenant_id = ? AND disclosure_id = ?", t, id.value()))))
+                .isEqualTo("GD100");
+    }
+
+    @Test
     void supersedeIsOnlyForSealedDisclosures() {
         DisclosureId id = s.w.reasoned();
-        assertThatThrownBy(() -> s.lifecycle.supersede(s.w.tenant, SealSetup.MANAGER, id, "정정")).isInstanceOf(IllegalTransition.class);
+        assertThatThrownBy(() -> s.lifecycle.supersede(s.w.tenant, SealSetup.MANAGER, id, new LifecycleReason("CONTENT_ERROR", null))).isInstanceOf(IllegalTransition.class);
         assertThat(s.audit().getLast().entry().action()).isEqualTo(AuditAction.COMMAND_FAILED);
     }
 
@@ -161,5 +186,53 @@ class LifecycleIT {
         assertThat(s.seal.seal(s.w.tenant, WorkflowSetup.AGENT, id).sealed()).isTrue();
         assertThat(s.count("SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND disclosure_id = ? AND type = 'VALIDATION_OVERRIDE'"
                 + " AND resolution = 'RESOLVED_AT_SEAL' AND resolved_by = 'SYSTEM'", s.w.tenant.value(), id.value())).isEqualTo(2);
+    }
+
+    // ------------------------------------------------------------------ Phase 4 G10: 서명 진행 중 무효·정정
+
+    private String sessionStatus(SignSetup x, String sessionId) {
+        return x.s.text("SELECT status || coalesce('/' || revoke_reason, '') FROM sign_session WHERE tenant_id = ? AND session_id = ?::uuid",
+                x.w.tenant.value(), sessionId);
+    }
+
+    @Test
+    void voidingWhileSigningRevokesOpenSessionsAndKeepsSignatures() {
+        try (SignSetup x = new SignSetup()) {
+            DisclosureId waiting = x.sealed();
+            String token = x.issue(waiting, com.ga.disclosure.domain.enums.SignatureChannel.REMOTE_LINK);
+            String sessionId = x.w.in(() -> x.sessions.openFor(waiting)).getFirst().sessionId().toString();
+            x.clock.advance(java.time.Duration.ofMinutes(1));
+            assertThat(x.lifecycle.voidDisclosure(x.w.tenant, SealSetup.MANAGER, waiting, new LifecycleReason("CUSTOMER_CANCELLED", null)).applied())
+                    .isTrue();
+            assertThat(sessionStatus(x, sessionId)).isEqualTo("REVOKED/DOCUMENT_VOIDED");
+            assertThatThrownBy(() -> x.sessionService.open(token)).isExactlyInstanceOf(com.ga.disclosure.sign.token.SignTokenRejected.class);
+
+            DisclosureId signed = x.sealedFor(x.newSigner("가상서명고객2"));
+            x.customerSignsOnTouchPad(signed);
+            x.lifecycle.voidDisclosure(x.w.tenant, SealSetup.MANAGER, signed, new LifecycleReason("CUSTOMER_CANCELLED", null));
+            assertThat(x.status(signed)).isEqualTo("VOID");
+            assertThat(x.signaturesOf(signed)).as("signatures stay on the voided original").hasSize(1);
+        }
+    }
+
+    @Test
+    void supersedingWhileSigningRevokesTheOldTokenAndCarriesNoSignatureOver() {
+        try (SignSetup x = new SignSetup(new SealSetup(WorkflowSetup.withRule(body -> body.put("signOrder", "PARALLEL"))))) {
+            DisclosureId original = x.sealed();
+            assertThat(x.agentSigns(original).accepted()).isTrue();             // PARALLEL: 설계사가 먼저 서명 → PARTIALLY_SIGNED
+            String token = x.issue(original, com.ga.disclosure.domain.enums.SignatureChannel.TOUCH_PAD);
+            String sessionId = x.w.in(() -> x.sessions.openFor(original)).getFirst().sessionId().toString();
+            x.clock.advance(java.time.Duration.ofMinutes(1));
+            LifecycleService.Outcome o = x.lifecycle.supersede(x.w.tenant, SealSetup.MANAGER, original, new LifecycleReason("CONTENT_ERROR", null));
+            DisclosureId next = o.newVersion().orElseThrow();
+            assertThat(sessionStatus(x, sessionId)).isEqualTo("REVOKED/DOCUMENT_SUPERSEDED");
+            assertThat(x.signaturesOf(original)).as("the agent signature stays on version 1").hasSize(1);
+            assertThat(x.signaturesOf(next)).as("nothing carries over").isEmpty();
+            assertThat(x.w.in(() -> x.sessions.openFor(next))).isEmpty();
+            x.readyTouchPadQuietly(token);
+            assertThatThrownBy(() -> x.signService.capture(token, SignSetup.capture("tablet-1", null)))
+                    .as("G1: the old version's token never signs the correction").isExactlyInstanceOf(com.ga.disclosure.sign.token.SignTokenRejected.class);
+            assertThat(x.signaturesOf(next)).isEmpty();
+        }
     }
 }

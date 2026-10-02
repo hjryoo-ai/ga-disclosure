@@ -1,5 +1,5 @@
 {
-  "bundleId": "STANDARD.v2@3b4808cef60a",
+  "bundleId": "STANDARD.v2@8a1241a47702",
   "kind": "TEMPLATE",
   "scope": "GLOBAL",
   "templateId": "STANDARD",
@@ -230,7 +230,47 @@
             "TEST_ONLY_FIELD"
           ]
         }
-      ]
+      ],
+      "signaturePage": {
+        "labelRef": "TODO(confirm#2)",
+        "title": "서명 확인",
+        "columns": {
+          "role": "서명자",
+          "channel": "경로",
+          "method": "방법",
+          "signedAt": "서명 시각",
+          "identity": "본인확인",
+          "image": "서명"
+        },
+        "originalPdfLabel": "원본 확인서 PDF SHA-256",
+        "roleLabels": {
+          "CUSTOMER": "고객",
+          "AGENT": "설계사",
+          "MANAGER": "관리자"
+        },
+        "channelLabels": {
+          "TOUCH_PAD": "현장 터치",
+          "REMOTE_LINK": "원격 링크",
+          "PAPER_SCAN": "종이 스캔",
+          "SSO": "사내 인증"
+        },
+        "methodLabels": {
+          "DRAWN": "자필 서명",
+          "UPLOADED_SCAN": "스캔 업로드",
+          "SSO_APPROVAL": "승인"
+        },
+        "identityLabels": {
+          "LINK_POSSESSION": "링크 소유",
+          "BIRTH_DATE": "생년월일",
+          "AGENT_FACE_TO_FACE": "설계사 대면 확인",
+          "SCROLL_COMPLETE": "열람 완료",
+          "PROVIDER": "인증사업자"
+        },
+        "resultLabels": {
+          "PASS": "확인",
+          "FAIL": "불일치"
+        }
+      }
     },
     "pendingConfirmation": [
       {

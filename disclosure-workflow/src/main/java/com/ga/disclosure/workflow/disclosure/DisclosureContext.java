@@ -20,15 +20,20 @@ import java.util.function.BiPredicate;
  * @param productGroupNameOrNull 상담일 카탈로그의 상품군 이름(없으면 {@code null} — HEADER_PRODUCT_GROUP 결속이 비어 검증이 잡는다)
  * @param panelOnConsultDate     상담일에 위탁 중인 보험사(코드 순)
  * @param reasonLabels           고정 룰 {@code reasonCodes}의 코드 → 라벨
+ * @param signDeadlineDays       고정 룰 {@code signDeadlineDays}(서명 기한 = 봉인일 KST + 이 값, Phase 4)
  */
 public record DisclosureContext(boolean largeGa, BiPredicate<InsurerCode, LocalDate> panel, TemplateResolution template,
-                                String productGroupNameOrNull, List<PanelEntry> panelOnConsultDate, Map<ReasonCode, String> reasonLabels) {
+                                String productGroupNameOrNull, List<PanelEntry> panelOnConsultDate, Map<ReasonCode, String> reasonLabels,
+                                int signDeadlineDays) {
 
     public DisclosureContext {
         Objects.requireNonNull(panel, "panel");
         Objects.requireNonNull(template, "template");
         panelOnConsultDate = List.copyOf(panelOnConsultDate);
         reasonLabels = Map.copyOf(reasonLabels);
+        if (signDeadlineDays < 0) {
+            throw new IllegalArgumentException("signDeadlineDays < 0");
+        }
     }
 
     public Optional<String> productGroupName() {

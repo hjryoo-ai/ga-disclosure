@@ -16,7 +16,7 @@
 ./gradlew contractChecksums         # contracts/ 변경 후 contracts/CHECKSUMS 갱신
 ./gradlew resolveAndLockAll --write-locks   # 의존성 추가 후 락 파일 갱신
 docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + 봉인 산출물 저장소(SeaweedFS, digest 고정, 허구 S3 키)
-disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정(운영자 CLI, 멱등)
+disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정 + 서명·완료·만료(운영자 CLI, 멱등)
 ```
 
 운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다).
@@ -25,14 +25,16 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
 # rules approve --tenant T1 --rule <id> | rules activate [--as-of 2027-01-01] | rules reconcile | demo seed --file <json>
 # catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | crypto init-kek --file <path> [--kek-id KEK-LOCAL-1]
-# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-file <path> --role <ROLE>
-#      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON --out <path> | artifacts gc|reconcile --tenants all
+# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-code <CODE> [--reason-file <path>] --role <ROLE>
+#      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out <path> | artifacts gc|reconcile --tenants all
+# (4) sign session --tenant T1 --id <uuid> --channel TOUCH_PAD|REMOTE_LINK|PAPER_SCAN | sign open|verify|capture|scan --token <token> (입력은 --*-file)
+#     sign agent|manager|review-scan --tenant T1 --id <uuid> | disclosure complete --tenant T1 --id <uuid> | disclosure expire [--as-of <instant>|P30D]
 # 업무 거부(봉인 조건 실패 등)는 종료 코드 2, 인자·명령 오류는 1
 ```
 
 고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).
 
-`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다.
+`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`.
 
 ## 룰은 코드가 아니라 데이터다 (Phase 1)
 

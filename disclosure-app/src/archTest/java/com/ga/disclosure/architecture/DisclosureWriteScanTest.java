@@ -27,6 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 전 모듈 운영 소스의 SQL 문자열을 <b>들어 있는 메서드</b>와 함께 찾아, {@code disclosure}·{@code disclosure_item}·{@code recommendation}을
  * 쓰는 문장이 아래 허용 목록(FQN#메서드 열거, 사유 포함)의 메서드에만 있는지 검사한다. 허용 목록의 항목이 실제로 쓰이지 않으면(폐기 항목) 실패한다.
  * 거짓 양성이 나면 목록을 넓히지 않고 SQL을 허용 메서드로 옮긴다(CLAUDE.md 작업 방식).
+ *
+ * <p>Phase 4(4 계획 §10 7항): 같은 방식으로 서명 세션({@code sign_session} — 발급 INSERT·가변 컬럼 UPDATE), 서명({@code signature} — append-only
+ * INSERT), 아웃박스({@code outbox_event}·{@code outbox_head} — 적재 한 메서드)를 쓰는 문장도 허용 메서드에만 있어야 한다. DELETE는 어느 것도 없다.
  */
 class DisclosureWriteScanTest {
 
@@ -40,15 +43,27 @@ class DisclosureWriteScanTest {
         KINDS.put("UPDATE child", Pattern.compile("\\bupdate\\s+(?:only\\s+)?(?:disclosure_item|recommendation)\\b"));
         KINDS.put("INSERT child", Pattern.compile("\\binsert\\s+into\\s+(?:disclosure_item|recommendation)\\b"));
         KINDS.put("DELETE child", Pattern.compile("\\bdelete\\s+from\\s+(?:only\\s+)?(?:disclosure_item|recommendation)\\b"));
+        for (String table : List.of("sign_session", "signature", "outbox_event", "outbox_head")) {
+            KINDS.put("INSERT " + table, Pattern.compile("\\binsert\\s+into\\s+" + table + "\\b(?!_)"));
+            KINDS.put("UPDATE " + table, Pattern.compile("\\bupdate\\s+(?:only\\s+)?" + table + "\\b(?!_)"));
+            KINDS.put("DELETE " + table, Pattern.compile("\\bdelete\\s+from\\s+(?:only\\s+)?" + table + "\\b(?!_)"));
+        }
     }
 
     private static final String REPO = "com.ga.disclosure.infra.persistence.DisclosureRepository";
+    private static final String SESSIONS = "com.ga.disclosure.infra.persistence.SignSessionRepository";
+    private static final String SIGNATURES = "com.ga.disclosure.infra.persistence.SignatureRepository";
+    private static final String OUTBOX = "com.ga.disclosure.infra.outbox.OutboxRepository";
 
     /** 허용 목록: FQN#메서드 → 허용 문장 종류(사유). */
     static final Map<String, Set<String>> ALLOWED = Map.of(
             REPO + "#insert", Set.of("INSERT disclosure"),          // 새 초안 헤더(DRAFT) — 상태를 정하는 유일한 INSERT
             REPO + "#save", Set.of("UPDATE disclosure", "DELETE child"),  // 애그리게이트 상태 저장: 헤더 상태·스냅샷, 자식 전부 교체
-            REPO + "#writeChildren", Set.of("INSERT child"));        // insert·save가 부르는 자식 행 쓰기
+            REPO + "#writeChildren", Set.of("INSERT child"),         // insert·save가 부르는 자식 행 쓰기
+            SESSIONS + "#insert", Set.of("INSERT sign_session"),     // 세션 발급(OPEN, 두 해시 고정 — GD101)
+            SESSIONS + "#update", Set.of("UPDATE sign_session"),     // 상태표를 거친 가변 컬럼만(GD101이 다시 지킨다)
+            SIGNATURES + "#insert", Set.of("INSERT signature"),      // 서명 1건(append-only, GD021·022·102~104)
+            OUTBOX + "#append", Set.of("INSERT outbox_event", "INSERT outbox_head", "UPDATE outbox_head"));  // 갭 없는 seq 적재(GD106)
 
     private static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
 
@@ -187,7 +202,7 @@ class DisclosureWriteScanTest {
                 .filter(f -> !ALLOWED.getOrDefault(f.method(), Set.of()).contains(f.kind()))
                 .map(f -> f.method() + " — " + f.kind() + ": " + f.sql())
                 .toList();
-        assertThat(violations).as("확인서 테이블을 쓰는 SQL은 DisclosureRepository의 허용 메서드에만").isEmpty();
+        assertThat(violations).as("확인서·서명·아웃박스 테이블을 쓰는 SQL은 허용 메서드에만").isEmpty();
     }
 
     @Test

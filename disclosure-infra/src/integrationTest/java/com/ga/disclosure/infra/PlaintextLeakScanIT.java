@@ -154,7 +154,8 @@ class PlaintextLeakScanIT {
                     outputs.add(view instanceof com.ga.disclosure.workflow.disclosure.ArtifactService.View.Granted g
                             ? g.record().toString() : view.toString());
                 }
-                capture(() -> seal.lifecycle.voidDisclosure(w.tenant, SealSetup.MANAGER, id, "철회"));
+                capture(() -> seal.lifecycle.voidDisclosure(w.tenant, SealSetup.MANAGER, id,
+                        new com.ga.disclosure.workflow.disclosure.LifecycleReason("CUSTOMER_CANCELLED", null)));
             } finally {
                 System.setOut(out);
                 System.setErr(err);
@@ -179,6 +180,77 @@ class PlaintextLeakScanIT {
                 assertThat(new String(stored, StandardCharsets.ISO_8859_1)).satisfies(PlaintextLeakScanIT::clean);
                 assertThat(java.util.HexFormat.of().formatHex(stored)).satisfies(PlaintextLeakScanIT::clean);
                 assertThat(o.key()).satisfies(PlaintextLeakScanIT::clean);
+            }
+        }
+    }
+
+    /**
+     * Phase 4 G4·G3: 서명 경로(원격 링크 발송 → 본인확인 실패·성공 → 서명 → 설계사 → 관리자 확인 → 완료·증거 패키지)를 센티널 고객으로 돈 뒤, 생년월일
+     * 입력값(맞는 값·센티널을 품은 틀린 형식)과 연락처가 로그(JDBC TRACE)·표준 출력·결과 객체·감사·DB 덤프·서버 로그·버킷 객체 어디에도 없고, 서명 토큰
+     * 원문도 로그·감사·DB에 없다. 본인확인은 결과만 남는다.
+     */
+    @Test
+    void signPathLeavesNoIdentityInputPhoneOrToken() {
+        LoggerContext logging = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger root = logging.getLogger(Logger.ROOT_LOGGER_NAME);
+        Level previous = root.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        root.addAppender(appender);
+        root.setLevel(Level.TRACE);
+        logging.getLogger("org.springframework.jdbc").setLevel(Level.TRACE);
+        PrintStream out = System.out;
+        PrintStream err = System.err;
+        ByteArrayOutputStream streams = new ByteArrayOutputStream();
+        PrintStream tee = new PrintStream(streams, true, StandardCharsets.UTF_8);
+        System.setOut(tee);
+        System.setErr(tee);
+        String secret;
+        try (SignSetup x = new SignSetup()) {
+            WorkflowSetup w = x.w;
+            CustomerRef sentinel = new com.ga.disclosure.workflow.customer.CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant,
+                    WorkflowSetup.AGENT, new NewCustomer(CustomerName.of(PiiSentinels.NAME), PhoneNumber.of(PiiSentinels.PHONE),
+                            BirthDate.parse(PiiSentinels.BIRTH_DATE)));
+            com.ga.disclosure.domain.vo.DisclosureId id;
+            try {
+                id = x.sealedFor(sentinel);
+                capture(() -> x.sessionService.issue(w.tenant, SignSetup.AGENT, id,
+                        com.ga.disclosure.domain.enums.SignatureChannel.REMOTE_LINK));
+                String token = x.notify.last().reveal();
+                secret = token.substring(token.indexOf('~') + 1);
+                capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate(" " + PiiSentinels.BIRTH_DATE + "x")));
+                capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate("1931-07-20")));
+                outputs.add(com.ga.disclosure.workflow.sign.IdentityInputs.birthDate(PiiSentinels.BIRTH_DATE).toString());
+                capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate(PiiSentinels.BIRTH_DATE)));
+                x.clock.advance(java.time.Duration.ofMinutes(2));
+                capture(() -> x.signService.capture(token, SignSetup.capture("phone-1", "203.0.113.9")));
+                capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate(PiiSentinels.BIRTH_DATE)));
+                capture(() -> x.agentSigns(id));
+                capture(() -> x.managerConfirms(id));
+                outputs.add(x.signaturesOf(id).toString());
+            } finally {
+                System.setOut(out);
+                System.setErr(err);
+                root.detachAppender(appender);
+                root.setLevel(previous);
+                logging.getLogger("org.springframework.jdbc").setLevel(null);
+            }
+            assertThat(x.status(id)).isEqualTo("COMPLETED");
+            List<String> logLines = appender.list.stream().map(e -> e.getFormattedMessage() + " " + (e.getThrowableProxy() == null ? ""
+                    : e.getThrowableProxy().getMessage())).toList();
+            assertThat(logLines).as("TRACE logging captured the signing statements").anyMatch(l -> l.contains("sign_session"));
+            String logs = String.join("\n", logLines);
+            assertThat(logs).satisfies(PlaintextLeakScanIT::clean).doesNotContain(secret);
+            assertThat(streams.toString(StandardCharsets.UTF_8)).satisfies(PlaintextLeakScanIT::clean).doesNotContain(secret);
+            assertThat(outputs).allSatisfy(PlaintextLeakScanIT::clean).allSatisfy(o -> assertThat(o).doesNotContain(secret));
+            assertThat(w.auditLog().toString()).satisfies(PlaintextLeakScanIT::clean).doesNotContain(secret);
+            String dump = DB.dumpAllData();
+            assertThat(dump).contains("sign_session").satisfies(PlaintextLeakScanIT::clean).doesNotContain(secret);
+            assertThat(DB.serverLogs()).satisfies(PlaintextLeakScanIT::clean);
+            for (com.ga.disclosure.workflow.artifact.ArtifactStore.StoredObject o : x.s.bucket.list(w.tenant.value() + "/")) {
+                byte[] stored = x.s.bucket.get(o.key());
+                assertThat(new String(stored, StandardCharsets.ISO_8859_1)).satisfies(PlaintextLeakScanIT::clean);
+                assertThat(java.util.HexFormat.of().formatHex(stored)).satisfies(PlaintextLeakScanIT::clean);
             }
         }
     }

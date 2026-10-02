@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 
 /**
  * 통합 테스트용 PostgreSQL 18 하네스. JVM당 1회 기동·재사용(싱글턴).
@@ -92,6 +93,41 @@ public final class PostgresHarness {
         return superuser;
     }
 
+    /**
+     * 같은 컨테이너에 빈 데이터베이스를 하나 더 만들어 {@code disclosure_migrator} 데이터 소스를 돌려준다(소유·권한은 init-roles.sql과 같다).
+     * 단계별 마이그레이션(예: V7까지 → 옛 형식 행 → V8) 검증용 — 공유 DB는 이미 최신이라 이관 경로를 지나지 않는다.
+     */
+    public DataSource emptyDatabase(String name) {
+        if (!name.matches("[a-z][a-z0-9_]{0,40}")) {
+            throw new IllegalArgumentException("database name must be lower-case identifier: " + name);
+        }
+        try (Connection c = superuser.getConnection(); Statement s = c.createStatement()) {
+            s.execute("CREATE DATABASE " + name + " OWNER " + MIGRATOR);
+            s.execute("REVOKE ALL ON DATABASE " + name + " FROM PUBLIC");
+            s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + APP);
+            s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + OPERATOR);
+        } catch (SQLException e) {
+            throw new UncheckedSqlException(e);
+        }
+        try (Connection c = dataSource("postgres", "postgres", name).getConnection(); Statement s = c.createStatement()) {
+            s.execute("ALTER SCHEMA public OWNER TO " + MIGRATOR);
+            s.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC");
+        } catch (SQLException e) {
+            throw new UncheckedSqlException(e);
+        }
+        return dataSource(MIGRATOR, MIGRATOR_PASSWORD, name);
+    }
+
+    /** 운영과 같은 위치의 마이그레이션을 {@code target} 버전까지만 적용한다. */
+    public static void migrate(DataSource migratorOfDatabase, String target) {
+        Flyway.configure()
+                .dataSource(migratorOfDatabase)
+                .locations("classpath:db/migration")
+                .target(target)
+                .load()
+                .migrate();
+    }
+
     public String jdbcUrl() {
         return container.getJdbcUrl();
     }
@@ -170,8 +206,13 @@ public final class PostgresHarness {
     }
 
     private DataSource dataSource(String user, String password) {
+        return dataSource(user, password, DATABASE);
+    }
+
+    private DataSource dataSource(String user, String password, String database) {
         PGSimpleDataSource ds = new PGSimpleDataSource();
         ds.setUrl(container.getJdbcUrl());
+        ds.setDatabaseName(database);
         ds.setUser(user);
         ds.setPassword(password);
         return ds;

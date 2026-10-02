@@ -1,6 +1,8 @@
 package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
+import com.ga.disclosure.audit.outbox.OutboxPort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.infra.engine.EngineClientSettings;
 import com.ga.disclosure.infra.engine.EngineCredentialPort;
 import com.ga.disclosure.infra.engine.EngineEndpoints;
@@ -101,9 +103,10 @@ public class WorkflowConfiguration {
     public DisclosureService disclosureService(DisclosureStore store, ReviewStore reviews, DisclosureFlagPort flags, TenantProfilePort tenants,
                                                GradeSnapshotPort engine, ProductCatalogPort catalog, InsurerPanelPort panel,
                                                CustomerVault customers, RuleResolver rules, TemplateResolver templates,
-                                               ValidationRegistry registry, AuditPort audit, WorkflowTransactions tx, Clock clock) {
+                                               ValidationRegistry registry, AuditPort audit, WorkflowTransactions tx, Clock clock,
+                                               AgentDirectory agents, OutboxPort outbox) {
         return new DisclosureService(store, reviews, flags, tenants, engine, catalog, panel, customers, rules, templates, registry, audit, tx,
-                clock);
+                clock, agents, outbox);
     }
 
     @Bean

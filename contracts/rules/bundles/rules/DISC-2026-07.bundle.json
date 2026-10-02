@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-2026-07@a1f0c6caace8",
+  "bundleId": "DISC-2026-07@e9bd163247cc",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-2026-07",
@@ -46,6 +46,41 @@
       }
     ],
     "reasonTextMaxLength": 500,
+    "voidReasons": [
+      {
+        "code": "CUSTOMER_CANCELLED",
+        "label": "고객 상담 취소"
+      },
+      {
+        "code": "WRITTEN_IN_ERROR",
+        "label": "작성 오류"
+      },
+      {
+        "code": "DUPLICATE",
+        "label": "중복 작성"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      }
+    ],
+    "supersedeReasons": [
+      {
+        "code": "CONTENT_ERROR",
+        "label": "기재 내용 오류"
+      },
+      {
+        "code": "PRODUCT_DATA_CORRECTED",
+        "label": "상품 정보 정정"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      }
+    ],
+    "lifecycleReasonTextMaxLength": 500,
     "signerSet": [
       "CUSTOMER",
       "AGENT",
@@ -56,11 +91,25 @@
     "signDeadlineDays": 7,
     "gateRequiresManager": true,
     "remoteLinkTtlHours": 72,
+    "sessionTtlMinutes": {
+      "TOUCH_PAD": 30,
+      "PAPER_SCAN": 10080
+    },
+    "agentSignMethod": "DRAWN",
     "channels": {
-      "TOUCH_PAD": true,
-      "REMOTE_LINK": true,
-      "PAPER_SCAN": true,
-      "CERTIFIED_ESIGN": false
+      "TOUCH_PAD": {
+        "enabled": true
+      },
+      "REMOTE_LINK": {
+        "enabled": true
+      },
+      "PAPER_SCAN": {
+        "enabled": true,
+        "requiresManagerReview": true
+      },
+      "CERTIFIED_ESIGN": {
+        "enabled": false
+      }
     },
     "identityCheck": {
       "REMOTE_LINK": [
@@ -70,6 +119,9 @@
       "TOUCH_PAD": [
         "AGENT_FACE_TO_FACE",
         "SCROLL_COMPLETE"
+      ],
+      "PAPER_SCAN": [
+        "AGENT_FACE_TO_FACE"
       ],
       "maxFailures": 5
     },
@@ -92,6 +144,11 @@
       "collectionRate": "COMPLETED_LINKED / SUBJECT"
     },
     "retentionYears": 5,
+    "retentionAnchors": [
+      "SEAL",
+      "COMPLETION",
+      "CONTRACT_DATE"
+    ],
     "retainUnlinked": true,
     "exceptionApproval": {
       "role": "MANAGER"
@@ -122,7 +179,10 @@
       "anchor",
       "kpi",
       "retainUnlinked",
-      "masking"
+      "masking",
+      "gateRequiresManager",
+      "sessionTtlMinutes",
+      "agentSignMethod"
     ],
     "validations": [
       {

@@ -14,7 +14,7 @@
     "instant": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$" },
     "date": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
     "signerRole": { "enum": ["CUSTOMER", "AGENT", "MANAGER"] },
-    "signatureChannel": { "enum": ["TOUCH_PAD", "REMOTE_LINK", "PAPER_SCAN", "CERTIFIED_ESIGN"] },
+    "signatureChannel": { "enum": ["TOUCH_PAD", "REMOTE_LINK", "PAPER_SCAN", "CERTIFIED_ESIGN", "SSO"] },
     "issuerMode": { "enum": ["SELF", "ASSOC"] },
     "disclosureStatus": { "enum": ["DRAFT", "COMPARED", "GRADED", "REASONED", "SEALED", "PARTIALLY_SIGNED", "COMPLETED", "VOID", "SUPERSEDED", "EXPIRED"] }
   }
