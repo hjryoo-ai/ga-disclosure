@@ -14,7 +14,7 @@ import java.util.Optional;
  * @param storageKey {@code {tenant}/{disclosure}/{kind}/{cipher_sha256}}(승인 Q4)
  */
 public record ArtifactRecord(DisclosureId disclosureId, ArtifactKind kind, String storageKey, Sha256 sha256, long bytes, Sha256 cipherSha256,
-                             long cipherBytes, String keyId, Instant createdAt, Instant retentionAppliedAtOrNull) {
+                             long cipherBytes, String keyId, Instant createdAt, Instant retentionAppliedAtOrNull) implements LockedObject {
 
     public ArtifactRecord {
         Objects.requireNonNull(disclosureId, "disclosureId");
@@ -28,6 +28,11 @@ public record ArtifactRecord(DisclosureId disclosureId, ArtifactKind kind, Strin
 
     public static String storageKey(String tenantId, DisclosureId disclosure, ArtifactKind kind, Sha256 cipherSha256) {
         return tenantId + "/" + disclosure.value() + "/" + kind.name() + "/" + cipherSha256.hex();
+    }
+
+    @Override
+    public String kindName() {
+        return kind.name();
     }
 
     public Optional<Instant> retentionAppliedAt() {

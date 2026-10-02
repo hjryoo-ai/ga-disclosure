@@ -141,6 +141,24 @@ class ArtifactEncryptionIT {
                 plain[plain.length - 1] ^= 0x01;
                 return plain;
             }
+
+            @Override
+            public byte[] encrypt(com.ga.platform.core.tenant.TenantId tenant, DisclosureId disclosure, StoredKey key, ArtifactKind kind,
+                                  byte[] plaintext) {
+                return s.cipher.encrypt(tenant, disclosure, key, kind, plaintext);
+            }
+
+            @Override
+            public byte[] encryptEvidence(com.ga.platform.core.tenant.TenantId tenant, DisclosureId disclosure, StoredKey key, UUID signatureId,
+                                          com.ga.disclosure.domain.enums.SignatureEvidenceKind kind, byte[] plaintext) {
+                return s.cipher.encryptEvidence(tenant, disclosure, key, signatureId, kind, plaintext);
+            }
+
+            @Override
+            public byte[] openEvidence(com.ga.platform.core.tenant.TenantId tenant, DisclosureId disclosure, StoredKey key, UUID signatureId,
+                                       com.ga.disclosure.domain.enums.SignatureEvidenceKind kind, byte[] ciphertext) {
+                return s.cipher.openEvidence(tenant, disclosure, key, signatureId, kind, ciphertext);
+            }
         };
         ArtifactService view = new ArtifactService(s.records, altering, s.store, s.w.audit, s.w.tx, s.w.clock, SealService.DEFAULT_TRANSACTION_TIMEOUT);
         assertThat(view.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF))

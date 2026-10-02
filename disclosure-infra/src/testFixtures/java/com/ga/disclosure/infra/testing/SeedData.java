@@ -167,6 +167,12 @@ public final class SeedData {
      * 서명자 집합 검사(GD104)를 위해 고정 룰 {@code DISC-2026-07}에 {@link #SIGNER_RULE_BODY}가 없으면 넣는다.
      */
     public static UUID signature(Connection c, String tenant, UUID disclosure, String role, String signedDocHash) throws SQLException {
+        return signature(c, tenant, disclosure, role, signedDocHash, PDF_HASH);
+    }
+
+    /** {@link #signature(Connection, String, UUID, String, String)}과 같되 PDF 해시를 지정한다(실제 봉인 경로로 만든 확인서). */
+    public static UUID signature(Connection c, String tenant, UUID disclosure, String role, String signedDocHash, String signedPdfHash)
+            throws SQLException {
         signerRule(c, tenant);
         UUID signatureId = UUID.randomUUID();
         UUID session = role.equals("CUSTOMER") ? openSession(c, tenant, disclosure) : null;
@@ -175,7 +181,7 @@ public final class SeedData {
                                        signed_pdf_hash, session_id, identity_check, signed_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'DRAWN', ?, ?, ?, '[]'::jsonb, TIMESTAMPTZ '2026-09-23 10:05:00+09')
                 """, tenant, signatureId, disclosure, role, session == null ? role.toLowerCase(java.util.Locale.ROOT) + "@seed" : null,
-                session == null ? "SSO" : "TOUCH_PAD", signedDocHash, PDF_HASH, session);
+                session == null ? "SSO" : "TOUCH_PAD", signedDocHash, signedPdfHash, session);
         if (session != null) {
             exec(c, "UPDATE sign_session SET status = 'USED', used_at = TIMESTAMPTZ '2026-09-23 10:05:00+09' WHERE tenant_id = ? AND session_id = ?",
                     tenant, session);

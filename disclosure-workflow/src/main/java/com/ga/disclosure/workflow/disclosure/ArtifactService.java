@@ -4,6 +4,7 @@ import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.domain.enums.ArtifactKind;
+import com.ga.disclosure.domain.enums.SignatureEvidenceKind;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
@@ -13,7 +14,9 @@ import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.ArtifactUnreadableException;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.artifact.LockedObject;
 import com.ga.disclosure.workflow.artifact.ObjectLockedException;
+import com.ga.disclosure.workflow.artifact.SignatureEvidenceRecord;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -24,6 +27,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * 봉인 산출물 유스케이스(3B 지시문 §5·§7): 열람(복호화 → 평문 해시 대조 → 감사), 잔여물 정리(gc — 커밋 실패로 남은 참조 없는 잠금 없는 객체),
@@ -35,7 +39,7 @@ public final class ArtifactService {
 
     /** 열람 결과: 평문 바이트 또는 거부 사유. */
     public sealed interface View {
-        record Granted(ArtifactRecord record, byte[] plaintext) implements View {
+        record Granted(LockedObject record, byte[] plaintext) implements View {
             public Granted {
                 plaintext = plaintext.clone();
             }
@@ -130,8 +134,50 @@ public final class ArtifactService {
         });
     }
 
+    /**
+     * 서명 증거 객체 열람(준법·분쟁 대응): 산출물 열람과 같은 순서 — 기록 → 살아 있는 문서 키 → 객체 → 복호화(AAD = 서명·종류) → 평문 해시 대조,
+     * 허용·거부 모두 감사. 감사 상세에는 서명 ID·종류·해시만 남는다.
+     */
+    public View viewEvidence(TenantId tenant, Actor actor, DisclosureId id, UUID signatureId, SignatureEvidenceKind kind) {
+        return runner.inTransaction(tenant, actor, "ARTIFACT_VIEW", id.toString(), () -> {
+            Optional<SignatureEvidenceRecord> record = records.evidence(id).stream()
+                    .filter(e -> e.signatureId().equals(signatureId) && e.kind() == kind).findFirst();
+            if (record.isEmpty()) {
+                return deny(actor, id, kind.name(), null, View.Reason.NO_ARTIFACT);
+            }
+            SignatureEvidenceRecord e = record.get();
+            DocumentRecordStore.KeyLookup key = records.key(id);
+            if (!(key instanceof DocumentRecordStore.KeyLookup.Live live)) {
+                return deny(actor, id, kind.name(), e.storageKey(), View.Reason.KEY_SHREDDED);
+            }
+            byte[] cipher;
+            try {
+                cipher = storage.get(e.storageKey());
+            } catch (ArtifactMissingException missing) {
+                return deny(actor, id, kind.name(), e.storageKey(), View.Reason.OBJECT_MISSING);
+            }
+            byte[] plaintext;
+            try {
+                plaintext = crypto.openEvidence(tenant, id, live.key(), signatureId, kind, cipher);
+            } catch (ArtifactUnreadableException unreadable) {
+                return deny(actor, id, kind.name(), e.storageKey(), View.Reason.UNREADABLE);
+            }
+            if (!com.ga.platform.canonical.Sha256.of(plaintext).equals(e.sha256().hex())) {
+                return deny(actor, id, kind.name(), e.storageKey(), View.Reason.HASH_MISMATCH);
+            }
+            audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_VIEW, SealService.ARTIFACT_TARGET,
+                    e.storageKey(), JSON.createObjectNode().put("disclosureId", id.toString()).put("signatureId", signatureId.toString())
+                            .put("kind", kind.name()).put("sha256", e.sha256().hex())));
+            return new View.Granted(e, plaintext);
+        });
+    }
+
     private View deny(Actor actor, DisclosureId id, ArtifactKind kind, String keyOrNull, View.Reason reason) {
-        ObjectNode detail = JSON.createObjectNode().put("disclosureId", id.toString()).put("kind", kind.name()).put("reason", reason.name());
+        return deny(actor, id, kind.name(), keyOrNull, reason);
+    }
+
+    private View deny(Actor actor, DisclosureId id, String kind, String keyOrNull, View.Reason reason) {
+        ObjectNode detail = JSON.createObjectNode().put("disclosureId", id.toString()).put("kind", kind).put("reason", reason.name());
         audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_VIEW_DENIED, SealService.ARTIFACT_TARGET,
                 keyOrNull == null ? id.toString() : keyOrNull, detail));
         return new View.Denied(reason);
@@ -181,7 +227,10 @@ public final class ArtifactService {
 
     // ------------------------------------------------------------------ 재적용
 
-    /** 커밋됐지만 Object Lock 적용이 기록되지 않은 산출물에 보존기한(봉인 때 정한 {@code retention_until})으로 다시 건다. */
+    /**
+     * 커밋됐지만 지금 보존기한까지 Object Lock 적용이 기록되지 않은 객체(산출물·서명 증거 — 같은 코드 경로, 4 계획 승인 Q2)에 확인서의
+     * {@code retention_until}로 다시 건다. 기한이 연장된 뒤(완료·계약 연결) 다시 거는 것도 이 경로다(적용 기한은 증가만).
+     */
     public ReconcileReport reconcile(TenantId tenant, Actor actor, int limit) {
         List<DocumentRecordStore.Unretained> pending = runner.inTransaction(tenant, actor, "ARTIFACT_RECONCILE", tenant.value(),
                 () -> records.unretained(limit));
@@ -196,13 +245,15 @@ public final class ArtifactService {
                 continue;
             }
             boolean marked = transactions.inTenant(tenant, () -> {
-                boolean first = records.markRetentionApplied(u.record().disclosureId(), u.record().kind(), clock.instant(),
-                        u.retentionUntil());
+                boolean first = records.markRetentionApplied(u.record(), clock.instant(), u.retentionUntil());
                 if (first) {
+                    ObjectNode detail = JSON.createObjectNode().put("disclosureId", u.record().disclosureId().toString())
+                            .put("kind", u.record().kindName()).put("retainUntil", until.toString()).put("reconciled", true);
+                    if (u.record() instanceof SignatureEvidenceRecord e) {
+                        detail.put("signatureId", e.signatureId().toString());
+                    }
                     audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_RETAIN,
-                            SealService.ARTIFACT_TARGET, u.record().storageKey(), JSON.createObjectNode()
-                            .put("disclosureId", u.record().disclosureId().toString()).put("kind", u.record().kind().name())
-                            .put("retainUntil", until.toString()).put("reconciled", true)));
+                            SealService.ARTIFACT_TARGET, u.record().storageKey(), detail));
                 }
                 return first;
             });

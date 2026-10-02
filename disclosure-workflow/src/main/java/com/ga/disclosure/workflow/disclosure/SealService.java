@@ -285,7 +285,7 @@ public final class SealService {
             try {
                 storage.applyRetention(a.storageKey(), until);
                 transactions.inTenant(tenant, () -> {
-                    if (records.markRetentionApplied(a.disclosureId(), a.kind(), clock.instant(), retentionUntil)) {
+                    if (records.markRetentionApplied(a, clock.instant(), retentionUntil)) {
                         audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_RETAIN, ARTIFACT_TARGET,
                                 a.storageKey(), JSON.createObjectNode().put("disclosureId", a.disclosureId().toString())
                                         .put("kind", a.kind().name()).put("retainUntil", until.toString())));
