@@ -1,4 +1,5 @@
 /**
- * 서명 세션·채널 어댑터(TOUCH_PAD / REMOTE_LINK / PAPER_SCAN / CERTIFIED_ESIGN)·증거 패키징. 서명은 문서 해시에 귀속된다. 구현은 Phase 4.
+ * 서명 순수 규칙(설계서 §6.5, v1.9 — sign = 세션·채널·증거 수집): 세션 상태표, 토큰, 본인확인 정책, 대리 서명 탐지, 게이트 산식,
+ * 보존 앵커 산식, 서명 기한. 서명은 사람이 아니라 문서의 두 해시에 귀속된다. 저장·트랜잭션은 workflow·infra, 서명본·증거 패키지는 seal.
  */
 package com.ga.disclosure.sign;
