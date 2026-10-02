@@ -3,6 +3,9 @@ package com.ga.disclosure.workflow.disclosure;
 import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
+import com.ga.disclosure.audit.outbox.EventType;
+import com.ga.disclosure.audit.outbox.OutboxPayloads;
+import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.domain.disclosure.DisclosureCommand;
 import com.ga.disclosure.domain.disclosure.DisclosureStateTable;
 import com.ga.disclosure.domain.enums.ArtifactKind;
@@ -114,6 +117,7 @@ public final class SealService {
     private final AuditPort audit;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final OutboxPort outbox;
     private final CommandRunner runner;
     private final DisclosureLoader loader;
 
@@ -133,6 +137,7 @@ public final class SealService {
         this.store = deps.store();
         this.reviews = deps.reviews();
         this.flags = deps.flags();
+        this.outbox = deps.outbox();
         this.customers = deps.customers();
         this.rules = deps.rules();
         this.templates = deps.templates();
@@ -264,6 +269,9 @@ public final class SealService {
         results(detail, results, unapproved);
         record(actor, AuditAction.DISCLOSURE_SEAL, id, detail);
         resolveOverrideFlags(actor, d, results, approvals, now);
+        outbox.append(EventType.DisclosureSealed, id.toString(), now, OutboxPayloads.disclosureSealed(id.value(), number.value(),
+                d.lineage().version(), d.ruleVersionId().value(), d.engineSnapshot().map(s -> s.snapshot().snapshotId().value()).orElse(null),
+                canonical.sha256(), pdf.sha256(), chainHash, chainSeq, now));
         return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, retentionUntil);
     }
 

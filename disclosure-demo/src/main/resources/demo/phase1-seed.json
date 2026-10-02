@@ -1,7 +1,15 @@
 {
   "tenants": [
-    { "tenantId": "DEMO1", "name": "데모GA 1(대형)", "engineBaseUrl": "http://engine-stub.local/demo1", "largeGa": true },
-    { "tenantId": "DEMO2", "name": "데모GA 2", "engineBaseUrl": "http://engine-stub.local/demo2", "largeGa": false }
+    { "tenantId": "DEMO1", "name": "데모GA 1(대형)", "engineBaseUrl": "http://engine-stub.local/demo1", "largeGa": true,
+      "identityLinks": [
+        { "subject": "demo-agent", "agentId": "DEMO-AGENT-1", "roles": ["AGENT"], "orgPath": "/HQ/B1" },
+        { "subject": "demo-manager", "agentId": "DEMO-MGR-1", "roles": ["MANAGER"], "orgPath": "/HQ" }
+      ] },
+    { "tenantId": "DEMO2", "name": "데모GA 2", "engineBaseUrl": "http://engine-stub.local/demo2", "largeGa": false,
+      "identityLinks": [
+        { "subject": "demo-agent", "agentId": "DEMO-AGENT-1", "roles": ["AGENT"], "orgPath": "/HQ/B1" },
+        { "subject": "demo-manager", "agentId": "DEMO-MGR-1", "roles": ["MANAGER"], "orgPath": "/HQ" }
+      ] }
   ],
   "tenantRules": [
     {

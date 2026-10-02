@@ -217,7 +217,7 @@ class GradeSnapshotIT {
         var service = new com.ga.disclosure.workflow.disclosure.DisclosureService(s.disclosures, s.reviews, s.flags,
                 new com.ga.disclosure.infra.persistence.TenantRepository(s.gateway), racing, s.catalog, s.catalog, s.vault,
                 new com.ga.disclosure.rules.resolve.RuleResolver(s.rules), new com.ga.disclosure.rules.template.TemplateResolver(s.templates),
-                com.ga.disclosure.rules.validation.standard.StandardValidations.registry(), s.audit, s.tx, s.clock);
+                com.ga.disclosure.rules.validation.standard.StandardValidations.registry(), s.audit, s.tx, s.clock, s.agents, s.outbox);
         CommandResult r = service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
         assertThat(r.rejectionOrNull()).isEqualTo(CommandResult.Rejection.GRADE_STALE);
         assertThat(one(id, "SELECT status || '/' || coalesce(grade_snapshot_id, '-') FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?"))

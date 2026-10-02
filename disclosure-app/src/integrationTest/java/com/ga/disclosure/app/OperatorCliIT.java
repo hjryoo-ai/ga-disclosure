@@ -78,7 +78,8 @@ class OperatorCliIT {
         java.nio.file.Files.writeString(seedFile, seed);
 
         assertThat(run("demo", "seed", "--file", seedFile.toString(), "--operator", "cli-test"))
-                .contains("SEED TENANT " + one + " CREATED", "SEED TENANT_RULE " + one + " DEMO1-HOUSE-2026 DRAFT");
+                .contains("SEED TENANT " + one + " CREATED", "SEED TENANT_RULE " + one + " DEMO1-HOUSE-2026 DRAFT",
+                        "SEED IDENTITY_LINK " + one + " DEMO-AGENT-1 CREATED", "SEED IDENTITY_LINK " + two + " DEMO-MGR-1 CREATED");
         assertThat(run("rules", "distribute", "--bundle", bundle("rules/DISC-2026-07.bundle.json"), "--tenants", "all", "--operator", "cli-test"))
                 .contains("DISTRIBUTE " + one + " DISC-2026-07@", "DISTRIBUTE " + two + " DISC-2026-07@");
         run("rules", "distribute", "--bundle", "rules/DISC-2027-01.bundle.json", "--tenants", one + "," + two, "--operator", "cli-test");
@@ -119,7 +120,12 @@ class OperatorCliIT {
     @Test
     void demoSeedSealsTwoSupersedesOneAndIsIdempotent() throws Exception {
         String tenant = SeedData.uniqueTenant("CLI_SEAL");
-        DB.seed(tenant, c -> SeedData.tenant(c, tenant));
+        DB.seed(tenant, c -> {
+            SeedData.tenant(c, tenant);
+            // Phase 4: 확인서의 설계사는 identity_link로 해석한다(데모 기본 행위자 demo-agent·demo-manager)
+            SeedData.identityLink(c, tenant, "demo-agent", "DEMO-AGENT-1", "AGENT");
+            SeedData.identityLink(c, tenant, "demo-manager", "DEMO-MGR-1", "MANAGER");
+        });
         com.ga.disclosure.infra.testing.SeaweedHarness s3 = com.ga.disclosure.infra.testing.SeaweedHarness.get();
         String bucket = s3.freshBucket();
         Path kek = java.nio.file.Files.createTempDirectory("cli-seal-kek").resolve("kek.json");

@@ -36,6 +36,12 @@ public final class SeedData {
         return (prefix + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)).toUpperCase();
     }
 
+    /** 행위자 subject ↔ 설계사·역할 연결 1건(V1 {@code identity_link}, Phase 4 — 확인서 작성·설계사 서명이 이 연결로 설계사를 정한다). */
+    public static void identityLink(Connection c, String tenant, String subject, String agentId, String role) throws SQLException {
+        exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, ?, ?, ARRAY[?], '/HQ/B1')",
+                tenant, subject, agentId, role);
+    }
+
     public static void tenant(Connection c, String tenant) throws SQLException {
         exec(c, "INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga) VALUES (?, ?, ?, 'ACTIVE', true)",
                 tenant, "GA " + tenant, "http://engine.invalid/" + tenant);

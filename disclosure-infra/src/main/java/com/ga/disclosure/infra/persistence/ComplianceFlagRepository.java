@@ -2,6 +2,9 @@ package com.ga.disclosure.infra.persistence;
 
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.disclosure.domain.vo.DisclosureId;
+import com.ga.disclosure.audit.outbox.EventType;
+import com.ga.disclosure.audit.outbox.OutboxPayloads;
+import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.compliance.rules.ComplianceFlagPort;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
@@ -14,12 +17,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** 준법 플래그 저장소(설계서 §5 {@code compliance_flag}). */
+/**
+ * 준법 플래그 저장소(설계서 §5 {@code compliance_flag}). 플래그가 <b>새로 열리면</b> 같은 트랜잭션에서 아웃박스 {@code ComplianceFlagRaised}를
+ * 적재한다(4 계획 승인 Q13) — 워크플로·준법 배치 어느 경로로 열려도 이 한 곳을 지나므로 누락이 없다. 이미 열린 플래그를 다시 돌려받는 경우는
+ * 새 이벤트가 아니다. payload의 설계사는 확인서 플래그일 때 그 확인서의 {@code agent_id}.
+ */
 @Repository
 public class ComplianceFlagRepository extends TenantScopedRepository implements ComplianceFlagPort, DisclosureFlagPort {
 
-    public ComplianceFlagRepository(TenantJdbcGateway gateway) {
+    private final OutboxPort outbox;
+
+    public ComplianceFlagRepository(TenantJdbcGateway gateway, OutboxPort outbox) {
         super(gateway);
+        this.outbox = java.util.Objects.requireNonNull(outbox, "outbox");
     }
 
     @Override
@@ -53,7 +63,16 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
                 RETURNING flag_id
                 """, params, (rs, n) -> rs.getObject("flag_id", UUID.class));
         if (!created.isEmpty()) {
-            return new ComplianceFlagPort.RaisedFlag(created.getFirst(), true);
+            UUID flagId = created.getFirst();
+            String agentId = disclosureIdOrNull == null ? null : queryAtMostOne("""
+                    SELECT agent_id
+                      FROM disclosure
+                     WHERE tenant_id = :tenantId
+                       AND disclosure_id = :disclosureId
+                    """, Map.of("disclosureId", disclosureIdOrNull), (rs, n) -> rs.getString("agent_id")).orElse(null);
+            outbox.append(EventType.ComplianceFlagRaised, flagId.toString(), raisedAt,
+                    OutboxPayloads.complianceFlagRaised(flagId, type, severity, disclosureIdOrNull, null, agentId, raisedAt));
+            return new ComplianceFlagPort.RaisedFlag(flagId, true);
         }
         UUID open = queryAtMostOne("""
                 SELECT flag_id

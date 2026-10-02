@@ -3,6 +3,9 @@ package com.ga.disclosure.workflow.disclosure;
 import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
+import com.ga.disclosure.audit.outbox.EventType;
+import com.ga.disclosure.audit.outbox.OutboxPayloads;
+import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.domain.disclosure.DisclosureCommand;
 import com.ga.disclosure.domain.disclosure.DisclosureStateTable;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
@@ -86,8 +89,10 @@ public final class LifecycleService {
     private final Clock clock;
     private final CommandRunner runner;
     private final DisclosureLoader loader;
+    private final OutboxPort outbox;
 
     public LifecycleService(DisclosureServiceDeps deps) {
+        this.outbox = deps.outbox();
         this.store = deps.store();
         this.flags = deps.flags();
         this.rules = deps.rules();
@@ -122,6 +127,8 @@ public final class LifecycleService {
                     .put("sealed", from.isSealedOrLater()).put("reasonCode", reason.code()).put("reasonTextLength", reason.textLength())
                     .put("actorRole", actor.role()));
             closeFlags(actor, id);
+            outbox.append(EventType.DisclosureVoided, id.toString(), mark.at(), OutboxPayloads.disclosureVoided(id.value(),
+                    d.sealStamp().map(st -> st.number().value()).orElse(null), from.name(), mark.at()));
             return new Outcome(id, d.status(), Optional.empty(), Optional.empty(), List.of());
         });
     }
@@ -165,6 +172,12 @@ public final class LifecycleService {
             rule.tenantRuleVersion().ifPresentOrElse(v -> created.put("tenantRuleVersionId", v.value()), () -> created.putNull("tenantRuleVersionId"));
             record(actor, AuditAction.DISCLOSURE_CREATE, next, created);
             closeFlags(actor, id);
+            Instant now = clock.instant();
+            outbox.append(EventType.DisclosureSuperseded, id.toString(), now, OutboxPayloads.disclosureSuperseded(id.value(),
+                    original.sealStamp().orElseThrow().number().value(), next.value(), corrected.lineage().version(), now));
+            outbox.append(EventType.DisclosureCreated, next.toString(), now, OutboxPayloads.disclosureCreated(next.value(),
+                    corrected.lineage().version(), corrected.agentId(), corrected.customerRef().value(), corrected.groupCode().value(),
+                    corrected.consultDate(), template.ref().templateId(), template.ref().version(), corrected.issuerMode().name(), id.value()));
             return new Outcome(id, original.status(), Optional.empty(), Optional.of(next), List.of());
         });
     }

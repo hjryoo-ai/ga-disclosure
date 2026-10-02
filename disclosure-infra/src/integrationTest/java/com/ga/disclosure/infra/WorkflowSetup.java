@@ -14,7 +14,9 @@ import com.ga.disclosure.infra.engine.HttpEngineTransport;
 import com.ga.disclosure.infra.engine.stub.TableEngineStub;
 import com.ga.disclosure.infra.persistence.AuditLogRepository;
 import com.ga.disclosure.infra.persistence.CatalogRepository;
+import com.ga.disclosure.infra.outbox.OutboxRepository;
 import com.ga.disclosure.infra.persistence.ComplianceFlagRepository;
+import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
 import com.ga.disclosure.infra.persistence.CustomerVaultRepository;
 import com.ga.disclosure.infra.persistence.DisclosureRepository;
 import com.ga.disclosure.infra.persistence.FormTemplateRepository;
@@ -64,13 +66,18 @@ final class WorkflowSetup implements AutoCloseable {
     static final LocalDate CONSULT = LocalDate.parse("2026-09-23");
     static final Actor AGENT = new Actor("agent-1@test", "AGENT");
     static final Actor MANAGER = new Actor("manager-1@test", "MANAGER");
+    /** {@code identity_link}로 해석한 설계사·관리자 ID(Phase 4 — 확인서 {@code agent_id}는 subject가 아니라 이 값). */
+    static final String AGENT_ID = "AGENT-1";
+    static final String MANAGER_ID = "MGR-1";
 
     final PostgresHarness db = PostgresHarness.get();
     final TenantJdbcGateway gateway = new TenantJdbcGateway(db.appDataSource());
     final TenantTransactionTemplate tx = new TenantTransactionTemplate(new TenantSessionBinder(db.appDataSource()));
     final AuditLogRepository audit = new AuditLogRepository(gateway);
     final CatalogRepository catalog = new CatalogRepository(gateway);
-    final ComplianceFlagRepository flags = new ComplianceFlagRepository(gateway);
+    final OutboxRepository outbox = new OutboxRepository(gateway);
+    final IdentityLinkRepository agents = new IdentityLinkRepository(gateway);
+    final ComplianceFlagRepository flags = new ComplianceFlagRepository(gateway, outbox);
     final DisclosureRepository disclosures = new DisclosureRepository(gateway);
     final ReviewRepository reviews = new ReviewRepository(gateway);
     final RuleVersionRepository rules = new RuleVersionRepository(gateway);
@@ -102,7 +109,7 @@ final class WorkflowSetup implements AutoCloseable {
         this.service = new DisclosureService(disclosures, reviews, flags, new TenantRepository(gateway),
                 new EngineGradeClient(new HttpEngineTransport(settings, t -> Optional.of(TOKEN), t -> engine.baseUrl())),
                 catalog, catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx,
-                clock);
+                clock, agents, outbox);
         this.tenant = freshTenant(bundles);
         this.customer = new CustomerRefService(vault, audit, tx, clock).register(tenant, CatalogCustomerSetup.OPERATOR,
                 new NewCustomer(CustomerName.of("가상고객"), null, null));
@@ -110,7 +117,11 @@ final class WorkflowSetup implements AutoCloseable {
 
     private TenantId freshTenant(List<String> bundles) {
         String t = SeedData.uniqueTenant("WF");
-        db.seed(t, c -> SeedData.tenant(c, t));
+        db.seed(t, c -> {
+            SeedData.tenant(c, t);
+            SeedData.identityLink(c, t, AGENT.subject(), AGENT_ID, "AGENT");
+            SeedData.identityLink(c, t, MANAGER.subject(), MANAGER_ID, "MANAGER");
+        });
         TenantId tenant = TenantId.of(t);
         Governance g = new Governance();
         for (String b : bundles) {
@@ -161,7 +172,8 @@ final class WorkflowSetup implements AutoCloseable {
     /** 봉인·정정·무효 유스케이스가 함께 쓰는 포트 묶음(같은 저장소 어댑터·시계). */
     com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps deps(Clock at) {
         return new com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps(disclosures, reviews, flags, new TenantRepository(gateway), catalog,
-                catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx, at);
+                catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx, at, agents,
+                outbox);
     }
 
     /** 3사 비교 → 산출 → 추천사유(항목 1·3)까지 = 봉인 직전(REASONED). */

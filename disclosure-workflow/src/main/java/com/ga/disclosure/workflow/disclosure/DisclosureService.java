@@ -3,6 +3,11 @@ package com.ga.disclosure.workflow.disclosure;
 import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
+import com.ga.disclosure.audit.outbox.EventType;
+import com.ga.disclosure.audit.outbox.OutboxPayloads;
+import com.ga.disclosure.audit.outbox.OutboxPort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
+import com.ga.platform.core.tenant.AgentId;
 import com.ga.disclosure.domain.disclosure.AgentReason;
 import com.ga.disclosure.domain.disclosure.DisclosureCommand;
 import com.ga.disclosure.domain.disclosure.DisclosureStateTable;
@@ -75,13 +80,15 @@ public final class DisclosureService {
     private final ValidationRegistry registry;
     private final AuditPort audit;
     private final Clock clock;
+    private final AgentDirectory agents;
+    private final OutboxPort outbox;
     private final CommandRunner runner;
     private final DisclosureLoader loader;
 
     public DisclosureService(DisclosureStore store, ReviewStore reviews, DisclosureFlagPort flags, TenantProfilePort tenants,
                              GradeSnapshotPort engine, ProductCatalogPort catalog, InsurerPanelPort panel, CustomerVault customers,
                              RuleResolver rules, TemplateResolver templates, ValidationRegistry registry, AuditPort audit,
-                             WorkflowTransactions transactions, Clock clock) {
+                             WorkflowTransactions transactions, Clock clock, AgentDirectory agents, OutboxPort outbox) {
         this.store = Objects.requireNonNull(store, "store");
         this.reviews = Objects.requireNonNull(reviews, "reviews");
         this.flags = Objects.requireNonNull(flags, "flags");
@@ -95,6 +102,8 @@ public final class DisclosureService {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.agents = Objects.requireNonNull(agents, "agents");
+        this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.runner = new CommandRunner(transactions, audit, clock);
         this.loader = new DisclosureLoader(store, tenants, catalog, panel, rules, templates, registry);
     }
@@ -103,11 +112,15 @@ public final class DisclosureService {
 
     /**
      * 초안 생성: 상담일로 GLOBAL·TENANT 룰과 서식을 <b>한 번</b> 해석해 버전 ID를 고정한다. 룰의 검증 목록이 전부 등록된 규칙인지도
-     * 여기서 확인한다(오타가 봉인 단계까지 숨지 않게). 상담일은 이후 바뀌지 않는다.
+     * 여기서 확인한다(오타가 봉인 단계까지 숨지 않게). 상담일은 이후 바뀌지 않는다. 확인서의 설계사는 행위자를 {@code identity_link}로 해석한
+     * {@code agent_id}다(절대 규칙 5, Phase 4 — 연결이 없거나 AGENT 역할이 아니면 {@code AGENT_NOT_LINKED}). 같은 트랜잭션에서 아웃박스
+     * {@code DisclosureCreated}를 적재한다(승인 Q13).
      */
     public DisclosureId createDraft(TenantId tenant, Actor agent, CustomerRef customerRef, GroupCode group, LocalDate consultDate,
                                     TemplateType templateType) {
         return runner.inTransaction(tenant, agent, "CREATE_DRAFT", null, () -> {
+            AgentId agentId = agents.find(agent.subject()).filter(l -> l.hasRole("AGENT")).map(AgentDirectory.LinkedIdentity::agentId)
+                    .orElseThrow(() -> new CommandRejectedException("AGENT_NOT_LINKED", "the actor is not linked to an agent in this tenant"));
             if (!customers.exists(customerRef)) {
                 throw new CommandRejectedException("UNKNOWN_CUSTOMER", "no customer " + customerRef);
             }
@@ -121,7 +134,7 @@ public final class DisclosureService {
             TemplateResolution template = templates.resolve(tenant, templateType, consultDate);
             TenantProfilePort.TenantProfile profile = tenants.profile(tenant);
             DisclosureId id = DisclosureId.of(UUID.randomUUID());
-            Disclosure d = Disclosure.draft(id, agent.subject(), customerRef, group, consultDate, rule.globalRuleVersionId(),
+            Disclosure d = Disclosure.draft(id, agentId.value(), customerRef, group, consultDate, rule.globalRuleVersionId(),
                     rule.tenantRuleVersion().orElse(null), template.ref(), profile.issuerMode(),
                     loader.context(tenant, rule, template, group, consultDate));
             store.insert(d);
@@ -136,6 +149,9 @@ public final class DisclosureService {
             rule.tenantRuleVersion().ifPresentOrElse(v -> detail.put("tenantRuleVersionId", v.value()),
                     () -> detail.putNull("tenantRuleVersionId"));
             record(agent, AuditAction.DISCLOSURE_CREATE, id, detail);
+            outbox.append(EventType.DisclosureCreated, id.toString(), clock.instant(), OutboxPayloads.disclosureCreated(id.value(), 1,
+                    agentId.value(), customerRef.value(), group.value(), consultDate, template.ref().templateId(), template.ref().version(),
+                    profile.issuerMode().name(), null));
             return id;
         });
     }

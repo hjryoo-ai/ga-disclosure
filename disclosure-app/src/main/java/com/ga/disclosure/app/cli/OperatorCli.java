@@ -27,6 +27,7 @@ import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
+import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
 import com.ga.disclosure.infra.persistence.TenantRepository;
 import com.ga.disclosure.rules.bundle.Bundle;
 import com.ga.disclosure.rules.bundle.BundleLoader;
@@ -109,13 +110,14 @@ public class OperatorCli implements ApplicationRunner {
     private final SealService seal;
     private final LifecycleService lifecycle;
     private final ArtifactService artifacts;
+    private final IdentityLinkRepository identityLinks;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
                        RuleBundleReconciler reconciler, TenantDirectory directory, TenantTransactions transactions,
                        TenantRepository tenants, RuleVersionStore rules, CatalogImportService catalog, CustomerRekeyService rekey,
                        RegisterCustomer registerCustomer, DisclosureService disclosures, DisclosureLookup lookup, CustomerVault customers,
-                       SealService seal, LifecycleService lifecycle, ArtifactService artifacts) {
+                       SealService seal, LifecycleService lifecycle, ArtifactService artifacts, IdentityLinkRepository identityLinks) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -133,6 +135,7 @@ public class OperatorCli implements ApplicationRunner {
         this.seal = seal;
         this.lifecycle = lifecycle;
         this.artifacts = artifacts;
+        this.identityLinks = identityLinks;
     }
 
     @Override
@@ -218,6 +221,13 @@ public class OperatorCli implements ApplicationRunner {
             int inserted = transactions.inTenant(tenant, () -> tenants.insertCurrentIfAbsent(t.get("name").asString(),
                     t.get("engineBaseUrl").asString(), t.get("largeGa").asBoolean()));
             out.println("SEED TENANT " + tenant + (inserted == 1 ? " CREATED" : " EXISTS"));
+            for (JsonNode link : t.path("identityLinks")) {
+                java.util.List<String> roles = new java.util.ArrayList<>();
+                link.get("roles").forEach(r -> roles.add(r.asString()));
+                int linked = transactions.inTenant(tenant, () -> identityLinks.linkIfAbsent(link.get("subject").asString(),
+                        link.get("agentId").asString(), roles, link.get("orgPath").asString()));
+                out.println("SEED IDENTITY_LINK " + tenant + " " + link.get("agentId").asString() + (linked == 1 ? " CREATED" : " EXISTS"));
+            }
         }
         for (JsonNode r : seed.path("tenantRules")) {
             TenantId tenant = TenantId.of(r.get("tenantId").asString());
