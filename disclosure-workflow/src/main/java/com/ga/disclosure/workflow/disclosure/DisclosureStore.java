@@ -2,6 +2,7 @@ package com.ga.disclosure.workflow.disclosure;
 
 import com.ga.disclosure.domain.vo.DisclosureId;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -23,4 +24,7 @@ public interface DisclosureStore {
      * {@code DISCLOSURE_REBASE} 행의 {@code ruleBodyHash}(감사 로그는 append-only, 4 계획 승인 Q1 로더 조건). 없으면 빈 값.
      */
     Optional<String> pinnedRuleBodyHash(DisclosureId id);
+
+    /** 서명을 기다리는 확인서(SEALED·PARTIALLY_SIGNED, 봉인 순) — 만료 배치가 하나씩 다시 잠가 기한을 판정한다(4 계획 §7.4). */
+    List<DisclosureId> awaitingSignatures(int limit);
 }

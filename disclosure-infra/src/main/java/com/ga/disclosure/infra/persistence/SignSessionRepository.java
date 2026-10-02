@@ -121,16 +121,16 @@ public class SignSessionRepository extends TenantScopedRepository implements Sig
     }
 
     @Override
-    public List<UUID> openElapsed(Instant asOf, int limit) {
-        return query("""
-                SELECT session_id
+    public List<SignSession> openElapsed(Instant asOf, int limit) {
+        return query("SELECT " + COLUMNS + """
+
                   FROM sign_session
                  WHERE tenant_id = :tenantId
                    AND status = 'OPEN'
                    AND expires_at < :asOf
                  ORDER BY expires_at, session_id
                  LIMIT :limit
-                """, Map.of("asOf", Timestamp.from(asOf), "limit", limit), (rs, n) -> rs.getObject("session_id", UUID.class));
+                """, Map.of("asOf", Timestamp.from(asOf), "limit", limit), (rs, n) -> session(rs));
     }
 
     private static SignSession session(ResultSet rs) throws SQLException {

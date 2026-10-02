@@ -115,6 +115,18 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     }
 
     @Override
+    public List<DisclosureId> awaitingSignatures(int limit) {
+        return query("""
+                SELECT disclosure_id
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND status IN ('SEALED', 'PARTIALLY_SIGNED')
+                 ORDER BY sealed_at, disclosure_id
+                 LIMIT :limit
+                """, Map.of("limit", limit), (rs, n) -> DisclosureId.of(rs.getObject("disclosure_id", UUID.class)));
+    }
+
+    @Override
     public Optional<DisclosureRecord> loadForUpdate(DisclosureId id) {
         Optional<Header> header = queryAtMostOne("""
                 SELECT disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, rule_version_id,

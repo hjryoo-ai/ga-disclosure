@@ -18,8 +18,10 @@ import com.ga.disclosure.rules.template.TemplateResolution;
 import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.rules.validation.ValidationRegistry;
 import com.ga.disclosure.rules.validation.ValidationResult;
+import com.ga.disclosure.sign.session.SessionEvent;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
+import com.ga.disclosure.workflow.sign.SignSessionStore;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -43,7 +45,9 @@ import java.util.UUID;
  *   <li><b>REBASE</b>: {@code RULE_SUPERSEDED_DRAFT} 열린 플래그가 있을 때만. 상담일 재해석 결과를 새로 고정, 스냅샷·사유 폐기, 새 룰의 COMPARE
  *       검증 통과면 COMPARED 아니면 DRAFT(승인 Q3). 옛 승인은 지우지 않고 룰 버전 귀속으로 무효가 된다.</li>
  * </ul>
- * 무효·정정은 열린 {@code VALIDATION_OVERRIDE}·{@code RULE_SUPERSEDED_DRAFT} 플래그를 {@code SUPERSEDED_BY_DOCUMENT_STATE}로 닫는다.
+ * 무효·정정은 열린 {@code VALIDATION_OVERRIDE}·{@code RULE_SUPERSEDED_DRAFT}·{@code PAPER_SCAN_REVIEW} 플래그를 {@code SUPERSEDED_BY_DOCUMENT_STATE}로
+ * 닫고, 같은 트랜잭션에서 그 확인서의 OPEN 서명 세션을 전부 닫는다(REVOKED(DOCUMENT_VOIDED·DOCUMENT_SUPERSEDED), TTL이 지났으면 EXPIRED — 4 계획
+ * §7.4). 받은 서명은 원본에 남고 새 버전으로 이월하지 않는다(3B 수용심사 §3-5).
  * {@code GRADE_INCONSISTENT}는 엔진 이상 신호라 문서 상태로 닫지 않는다. 사유는 고정 룰의 닫힌 코드({@code voidReasons}·{@code supersedeReasons})
  * + 선택 텍스트이고(V8, 3B 수용심사 §2-2) 원본 행 메타 컬럼에 한 번 기록된다. 텍스트는 감사에 싣지 않는다(자유 텍스트 — 개인정보가 섞일 수
  * 있다, 절대 규칙 6): 감사에는 코드와 텍스트 길이만.
@@ -51,8 +55,12 @@ import java.util.UUID;
 public final class LifecycleService {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final Set<DisclosureFlagPort.Type> CLOSED_BY_DOCUMENT_STATE =
-            Set.of(DisclosureFlagPort.Type.VALIDATION_OVERRIDE, DisclosureFlagPort.Type.RULE_SUPERSEDED_DRAFT);
+    /**
+     * 문서 상태로 닫는 플래그: 봉인·완료를 막던 것들(오버라이드 승인, 재기준, Phase 4 종이 스캔 검토). 엔진 이상·본인확인 실패·대리 서명 의심은 사후
+     * 점검 신호라 문서가 닫혀도 열어 둔다.
+     */
+    static final Set<DisclosureFlagPort.Type> CLOSED_BY_DOCUMENT_STATE = Set.of(DisclosureFlagPort.Type.VALIDATION_OVERRIDE,
+            DisclosureFlagPort.Type.RULE_SUPERSEDED_DRAFT, DisclosureFlagPort.Type.PAPER_SCAN_REVIEW);
 
     /** 업무 거부 코드(커밋·감사, 상태 불변). */
     public enum Rejection {
@@ -90,8 +98,10 @@ public final class LifecycleService {
     private final CommandRunner runner;
     private final DisclosureLoader loader;
     private final OutboxPort outbox;
+    private final SessionClosing closing;
 
-    public LifecycleService(DisclosureServiceDeps deps) {
+    public LifecycleService(DisclosureServiceDeps deps, SignSessionStore sessions) {
+        this.closing = new SessionClosing(sessions, deps.audit(), deps.clock());
         this.outbox = deps.outbox();
         this.store = deps.store();
         this.flags = deps.flags();
@@ -127,6 +137,7 @@ public final class LifecycleService {
                     .put("sealed", from.isSealedOrLater()).put("reasonCode", reason.code()).put("reasonTextLength", reason.textLength())
                     .put("actorRole", actor.role()));
             closeFlags(actor, id);
+            closing.closeOpen(actor, id, SessionEvent.DOCUMENT_VOID, mark.at());
             outbox.append(EventType.DisclosureVoided, id.toString(), mark.at(), OutboxPayloads.disclosureVoided(id.value(),
                     d.sealStamp().map(st -> st.number().value()).orElse(null), from.name(), mark.at()));
             return new Outcome(id, d.status(), Optional.empty(), Optional.empty(), List.of());
@@ -173,6 +184,7 @@ public final class LifecycleService {
             record(actor, AuditAction.DISCLOSURE_CREATE, next, created);
             closeFlags(actor, id);
             Instant now = clock.instant();
+            closing.closeOpen(actor, id, SessionEvent.DOCUMENT_SUPERSEDE, now);
             outbox.append(EventType.DisclosureSuperseded, id.toString(), now, OutboxPayloads.disclosureSuperseded(id.value(),
                     original.sealStamp().orElseThrow().number().value(), next.value(), corrected.lineage().version(), now));
             outbox.append(EventType.DisclosureCreated, next.toString(), now, OutboxPayloads.disclosureCreated(next.value(),

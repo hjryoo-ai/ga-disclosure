@@ -26,7 +26,9 @@ public interface DisclosureFlagPort {
         /** 대리 서명 의심 — 기기·IP 재사용 또는 발송 직후 서명(대상 = 서명, 4 계획 §5). 서명을 막지 않는다. */
         SIGNATURE_DEVICE_REUSE,
         /** 종이 스캔 서명의 관리자 검토 대기(대상 = 서명, 룰 {@code channels.PAPER_SCAN.requiresManagerReview}). 열려 있으면 완료되지 않는다. */
-        PAPER_SCAN_REVIEW
+        PAPER_SCAN_REVIEW,
+        /** 서명 기한이 지나 만료됐다(대상 = 확인서, 4 계획 §7.4) — 준법 점검 대상(재작성·사후 확인). */
+        SIGN_EXPIRED
     }
 
     /** 해소 사유. */

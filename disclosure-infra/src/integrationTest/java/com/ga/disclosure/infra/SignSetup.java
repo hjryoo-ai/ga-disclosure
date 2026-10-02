@@ -66,6 +66,8 @@ final class SignSetup implements AutoCloseable {
     final SignatureRepository signatures;
     final SignSessionService sessionService;
     final SignService signService;
+    /** 무효·정정(같은 움직이는 시계 — 세션 닫는 시각이 발급 뒤가 되게). */
+    final com.ga.disclosure.workflow.disclosure.LifecycleService lifecycle;
     final CustomerRef signer;
 
     SignSetup() {
@@ -79,6 +81,7 @@ final class SignSetup implements AutoCloseable {
         this.signatures = new SignatureRepository(w.gateway);
         this.sessionService = new SignSessionService(w.deps(clock), sessions, s.recordPort, s.cipher, s.store, tokens, notify);
         this.signService = signServiceWith(s.recordPort, s.store);
+        this.lifecycle = new com.ga.disclosure.workflow.disclosure.LifecycleService(w.deps(clock), sessions);
         this.signer = new CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant, CatalogCustomerSetup.OPERATOR,
                 new NewCustomer(CustomerName.of("가상서명고객"), PhoneNumber.of(PHONE), BirthDate.of(java.time.LocalDate.parse(BIRTH))));
         w.db.seed(w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.identityLink(c, w.tenant.value(), STRANGER.subject(), "AGENT-2",
@@ -123,6 +126,15 @@ final class SignSetup implements AutoCloseable {
     void readyTouchPad(String token) {
         sessionService.recordView(token, true, 42);
         sessionService.confirmFaceToFace(token, AGENT);
+    }
+
+    /** 닫힌 세션에도 준비 동작을 시도해 본다(거부는 삼킨다 — 거부 자체는 다른 단언이 본다). */
+    void readyTouchPadQuietly(String token) {
+        try {
+            readyTouchPad(token);
+        } catch (com.ga.disclosure.sign.token.SignTokenRejected expected) {
+            // 닫힌 세션
+        }
     }
 
     SignService.Outcome customerSignsOnTouchPad(DisclosureId id) {

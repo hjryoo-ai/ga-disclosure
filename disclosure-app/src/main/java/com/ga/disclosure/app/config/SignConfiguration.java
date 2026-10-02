@@ -8,6 +8,7 @@ import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
 import com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps;
+import com.ga.disclosure.workflow.disclosure.ExpireService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.SignService;
 import com.ga.disclosure.workflow.disclosure.SignSessionService;
@@ -44,6 +45,11 @@ public class SignConfiguration {
     public SignSessionService signSessionService(DisclosureServiceDeps deps, SignSessionStore sessions, DocumentRecordStore records,
                                                  DocumentCryptoPort crypto, ArtifactStore storage, TokenSource tokens, NotifyPort notify) {
         return new SignSessionService(deps, sessions, records, crypto, storage, tokens, notify);
+    }
+
+    @Bean
+    public ExpireService expireService(DisclosureServiceDeps deps, SignSessionStore sessions) {
+        return new ExpireService(deps, sessions);
     }
 
     @Bean

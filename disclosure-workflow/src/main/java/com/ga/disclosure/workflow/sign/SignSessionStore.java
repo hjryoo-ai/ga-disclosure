@@ -28,6 +28,6 @@ public interface SignSessionStore {
     /** 확인서의 OPEN 세션(행 잠금). 한 확인서·역할당 1개(V8 부분 유일 인덱스)지만 목록으로 받는다. */
     List<SignSession> openFor(DisclosureId disclosure);
 
-    /** TTL이 지난 OPEN 세션 ID(만료 배치용, 오래된 순). */
-    List<UUID> openElapsed(Instant asOf, int limit);
+    /** TTL이 지난 OPEN 세션(잠그지 않는다 — 만료 배치가 확인서를 잠근 뒤 다시 잠근다, 오래된 순). */
+    List<SignSession> openElapsed(Instant asOf, int limit);
 }

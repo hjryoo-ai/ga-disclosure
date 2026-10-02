@@ -56,7 +56,7 @@ final class SealSetup implements AutoCloseable {
         this.store = new FailingPorts.Store(bucket);
         this.recordPort = new FailingPorts.Records(records, bucket);
         this.seal = new SealService(w.deps(w.clock), ledger, cipher, recordPort, store, new DisclosurePdfRenderer());
-        this.lifecycle = new LifecycleService(w.deps(w.clock));
+        this.lifecycle = new LifecycleService(w.deps(w.clock), new com.ga.disclosure.infra.persistence.SignSessionRepository(w.gateway));
         this.artifacts = artifactsAt(w.clock, store);
     }
 

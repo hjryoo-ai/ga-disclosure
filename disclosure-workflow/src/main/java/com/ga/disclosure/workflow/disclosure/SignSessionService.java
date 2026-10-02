@@ -102,6 +102,7 @@ public final class SignSessionService {
     private final DisclosureLoader loader;
     private final SignSupport support;
     private final StoredArtifacts stored;
+    private final SessionClosing closing;
 
     public SignSessionService(DisclosureServiceDeps deps, SignSessionStore sessions, DocumentRecordStore records, DocumentCryptoPort crypto,
                               ArtifactStore storage, TokenSource tokens, NotifyPort notify) {
@@ -116,6 +117,7 @@ public final class SignSessionService {
         this.loader = deps.loader();
         this.support = new SignSupport(sessions, loader, deps.agents(), audit, deps.transactions(), clock, deps.tenants());
         this.stored = new StoredArtifacts(records, crypto, storage);
+        this.closing = new SessionClosing(sessions, audit, clock);
     }
 
     // ------------------------------------------------------------------ 발급
@@ -156,11 +158,7 @@ public final class SignSessionService {
                 support.reject(agent, d, "SIGN_SESSION_ISSUE", rejections, SignSupport.JSON.createObjectNode().put("channel", channel.name()));
                 return new Issued(new IssueOutcome(id, rejections, Optional.empty(), Optional.empty(), Optional.empty(), false), null);
             }
-            List<String> closed = new ArrayList<>();
-            for (SignSession open : sessions.openFor(id)) {
-                closeForReissue(agent, open, now);
-                closed.add(open.sessionId().toString());
-            }
+            List<String> closed = closing.closeOpen(agent, id, SessionEvent.REISSUE, now).stream().map(UUID::toString).toList();
             SignToken token = SignToken.issue(tenant, tokens);
             Duration ttl = channel == SignatureChannel.REMOTE_LINK ? Duration.ofHours(rule.remoteLinkTtlHours())
                     : Duration.ofMinutes(rule.sessionTtlMinutes(channel));
@@ -184,19 +182,6 @@ public final class SignSessionService {
         }
         boolean sent = send(tenant, agent, id, o.sessionId().orElseThrow(), issued.tokenOrNull());
         return new IssueOutcome(id, List.of(), o.sessionId(), Optional.empty(), o.expiresAt(), sent);
-    }
-
-    /** 재발급 직전: TTL이 지난 세션은 EXPIRED, 아니면 REVOKED(REISSUED). */
-    private void closeForReissue(Actor actor, SignSession open, Instant now) {
-        boolean elapsed = SessionWindow.elapsed(now, open.expiresAt());
-        SignSessionState next = elapsed ? open.state().elapse() : open.state().revoke(SessionEvent.REISSUE);
-        sessions.update(open.with(next, now));
-        ObjectNode detail = SignSupport.JSON.createObjectNode().put("sessionId", open.sessionId().toString());
-        if (elapsed) {
-            support.record(actor, AuditAction.SIGN_SESSION_EXPIRE, open.disclosureId(), detail);
-        } else {
-            support.record(actor, AuditAction.SIGN_SESSION_REVOKE, open.disclosureId(), detail.put("reason", next.revokeReason().name()));
-        }
     }
 
     /**

@@ -89,5 +89,7 @@ public enum AuditAction {
     /** 서명 1건 수집(역할·채널·방법·두 해시·증거 객체 해시·본인확인 결과). */
     SIGNATURE_CAPTURED,
     /** 완료: 서명본·증거 패키지 해시, 연장된 보존기한, 증거 패키지가 담은 감사 범위. */
-    DISCLOSURE_COMPLETED
+    DISCLOSURE_COMPLETED,
+    /** 서명 기한 경과로 만료(이전 상태·기한·판정 기준 시각, 닫은 세션). */
+    DISCLOSURE_EXPIRE
 }

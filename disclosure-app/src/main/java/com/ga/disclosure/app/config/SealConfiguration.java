@@ -27,6 +27,7 @@ import com.ga.disclosure.workflow.disclosure.ReviewStore;
 import com.ga.disclosure.workflow.disclosure.SealLedgerPort;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.TenantProfilePort;
+import com.ga.disclosure.workflow.sign.SignSessionStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -86,8 +87,8 @@ public class SealConfiguration {
     }
 
     @Bean
-    public LifecycleService lifecycleService(DisclosureServiceDeps deps) {
-        return new LifecycleService(deps);
+    public LifecycleService lifecycleService(DisclosureServiceDeps deps, SignSessionStore sessions) {
+        return new LifecycleService(deps, sessions);
     }
 
     @Bean

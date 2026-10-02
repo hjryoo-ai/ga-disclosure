@@ -187,4 +187,52 @@ class LifecycleIT {
         assertThat(s.count("SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND disclosure_id = ? AND type = 'VALIDATION_OVERRIDE'"
                 + " AND resolution = 'RESOLVED_AT_SEAL' AND resolved_by = 'SYSTEM'", s.w.tenant.value(), id.value())).isEqualTo(2);
     }
+
+    // ------------------------------------------------------------------ Phase 4 G10: 서명 진행 중 무효·정정
+
+    private String sessionStatus(SignSetup x, String sessionId) {
+        return x.s.text("SELECT status || coalesce('/' || revoke_reason, '') FROM sign_session WHERE tenant_id = ? AND session_id = ?::uuid",
+                x.w.tenant.value(), sessionId);
+    }
+
+    @Test
+    void voidingWhileSigningRevokesOpenSessionsAndKeepsSignatures() {
+        try (SignSetup x = new SignSetup()) {
+            DisclosureId waiting = x.sealed();
+            String token = x.issue(waiting, com.ga.disclosure.domain.enums.SignatureChannel.REMOTE_LINK);
+            String sessionId = x.w.in(() -> x.sessions.openFor(waiting)).getFirst().sessionId().toString();
+            x.clock.advance(java.time.Duration.ofMinutes(1));
+            assertThat(x.lifecycle.voidDisclosure(x.w.tenant, SealSetup.MANAGER, waiting, new LifecycleReason("CUSTOMER_CANCELLED", null)).applied())
+                    .isTrue();
+            assertThat(sessionStatus(x, sessionId)).isEqualTo("REVOKED/DOCUMENT_VOIDED");
+            assertThatThrownBy(() -> x.sessionService.open(token)).isExactlyInstanceOf(com.ga.disclosure.sign.token.SignTokenRejected.class);
+
+            DisclosureId signed = x.sealedFor(x.newSigner("가상서명고객2"));
+            x.customerSignsOnTouchPad(signed);
+            x.lifecycle.voidDisclosure(x.w.tenant, SealSetup.MANAGER, signed, new LifecycleReason("CUSTOMER_CANCELLED", null));
+            assertThat(x.status(signed)).isEqualTo("VOID");
+            assertThat(x.signaturesOf(signed)).as("signatures stay on the voided original").hasSize(1);
+        }
+    }
+
+    @Test
+    void supersedingWhileSigningRevokesTheOldTokenAndCarriesNoSignatureOver() {
+        try (SignSetup x = new SignSetup(new SealSetup(WorkflowSetup.withRule(body -> body.put("signOrder", "PARALLEL"))))) {
+            DisclosureId original = x.sealed();
+            assertThat(x.agentSigns(original).accepted()).isTrue();             // PARALLEL: 설계사가 먼저 서명 → PARTIALLY_SIGNED
+            String token = x.issue(original, com.ga.disclosure.domain.enums.SignatureChannel.TOUCH_PAD);
+            String sessionId = x.w.in(() -> x.sessions.openFor(original)).getFirst().sessionId().toString();
+            x.clock.advance(java.time.Duration.ofMinutes(1));
+            LifecycleService.Outcome o = x.lifecycle.supersede(x.w.tenant, SealSetup.MANAGER, original, new LifecycleReason("CONTENT_ERROR", null));
+            DisclosureId next = o.newVersion().orElseThrow();
+            assertThat(sessionStatus(x, sessionId)).isEqualTo("REVOKED/DOCUMENT_SUPERSEDED");
+            assertThat(x.signaturesOf(original)).as("the agent signature stays on version 1").hasSize(1);
+            assertThat(x.signaturesOf(next)).as("nothing carries over").isEmpty();
+            assertThat(x.w.in(() -> x.sessions.openFor(next))).isEmpty();
+            x.readyTouchPadQuietly(token);
+            assertThatThrownBy(() -> x.signService.capture(token, SignSetup.capture("tablet-1", null)))
+                    .as("G1: the old version's token never signs the correction").isExactlyInstanceOf(com.ga.disclosure.sign.token.SignTokenRejected.class);
+            assertThat(x.signaturesOf(next)).isEmpty();
+        }
+    }
 }
