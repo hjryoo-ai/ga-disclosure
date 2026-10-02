@@ -5,6 +5,12 @@ import com.ga.disclosure.workflow.disclosure.DisclosureService;
 import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
+import com.ga.disclosure.workflow.sign.SignatureStore;
+import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
+import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.disclosure.SignService;
+import com.ga.disclosure.workflow.disclosure.SignSessionService;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.customer.RegisterCustomer;
 import com.ga.disclosure.workflow.customer.CustomerVault;
@@ -54,6 +60,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,9 +86,11 @@ import java.util.stream.Stream;
  * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
  * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
  * disclosure rebase     --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]
- * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON --out &lt;path&gt; --operator &lt;id&gt; [--role COMPLIANCE]
+ * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out &lt;path&gt; --operator &lt;id&gt; [--role COMPLIANCE]
  * artifacts gc          --tenants all|T1,T2 [--grace PT24H] --operator &lt;id&gt;
  * artifacts reconcile   --tenants all|T1,T2 [--limit 500] --operator &lt;id&gt;
+ * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
+ * sign …·disclosure complete|expire — {@link SignCommands}(Phase 4)
  * </pre>
  * 무효·정정 사유는 파일로만 받는다 — 자유 텍스트에 개인정보가 섞일 수 있다(CLAUDE.md 규칙 6). 출력에는 사유를 싣지 않는다.
  * 고객 개인정보는 CLI 인자·환경변수로 받지 않는다(셸 기록·프로세스 목록에 남는다) — 파일(허구 데이터) 또는 API로만(CLAUDE.md 규칙 6).
@@ -111,13 +120,17 @@ public class OperatorCli implements ApplicationRunner {
     private final LifecycleService lifecycle;
     private final ArtifactService artifacts;
     private final IdentityLinkRepository identityLinks;
+    private final SignCommands sign;
+    private final DemoSignatureSeeder demoSignatures;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
                        RuleBundleReconciler reconciler, TenantDirectory directory, TenantTransactions transactions,
                        TenantRepository tenants, RuleVersionStore rules, CatalogImportService catalog, CustomerRekeyService rekey,
                        RegisterCustomer registerCustomer, DisclosureService disclosures, DisclosureLookup lookup, CustomerVault customers,
-                       SealService seal, LifecycleService lifecycle, ArtifactService artifacts, IdentityLinkRepository identityLinks) {
+                       SealService seal, LifecycleService lifecycle, ArtifactService artifacts, IdentityLinkRepository identityLinks,
+                       SignSessionService signSessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags,
+                       WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -136,12 +149,19 @@ public class OperatorCli implements ApplicationRunner {
         this.lifecycle = lifecycle;
         this.artifacts = artifacts;
         this.identityLinks = identityLinks;
+        this.sign = new SignCommands(signSessions, signing, expiry, flags, workflowTransactions, this::tenants, clock, out);
+        this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
     }
 
     @Override
     public void run(ApplicationArguments arguments) {
         CliArguments args = CliArguments.parse(arguments.getSourceArgs());
+        if (sign.handles(args.command())) {
+            sign.run(args);
+            return;
+        }
         switch (args.command()) {
+            case "demo signatures" -> demoSignatures(args);
             case "rules distribute" -> distribute(args);
             case "rules approve" -> approve(args);
             case "rules activate" -> activate(args);
@@ -307,6 +327,14 @@ public class OperatorCli implements ApplicationRunner {
             throw new CliFailure(e.getMessage());
         }
         out.println("KEK_INIT " + kekId + " " + file.toAbsolutePath() + " (owner read/write only; keep it outside the repository)");
+    }
+
+    /** Phase 4 데모 서명(3자 터치·종이 스캔 완료, 원격 링크 발송 — 고객 경로는 스크립트가 콘솔 토큰으로 잇는다). 파일 경로는 서명 파일 기준. */
+    private void demoSignatures(CliArguments args) {
+        TenantId tenant = TenantId.of(args.required("tenant"));
+        Path file = Path.of(args.required("file"));
+        demoSignatures.seed(tenant, new Actor(args.optional("agent").orElse("demo-agent"), "AGENT"),
+                new Actor(args.optional("manager").orElse("demo-manager"), "MANAGER"), read(file), file.toAbsolutePath().getParent());
     }
 
     // ------------------------------------------------------------------ 3B: 봉인·정정·무효·재기준·산출물

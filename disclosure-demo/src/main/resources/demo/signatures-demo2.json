@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "note": "Phase 4 DEMO2 데모 서명: PAPER_SCAN(종이 스캔 → 설계사 → 관리자 확인이 검토를 해소하며 완료). 파일은 전부 허구 데이터.",
+  "customerKeyPrefix": "demo:customers.json#",
+  "files": {
+    "strokes": "sign/strokes.json",
+    "image": "sign/signature.png",
+    "scan": "sign/scan.png",
+    "device": "sign/device.json"
+  },
+  "cases": [
+    {
+      "id": "A-4-SCAN",
+      "customer": "C03",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "consultDate": "2026-09-25",
+      "flow": "PAPER_SCAN"
+    }
+  ]
+}

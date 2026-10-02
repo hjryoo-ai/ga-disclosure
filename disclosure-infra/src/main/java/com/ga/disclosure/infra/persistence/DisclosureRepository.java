@@ -115,6 +115,17 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     }
 
     @Override
+    public Optional<Footnote> footnote(DisclosureId id) {
+        return queryAtMostOne("""
+                SELECT disclosure_no, canonical_hash
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :id
+                   AND disclosure_no IS NOT NULL
+                """, Map.of("id", id.value()), (rs, n) -> new Footnote(rs.getString("disclosure_no"), rs.getString("canonical_hash")));
+    }
+
+    @Override
     public List<DisclosureId> awaitingSignatures(int limit) {
         return query("""
                 SELECT disclosure_id

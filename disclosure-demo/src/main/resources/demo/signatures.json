@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "note": "Phase 4 DEMO1 데모 서명(4 계획 §7.6). 흐름: TOUCH_PAD(고객 터치 → 설계사 → 관리자, 완료), REMOTE_LINK(링크 발송까지 — 고객 본인확인·서명은 스크립트가 콘솔 토큰으로 CLI를 이어 실행). 종이 스캔은 DEMO2(signatures-demo2.json — DEMO1 사규가 PAPER_SCAN을 끈다). 만료 사례(A-5-EXPIRE)는 disclosure expire --as-of로 만든다. 파일은 전부 허구 데이터.",
+  "customerKeyPrefix": "demo:customers.json#",
+  "files": {
+    "strokes": "sign/strokes.json",
+    "image": "sign/signature.png",
+    "scan": "sign/scan.png",
+    "device": "sign/device.json"
+  },
+  "cases": [
+    {
+      "id": "A-2",
+      "customer": "C02",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "consultDate": "2026-09-24",
+      "flow": "TOUCH_PAD"
+    },
+    {
+      "id": "A-3-REMOTE",
+      "customer": "C01",
+      "groupCode": "PG-HEALTH-SIMPLE-NR",
+      "consultDate": "2026-09-25",
+      "flow": "REMOTE_LINK"
+    }
+  ]
+}
