@@ -1,6 +1,12 @@
-# Phase 4 계획 — 서명·관리자 확인·만료·증거 패키지 (승인 대기)
+# Phase 4 계획 — 서명·관리자 확인·만료·증거 패키지 (승인 2026-10-02)
 
 기준: `docs/phase-04-지시문.md` v1.0, `docs/phase-03B-수용심사.md` §2·§3, 설계서 v1.8 §4.4·§4.5·§5·§6.1·§6.5·§6.6·§9. 브랜치 `work/phase-4`(main `69192f9` = 3B PR #6 병합에서 분기).
+
+**승인 반영(`docs/phase-04-계획승인.md`, 2026-10-02)** — Q1~Q11은 권장안, Q12 폐기, **Q13은 대안 채택**, 보강 B1~B3. 이 커밋에서 본문을 다음과 같이 고쳤다.
+- Q1: D1 유지. 로더 조건 추가 — 고정 로드는 `status ∈ {ACTIVE, RETIRED}`만 받고(DRAFT·APPROVED 거부), 로드한 body 해시가 초안 고정 시점에 감사에 기록된 해시와 같아야 한다(§7.0).
+- Q2~Q11: 권장안 그대로. Q3 채널 = 도달 경로, `method` = 행위(설계사·관리자는 항상 `SSO`, 터치면 `DRAWN`). Q4 "없는 테넌트"와 "틀린 토큰"은 같은 예외 타입(B2, 응답·지연 동일성은 Phase 6). Q6 설계서 §3.3 문구 수정. Q7 V8이 `tenant.params`에서 키를 제거. Q11 설계서에 "SEQUENTIAL에서 MANAGER가 마지막이면 OPTIONAL은 기회가 없다 — REQUIRED 또는 OFF 권장" 한 줄.
+- **Q13(대안)**: §4.5의 **8개 이벤트 전부 지금 적재**한다. 3B 유스케이스(봉인·무효·정정)와 3A 생성·플래그 경로에도 같은 트랜잭션 적재를 넣는다(§1.6·§7.6).
+- B1: G14 주입에 "증분 대신 재생성 → 접두 실패", "`/ID` 시드를 시각 기반으로 → 골든 실패" 추가(§8). B3: 설계서 v1.9에 결정 반영.
 
 지시문이 계획 맨 앞에 요구한 두 가지(3B 일탈 9건 표, 질문 7번째)가 §0이다. 이어서 ①~⑤를 §1~§5에 둔다. 실측이 필요한 ③(서명본 증분 갱신)은 계획 단계에서 스파이크로 확인했다. 문언끼리 충돌하거나 기존 코드·DB와 맞지 않아 결정이 필요한 지점은 §9 질문에 모았다.
 
@@ -24,7 +30,7 @@
 | D8 | AWS SDK 2.55.9 | 계획 2.55.8 → 착수 시 최신 | 아니다 |
 | D9 | 3A 로컬 볼륨 | 서식 제자리 재해시로 `down -v` 필요 | 아니다(불변 규칙의 정상 동작) |
 
-결론: §5·§6.4를 넓힌 항목은 없다. D1은 §6.2 해석 검사의 완화이므로 표시해 둔다. 되돌리라는 판단이면 Phase 4 선행 소과제로 처리한다(되돌린 경우의 막다른 상태 해소안은 §9 Q12).
+결론: §5·§6.4를 넓힌 항목은 없다. D1은 §6.2 해석 검사의 완화이므로 표시해 두었고, **승인 Q1로 유지가 결정됐다**(로더 조건 추가는 §7.0).
 
 ### 0.2 Phase 4 질문 7번째
 
@@ -140,7 +146,8 @@ CREATE TABLE outbox_event (
 ```
 
 - 잠금 순서는 3B 순서 뒤에 붙인다: 확인서 → 카운터 → 체인 머리 → **아웃박스 머리**.
-- 적재 전에 payload를 계약 스키마로 검증한다(테스트).
+- 적재 전에 payload를 계약 스키마로 검증한다(적재 경로에서 검증, 위반은 명령 오류).
+- **적재 이벤트(승인 Q13 — 8개 전부)**: `DisclosureCreated`(3A 초안 생성·정정 새 버전), `DisclosureSealed`(3B 봉인), `SignatureCaptured`, `DisclosureCompleted`, `DisclosureVoided`, `DisclosureSuperseded`, `ComplianceFlagRaised`(플래그를 여는 모든 경로), `PolicyLinked`(계약 연결은 Phase 6이 유스케이스를 만들 때 같은 적재 함수를 쓴다 — 지금은 발생 경로가 없다). 각 상태 변경과 **같은 트랜잭션**.
 
 ### 1.7 그 밖
 
@@ -310,6 +317,8 @@ OPEN,DOCUMENT_EXPIRE,REVOKED
 
 ## 7. 유스케이스와 트랜잭션
 
+**7.0 고정 룰 로드(승인 Q1)**: `RuleResolver.load`는 `apply_from ≤ 상담일`에 더해 `status ∈ {ACTIVE, RETIRED}`를 요구한다. `DisclosureLoader`는 로드한 GLOBAL·TENANT body 해시를 초안 고정 시점에 감사에 기록된 해시와 대조하고, 다르면 명령 오류다(불변 트리거가 있어 정상 경로로는 다를 수 없다 — 싼 이중 검사).
+
 배치 원칙:
 - 순수 규칙은 `disclosure-sign`에 둔다: 세션 상태표, 토큰 형식·해시, 본인확인 정책, 대리 서명 탐지, 게이트 산식, 보존 앵커 산식.
 - 렌더·패키징은 `disclosure-seal`에 둔다: `SignedPdfAppender`(renderer), `EvidencePackageBuilder`(evidence).
@@ -394,15 +403,15 @@ OPEN,DOCUMENT_EXPIRE,REVOKED
 | G11 | `ProxyDetectionTest`(단위) + IT 1건 | 같은 지문·같은 KST 날 고객 2명 → 플래그, 날짜 경계 다음날 → 없음, TOUCH_PAD 제외, `t < M` → 플래그, 임계치 데이터 교체 |
 | G12 | `RetentionAnchorIT` | 완료 시 연장, 앵커 목록 교체로 동작 변경, 단축 시도 GD094, 재적용 `retention_applied_until` 증가만 |
 | G13 | `GateFunctionTest` | `gateRequiresManager` 양쪽 × 상태 × 서명 조합 |
-| G14 | 빌드 로그·보고서 | 주입: 트리거 PDF 해시 대조 제거, 본인확인 입력값을 감사에 기록, 세션 1회 사용 해제, 증분 대신 재생성 + V8 트리거별·세션 상태표 주입 |
+| G14 | 빌드 로그·보고서 | 주입: 트리거 PDF 해시 대조 제거, 본인확인 입력값을 감사에 기록, 세션 1회 사용 해제, 증분 대신 재생성(→ 접두 실패), `/ID` 시드를 시각 기반으로(→ 골든 실패, 보강 B1) + V8 트리거별·세션 상태표 주입 |
 
 - 추가로 `SessionStateTableTest`(설계서 블록 ↔ EnumMap 양방향)와 `OutboxContractTest`(적재 payload가 계약 스키마 통과, seq 갭 0)를 둔다.
 
 ---
 
-## 9. 질문 (권장안 먼저)
+## 9. 질문 (권장안 먼저) — 2026-10-02 승인: Q13만 대안, Q12 폐기, 나머지 권장안
 
-**Q1. D1(고정 룰 로드 완화) 유지 여부.** 권장: 유지(§0.1). 되돌린다면 Q12.
+**Q1. D1(고정 룰 로드 완화) 유지 여부.** → **승인: 유지 + 로더 조건(§7.0).** 권장: 유지(§0.1).
 
 **Q2. 서명 증거 객체를 `signature` 컬럼(`stroke_key`·`scan_key` …)이 아니라 별도 테이블 `signature_evidence`에 둔다.**
 - 이유
@@ -439,9 +448,9 @@ OPEN,DOCUMENT_EXPIRE,REVOKED
 - 권장: OPTIONAL = PARTIALLY_SIGNED 동안 관리자가 확인할 수 **있다**(R-SIGNER-SET이 이미 "집합 밖 역할 서명 허용", GD104도 같이). 완료 뒤 확인은 없다.
 - 대안: OPTIONAL이면 마지막 필수 서명 뒤 관리자 확인 대기 시간을 룰로 둔다(복잡도 증가).
 
-**Q12. (Q1에서 D1을 되돌릴 때만) 소급 GLOBAL 배포로 고정 룰이 상담일에 더는 시행 중이 아닌 초안.** 그 초안에는 재기준 외 모든 명령을 업무 거부(`RULE_SUPERSEDED`)로 응답하게 하고, 로더 검사는 원래대로 둔다.
+**Q12. → 폐기(Q1 유지).** (Q1에서 D1을 되돌릴 때만) 소급 GLOBAL 배포로 고정 룰이 상담일에 더는 시행 중이 아닌 초안.** 그 초안에는 재기준 외 모든 명령을 업무 거부(`RULE_SUPERSEDED`)로 응답하게 하고, 로더 검사는 원래대로 둔다.
 
-**Q13. 아웃박스 이벤트 범위.** 지시문은 `SignatureCaptured`·`DisclosureCompleted`만 요구한다. 권장: 이 둘만 적재하고, `DisclosureSealed`·`Voided`·`Superseded`·`ComplianceFlagRaised`는 피드를 여는 Phase 6에서 같은 테이블로 추가한다(피드 전에는 소비자가 없어 누락이 관찰되지 않는다). 대안: 지금 전부 적재한다.
+**Q13. 아웃박스 이벤트 범위.** → **승인: 대안 — 8개 전부 지금 적재.** 원 권장안: 지시문은 `SignatureCaptured`·`DisclosureCompleted`만 요구한다. 권장: 이 둘만 적재하고, `DisclosureSealed`·`Voided`·`Superseded`·`ComplianceFlagRaised`는 피드를 여는 Phase 6에서 같은 테이블로 추가한다(피드 전에는 소비자가 없어 누락이 관찰되지 않는다). 대안: 지금 전부 적재한다.
 
 ---
 
