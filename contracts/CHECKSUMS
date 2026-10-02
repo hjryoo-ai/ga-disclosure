@@ -27,3 +27,4 @@ fe02082b4613551431f40c9f1b1e98bcaf69efb58dbfd297861ef88fc72f98c1  events/v1/samp
 fad86c179b1a5b43789d2a19cccd086fb3bcd0bf8fbe465687275cd8777b5506  rules/v1/rule-bundle.schema.json
 3cde4d4a468c61aeb93fbab593ca24a4ef7c334ad72b61d20b51be1f64e24f80  rules/v1/rule-version.schema.json
 9a676706f04e7d8b0e5b9a7b921adc4e08ebfaaab2ce7dd51f39f705a54bcb2f  seal/v1/canonical.schema.json
+f45f412b74b1c7371bcd1ebf1510812404f298864751e0d7cf06a9c053cd471d  seal/v1/evidence-manifest.schema.json

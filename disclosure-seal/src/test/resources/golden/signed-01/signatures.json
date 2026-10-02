@@ -1,0 +1,10 @@
+{
+  "note": "서명본 골든(4 계획 §3, G7): case-01 봉인 PDF + 서명 3건(현장 터치 고객 → 설계사 SSO 터치 → 관리자 승인). 서명 이미지는 이 디렉터리의 PNG(가상 획, 투명 배경 — PDF/A-2 투명도 확인용). 시각은 UTC ISO.",
+  "base": "case-01",
+  "signatures": [
+    { "role": "CUSTOMER", "channel": "TOUCH_PAD", "method": "DRAWN", "signedAt": "2026-09-24T01:12:00Z",
+      "identity": [ { "method": "AGENT_FACE_TO_FACE", "passed": true }, { "method": "SCROLL_COMPLETE", "passed": true } ], "image": "customer.png" },
+    { "role": "AGENT", "channel": "SSO", "method": "DRAWN", "signedAt": "2026-09-24T01:15:30Z", "identity": [], "image": "agent.png" },
+    { "role": "MANAGER", "channel": "SSO", "method": "SSO_APPROVAL", "signedAt": "2026-09-24T05:40:00Z", "identity": [], "image": null }
+  ]
+}

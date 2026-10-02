@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/seal/v1/evidence-manifest.schema.json",
+  "title": "Evidence package manifest (v1)",
+  "description": "증거 패키지(EVIDENCE_ZIP)의 manifest.json(JCS 바이트, 패키지 첫 엔트리) — 4 계획 §4, 설계서 §6.5. files가 manifest를 뺀 엔트리 전부의 해시를 경로 순으로 담아 매니페스트 해시가 패키지 전체를 묶는다. 서명 스트로크·이미지·스캔 원본은 넣지 않고 signatures[].evidence에 해시만 둔다. 본인확인은 결과만(입력값 없음). 앵커 참조는 Phase 5 전까지 null. 모든 객체는 닫혀 있다.",
+  "type": "object",
+  "required": ["manifestVersion", "tenantId", "disclosureId", "disclosureNo", "version", "hashes", "pinned", "snapshot", "sealedAt", "completedAt",
+               "retentionUntil", "signatures", "audit", "anchor", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "manifestVersion": { "const": 1 },
+    "tenantId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}$" },
+    "disclosureId": { "$ref": "#/$defs/uuid" },
+    "disclosureNo": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-[0-9]{4}-[0-9]{6}$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "hashes": {
+      "type": "object",
+      "required": ["canonical", "pdf", "signedPdf", "chain", "chainSeq"],
+      "additionalProperties": false,
+      "properties": {
+        "canonical": { "$ref": "#/$defs/sha256" },
+        "pdf": { "$ref": "#/$defs/sha256" },
+        "signedPdf": { "$ref": "#/$defs/sha256" },
+        "chain": { "$ref": "#/$defs/sha256" },
+        "chainSeq": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "pinned": {
+      "type": "object",
+      "required": ["ruleVersionId", "ruleBundleHash", "tenantRuleVersionId", "tenantRuleBundleHash", "templateId", "templateVersion",
+                   "templateBundleHash"],
+      "additionalProperties": false,
+      "properties": {
+        "ruleVersionId": { "type": "string", "minLength": 1 },
+        "ruleBundleHash": { "$ref": "#/$defs/sha256" },
+        "tenantRuleVersionId": { "type": ["string", "null"], "minLength": 1 },
+        "tenantRuleBundleHash": { "oneOf": [ { "$ref": "#/$defs/sha256" }, { "type": "null" } ] },
+        "templateId": { "type": "string", "minLength": 1 },
+        "templateVersion": { "type": "integer", "minimum": 1 },
+        "templateBundleHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["snapshotId", "gradingPolicyVersionId", "rankingPolicyVersionId", "tieBreak", "generatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "snapshotId": { "type": "string", "minLength": 1 },
+        "gradingPolicyVersionId": { "type": "string", "minLength": 1 },
+        "rankingPolicyVersionId": { "type": "string", "minLength": 1 },
+        "tieBreak": { "type": "string", "minLength": 1 },
+        "generatedAt": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "sealedAt": { "$ref": "#/$defs/instant" },
+    "completedAt": { "$ref": "#/$defs/instant" },
+    "retentionUntil": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "signatures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["file", "signatureId", "role", "channel", "method", "signedAt", "signedDocHash", "signedPdfHash", "sessionId",
+                     "identityCheck", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string", "pattern": "^signatures/[1-9][0-9]*-(CUSTOMER|AGENT|MANAGER)\\.json$" },
+          "signatureId": { "$ref": "#/$defs/uuid" },
+          "role": { "$ref": "#/$defs/role" },
+          "channel": { "$ref": "#/$defs/channel" },
+          "method": { "$ref": "#/$defs/method" },
+          "signedAt": { "$ref": "#/$defs/instant" },
+          "signedDocHash": { "$ref": "#/$defs/sha256" },
+          "signedPdfHash": { "$ref": "#/$defs/sha256" },
+          "sessionId": { "oneOf": [ { "$ref": "#/$defs/uuid" }, { "type": "null" } ] },
+          "identityCheck": { "$ref": "#/$defs/identityCheck" },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind", "sha256", "cipherSha256", "bytes"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "enum": ["STROKES", "IMAGE", "SCAN"] },
+                "sha256": { "$ref": "#/$defs/sha256" },
+                "cipherSha256": { "$ref": "#/$defs/sha256" },
+                "bytes": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "required": ["file", "fromSeq", "toSeq", "rows", "lastEntryHash"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "const": "audit.jsonl" },
+        "fromSeq": { "type": "integer", "minimum": 1 },
+        "toSeq": { "type": "integer", "minimum": 1 },
+        "rows": { "type": "integer", "minimum": 1 },
+        "lastEntryHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "anchor": { "type": "null", "description": "Phase 5 앵커 전까지 null" },
+    "files": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "bytes"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "pattern": "^[a-z0-9-]+(/[0-9A-Za-z-]+)?\\.(json|pdf|jsonl)$" },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "bytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "instant": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" },
+    "role": { "enum": ["CUSTOMER", "AGENT", "MANAGER"] },
+    "channel": { "enum": ["TOUCH_PAD", "REMOTE_LINK", "PAPER_SCAN", "CERTIFIED_ESIGN", "SSO"] },
+    "method": { "enum": ["DRAWN", "UPLOADED_SCAN", "SSO_APPROVAL"] },
+    "identityCheck": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "result", "at"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "enum": ["LINK_POSSESSION", "BIRTH_DATE", "AGENT_FACE_TO_FACE", "SCROLL_COMPLETE", "PROVIDER"] },
+          "result": { "enum": ["PASS", "FAIL"] },
+          "at": { "$ref": "#/$defs/instant" }
+        }
+      }
+    },
+    "signatureFile": {
+      "description": "signatures/{순번}-{역할}.json — 서명 1건의 결과·시각·기기·IP·해시. 입력값·이미지 없음.",
+      "type": "object",
+      "required": ["signatureId", "role", "channel", "method", "signedAt", "signedDocHash", "signedPdfHash", "sessionId", "identityCheck",
+                   "viewEvidence", "acknowledgedFlags", "scanMatch", "device", "ip"],
+      "additionalProperties": false,
+      "properties": {
+        "signatureId": { "$ref": "#/$defs/uuid" },
+        "role": { "$ref": "#/$defs/role" },
+        "channel": { "$ref": "#/$defs/channel" },
+        "method": { "$ref": "#/$defs/method" },
+        "signedAt": { "$ref": "#/$defs/instant" },
+        "signedDocHash": { "$ref": "#/$defs/sha256" },
+        "signedPdfHash": { "$ref": "#/$defs/sha256" },
+        "sessionId": { "oneOf": [ { "$ref": "#/$defs/uuid" }, { "type": "null" } ] },
+        "identityCheck": { "$ref": "#/$defs/identityCheck" },
+        "viewEvidence": { "type": ["object", "null"] },
+        "acknowledgedFlags": { "type": "array", "items": { "$ref": "#/$defs/uuid" }, "uniqueItems": true },
+        "scanMatch": { "type": ["object", "null"] },
+        "device": { "type": ["object", "null"] },
+        "ip": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
