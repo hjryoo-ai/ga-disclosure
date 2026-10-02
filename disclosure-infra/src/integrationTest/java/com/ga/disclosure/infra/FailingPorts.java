@@ -118,8 +118,8 @@ final class FailingPorts {
         }
 
         @Override
-        public boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at) {
-            return delegate.markRetentionApplied(disclosure, kind, at);
+        public boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at, java.time.LocalDate until) {
+            return delegate.markRetentionApplied(disclosure, kind, at, until);
         }
 
         @Override

@@ -43,7 +43,7 @@ class SealWriteScanTest {
             LEDGER + "#advanceChainHead", Set.of("INSERT disclosure_chain_head", "UPDATE disclosure_chain_head"),
             RECORDS + "#insertKey", Set.of("INSERT document_key"),
             RECORDS + "#insertArtifact", Set.of("INSERT document_artifact"),
-            RECORDS + "#markRetentionApplied", Set.of("UPDATE document_artifact"));      // retention_applied_at NULL → 값 1회
+            RECORDS + "#markRetentionApplied", Set.of("UPDATE document_artifact"));      // 첫 적용 시각 1회, 적용 기한 증가만(V8)
 
     private static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
 

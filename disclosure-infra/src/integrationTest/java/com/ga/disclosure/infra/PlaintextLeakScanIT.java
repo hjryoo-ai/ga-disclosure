@@ -154,7 +154,8 @@ class PlaintextLeakScanIT {
                     outputs.add(view instanceof com.ga.disclosure.workflow.disclosure.ArtifactService.View.Granted g
                             ? g.record().toString() : view.toString());
                 }
-                capture(() -> seal.lifecycle.voidDisclosure(w.tenant, SealSetup.MANAGER, id, "철회"));
+                capture(() -> seal.lifecycle.voidDisclosure(w.tenant, SealSetup.MANAGER, id,
+                        new com.ga.disclosure.workflow.disclosure.LifecycleReason("CUSTOMER_CANCELLED", null)));
             } finally {
                 System.setOut(out);
                 System.setErr(err);

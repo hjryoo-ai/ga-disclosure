@@ -196,7 +196,8 @@ public final class ArtifactService {
                 continue;
             }
             boolean marked = transactions.inTenant(tenant, () -> {
-                boolean first = records.markRetentionApplied(u.record().disclosureId(), u.record().kind(), clock.instant());
+                boolean first = records.markRetentionApplied(u.record().disclosureId(), u.record().kind(), clock.instant(),
+                        u.retentionUntil());
                 if (first) {
                     audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_RETAIN,
                             SealService.ARTIFACT_TARGET, u.record().storageKey(), JSON.createObjectNode()

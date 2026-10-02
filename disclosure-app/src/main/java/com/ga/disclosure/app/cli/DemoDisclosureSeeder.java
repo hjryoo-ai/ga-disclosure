@@ -16,6 +16,7 @@ import com.ga.disclosure.workflow.disclosure.CommandResult;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.disclosure.DisclosureService;
 import com.ga.disclosure.workflow.disclosure.ItemInput;
+import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.rules.validation.ValidationResult;
@@ -131,7 +132,9 @@ final class DemoDisclosureSeeder {
                 out.println("  " + id + " supersede NOOP (a corrected version exists)");
                 return;
             }
-            LifecycleService.Outcome o = lifecycle.supersede(tenant, manager, d, supersedeSpec.get("reason").asString());
+            JsonNode text = supersedeSpec.get("reasonText");
+            LifecycleService.Outcome o = lifecycle.supersede(tenant, manager, d, new LifecycleReason(supersedeSpec.get("reasonCode").asString(),
+                    text == null ? null : text.asString()));
             if (!o.applied()) {
                 throw new CliFailure("case " + id + " could not be superseded: " + o.rejection().orElseThrow());
             }

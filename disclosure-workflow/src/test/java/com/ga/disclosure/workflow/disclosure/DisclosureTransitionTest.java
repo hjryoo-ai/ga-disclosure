@@ -69,8 +69,9 @@ class DisclosureTransitionTest {
         }
         return Disclosure.restore(d.id(), d.agentId(), d.customerRef(), d.groupCode(), d.consultDate(), d.ruleVersionId(), null,
                 d.template(), d.issuerMode(), Fixtures.CONTEXT, Lineage.FIRST, status, d.disclosureItems(), d.engineSnapshot().orElseThrow(),
-                stamp(), status == DisclosureStatus.VOID ? new VoidMark(AT, "상담 취소") : null,
-                status == DisclosureStatus.SUPERSEDED ? com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()) : null);
+                stamp(), status == DisclosureStatus.VOID ? new VoidMark(AT, new LifecycleReason("CUSTOMER_CANCELLED", null)) : null,
+                status == DisclosureStatus.SUPERSEDED ? com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()) : null,
+                status == DisclosureStatus.SUPERSEDED ? new LifecycleReason("CONTENT_ERROR", null) : null);
     }
 
     static List<AgentReason> reasons() {
@@ -89,8 +90,9 @@ class DisclosureTransitionTest {
             case APPLY_SNAPSHOT -> d.applySnapshot(Fixtures.snapshotFor(d.engineRequest()), Fixtures.CHECK);
             case SET_RECOMMENDATIONS -> d.setRecommendations(reasons(), Fixtures.RULE.autoReasonCodes(), Fixtures.CHECK);
             case SEAL -> d.seal(stamp());
-            case VOID -> d.voidWith(new VoidMark(AT, "상담 취소"));
-            case SUPERSEDE -> d.supersede(com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()));
+            case VOID -> d.voidWith(new VoidMark(AT, new LifecycleReason("CUSTOMER_CANCELLED", null)));
+            case SUPERSEDE -> d.supersede(com.ga.disclosure.domain.vo.DisclosureId.of(java.util.UUID.randomUUID()),
+                    new LifecycleReason("CONTENT_ERROR", null));
             case REBASE -> d.rebase(d.ruleVersionId(), null, d.template(), Fixtures.CONTEXT, Fixtures.CHECK);
             default -> throw new IllegalArgumentException(command + " is not implemented before Phase 4");
         };

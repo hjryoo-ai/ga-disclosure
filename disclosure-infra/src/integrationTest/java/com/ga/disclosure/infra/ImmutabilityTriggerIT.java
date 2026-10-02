@@ -14,6 +14,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -76,7 +77,11 @@ class ImmutabilityTriggerIT {
         META.put("superseded_by_id", "gen_random_uuid()");
         META.put("completed_at", "TIMESTAMPTZ '2026-09-24 00:00:00+09'");
         META.put("voided_at", "TIMESTAMPTZ '2026-09-24 00:00:00+09'");
-        META.put("void_reason", "'상담 취소'");
+        META.put("void_reason", "'상담 취소'");                               // V8: 이관 뒤 쓰지 않는 옛 컬럼(언제나 NULL, V9에서 제거)
+        META.put("void_reason_code", "'CUSTOMER_CANCELLED'");                 // V8: 무효·정정 사유 코드·텍스트(메타, 한 번만 쓴다 — GD100)
+        META.put("void_reason_text", "'상담 취소'");
+        META.put("supersede_reason_code", "'CONTENT_ERROR'");
+        META.put("supersede_reason_text", "'오기 정정'");
         META.put("policy_no", "'POL-9'");
         META.put("contract_date", "DATE '2026-10-01'");
         META.put("retention_until", "DATE '2031-10-01'");
@@ -162,15 +167,23 @@ class ImmutabilityTriggerIT {
 
     /**
      * 메타 컬럼 하나를 바꾼 결과 행의 판정(설계서 §5 v1.8 규칙 문장): {@code null} = 허용, 아니면 기대 SQLSTATE. 시드 행은 상태와 일관된다
-     * (봉인 이후 상태만 봉인 컬럼·보존기한, VOID만 무효 시각·사유, SUPERSEDED만 후속 ID).
+     * (봉인 이후 상태만 봉인 컬럼·보존기한, VOID만 무효 시각·사유 코드·텍스트, SUPERSEDED만 후속 ID·사유 코드, COMPLETED만 완료 시각).
+     * V8: 사유·무효 시각·완료 시각은 한 번 쓰면 끝(GD100) — 트리거가 CHECK보다 먼저다.
      */
     static String expectedMeta(String status, String column) {
         boolean sealed = !SeedData.MUTABLE_STATUSES.contains(status);
         return switch (column) {
-            case "superseded_by_id" -> status.equals("SUPERSEDED") ? "GD004" : "23514";   // 한 번만 쓰고, SUPERSEDED에만 있다
-            case "voided_at", "void_reason" -> status.equals("VOID") ? null : "23514";     // VOID ⇔ 무효 시각 ⇔ 사유
+            case "superseded_by_id" -> status.equals("SUPERSEDED") ? "GD004" : "23514";   // 한 번만 쓰고, SUPERSEDED에만 있다(사유 코드와 함께)
+            case "voided_at", "void_reason_code", "void_reason_text" -> status.equals("VOID") ? "GD100" : "23514";   // VOID ⇔ 시각 ⇔ 코드, 한 번만
+            case "supersede_reason_code", "supersede_reason_text" -> status.equals("SUPERSEDED") ? "GD100" : "23514";
+            case "void_reason" -> "23514";                                                 // 옛 컬럼은 더 쓰지 않는다
+            case "completed_at" -> switch (status) {
+                case "COMPLETED" -> "GD100";                                               // 한 번만
+                case "VOID", "SUPERSEDED" -> null;                                         // 완료 뒤 무효·정정은 완료 시각을 유지할 수 있다
+                default -> "23514";                                                        // COMPLETED·VOID·SUPERSEDED에만
+            };
             case "retention_until" -> sealed ? null : "23514";                             // 봉인 컬럼과 함께만, 연장은 허용
-            case "completed_at", "policy_no", "contract_date" -> null;
+            case "policy_no", "contract_date" -> null;
             default -> throw new IllegalArgumentException(column);
         };
     }
@@ -208,12 +221,19 @@ class ImmutabilityTriggerIT {
             assertRejected(DB, T, "23514", move, next, T, id);
             return;
         }
+        if (status.equals("VOID")) {
+            // V8: 무효 시각·사유는 한 번 쓰면 끝(GD100)이라 VOID도 다른 상태로 옮길 수 없다 — 상태표에서도 끝 상태다.
+            assertRejected(DB, T, "GD100", move, next, T, id);
+            return;
+        }
         assertAllowed(DB, T, move, next, T, id);
 
         // 메타 전부를 상태와 함께 한 문장으로 바꿔도 본문 가드에 걸리지 않는다(값은 다음 상태와 일관되게)
         StringBuilder all = new StringBuilder("UPDATE disclosure SET status = ?, ").append(companions(next));
-        all.append(", completed_at = ").append(META.get("completed_at"))
-                .append(", policy_no = ").append(META.get("policy_no"))
+        if (java.util.List.of("COMPLETED", "VOID", "SUPERSEDED").contains(next)) {
+            all.append(", completed_at = coalesce(completed_at, ").append(META.get("completed_at")).append(")");   // V8: 완료 시각은 한 번만
+        }
+        all.append(", policy_no = ").append(META.get("policy_no"))
                 .append(", contract_date = ").append(META.get("contract_date"));
         if (!SeedData.MUTABLE_STATUSES.contains(next)) {
             all.append(", retention_until = ").append(META.get("retention_until"));
@@ -225,8 +245,9 @@ class ImmutabilityTriggerIT {
     /** 다음 상태와 일관된 VOID 동반 컬럼(SUPERSEDED로 옮기지는 않는다 — 후속 ID 쓰기는 {@link #supersededByIdIsWriteOnce}). */
     private static String companions(String next) {
         return next.equals("VOID")
-                ? "voided_at = " + META.get("voided_at") + ", void_reason = " + META.get("void_reason")
-                : "voided_at = NULL, void_reason = NULL";
+                ? "voided_at = " + META.get("voided_at") + ", void_reason_code = " + META.get("void_reason_code")
+                        + ", void_reason_text = " + META.get("void_reason_text")
+                : "voided_at = NULL, void_reason_code = NULL, void_reason_text = NULL";
     }
 
     /** 보존기한(메타)은 연장만: 같은 값·더 늦은 값 허용, 앞당기기·NULL 거부(V7 GD094, 승인 Q6). */
@@ -274,17 +295,24 @@ class ImmutabilityTriggerIT {
     }
 
     /**
-     * 봉인 이후 상태 간 전이는 본문 가드가 막지 않는다(전이 규칙은 상태표·애그리게이트). 동반 컬럼은 다음 상태와 일관되게 쓴다. 예외는
-     * SUPERSEDED에서 나가는 전이 — 후속 ID가 남아 V7 CHECK가 거부한다(상태표에서도 끝 상태).
+     * 봉인 이후 상태 간 전이는 본문 가드가 막지 않는다(전이 규칙은 상태표·애그리게이트). 동반 컬럼은 다음 상태와 일관되게 쓴다 — 무효 사유,
+     * 정정 사유 코드(V8), 완료 시각(V8, 이미 있으면 그대로). 예외는 끝 상태에서 나가는 전이로, DB가 따로 막는다:
+     * SUPERSEDED는 후속 ID가 남아 CHECK(23514), VOID는 무효 시각·사유를 지울 수 없고(V8 GD100), COMPLETED는 완료 시각이 남아
+     * COMPLETED·VOID·SUPERSEDED 외 상태가 될 수 없다(V8 CHECK 23514).
      */
     @ParameterizedTest(name = "{0} → {1}")
     @MethodSource("sealedTimesOtherSealed")
     void sealedToSealedNotBlockedByTheBodyGuard(String from, String to) {
         UUID id = seedDisclosure(from);
         String sql = "UPDATE disclosure SET status = ?, " + companions(to)
-                + (to.equals("SUPERSEDED") ? ", superseded_by_id = gen_random_uuid()" : "")
+                + (to.equals("SUPERSEDED") ? ", superseded_by_id = gen_random_uuid(), supersede_reason_code = 'CONTENT_ERROR'" : "")
+                + (to.equals("COMPLETED") ? ", completed_at = coalesce(completed_at, TIMESTAMPTZ '2026-09-24 10:00:00+09')" : "")
                 + " WHERE tenant_id = ? AND disclosure_id = ?";
         if (from.equals("SUPERSEDED")) {
+            assertRejected(DB, T, "23514", sql, to, T, id);
+        } else if (from.equals("VOID")) {
+            assertRejected(DB, T, "GD100", sql, to, T, id);
+        } else if (from.equals("COMPLETED") && !List.of("VOID", "SUPERSEDED").contains(to)) {
             assertRejected(DB, T, "23514", sql, to, T, id);
         } else {
             assertAllowed(DB, T, sql, to, T, id);

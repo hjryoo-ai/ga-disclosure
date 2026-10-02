@@ -77,11 +77,13 @@ public final class Disclosure implements ValidationSubject {
     private SealStamp sealOrNull;
     private VoidMark voidOrNull;
     private DisclosureId supersededByOrNull;
+    private LifecycleReason supersedeReasonOrNull;
 
     private Disclosure(DisclosureId id, String agentId, CustomerRef customerRef, GroupCode groupCode, LocalDate consultDate,
                        RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template, IssuerMode issuerMode,
                        DisclosureContext context, Lineage lineage, DisclosureStatus status, List<DisclosureItem> items,
-                       EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull, DisclosureId supersededByOrNull) {
+                       EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull, DisclosureId supersededByOrNull,
+                       LifecycleReason supersedeReasonOrNull) {
         this.id = Objects.requireNonNull(id, "id");
         this.agentId = Objects.requireNonNull(agentId, "agentId");
         this.customerRef = Objects.requireNonNull(customerRef, "customerRef");
@@ -96,6 +98,7 @@ public final class Disclosure implements ValidationSubject {
         this.sealOrNull = sealOrNull;
         this.voidOrNull = voidOrNull;
         this.supersededByOrNull = supersededByOrNull;
+        this.supersedeReasonOrNull = supersedeReasonOrNull;
         checkInvariants();
     }
 
@@ -117,7 +120,7 @@ public final class Disclosure implements ValidationSubject {
                                    RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template,
                                    IssuerMode issuerMode, DisclosureContext context) {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, Lineage.FIRST, DisclosureStatus.DRAFT, List.of(), null, null, null, null);
+                issuerMode, context, Lineage.FIRST, DisclosureStatus.DRAFT, List.of(), null, null, null, null, null);
     }
 
     /**
@@ -129,7 +132,7 @@ public final class Disclosure implements ValidationSubject {
         List<DisclosureItem> copied = original.items.stream().map(DisclosureItem::ungraded).toList();
         return new Disclosure(newId, original.agentId, original.customerRef, original.groupCode, original.consultDate, ruleVersionId,
                 tenantRuleVersionIdOrNull, template, original.issuerMode, context, original.lineage.next(original.id), DisclosureStatus.DRAFT,
-                copied, null, null, null, null);
+                copied, null, null, null, null, null);
     }
 
     /** 저장소에서 복원. 불변식(스냅샷·봉인·무효·정정 ↔ 상태·항목)을 다시 검사한다. */
@@ -137,14 +140,14 @@ public final class Disclosure implements ValidationSubject {
                                      RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template,
                                      IssuerMode issuerMode, DisclosureContext context, Lineage lineage, DisclosureStatus status,
                                      List<DisclosureItem> items, EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull,
-                                     DisclosureId supersededByOrNull) {
+                                     DisclosureId supersededByOrNull, LifecycleReason supersedeReasonOrNull) {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull, supersedeReasonOrNull);
     }
 
     private Disclosure copy() {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull, supersedeReasonOrNull);
     }
 
     private void adopt(Disclosure candidate) {
@@ -154,6 +157,7 @@ public final class Disclosure implements ValidationSubject {
         this.sealOrNull = candidate.sealOrNull;
         this.voidOrNull = candidate.voidOrNull;
         this.supersededByOrNull = candidate.supersededByOrNull;
+        this.supersedeReasonOrNull = candidate.supersedeReasonOrNull;
         if (candidate.ruleVersionId != ruleVersionId || candidate.template != template || candidate.context != context
                 || candidate.tenantRuleVersionIdOrNull != tenantRuleVersionIdOrNull) {
             pin(candidate.ruleVersionId, candidate.tenantRuleVersionIdOrNull, candidate.template, candidate.context);
@@ -297,16 +301,21 @@ public final class Disclosure implements ValidationSubject {
         return new TransitionOutcome.Applied(command, from, status, null, List.of());
     }
 
-    /** 정정(SUPERSEDE): 봉인 이후 상태 → SUPERSEDED, 후속 버전 ID를 한 번만 기록한다(V3 GD004). 새 버전은 {@link #supersedingDraft}. */
-    public TransitionOutcome supersede(DisclosureId next) {
+    /**
+     * 정정(SUPERSEDE): 봉인 이후 상태 → SUPERSEDED, 후속 버전 ID와 정정 사유를 한 번만 기록한다(V3 GD004, V8 GD100). 새 버전은
+     * {@link #supersedingDraft}.
+     */
+    public TransitionOutcome supersede(DisclosureId next, LifecycleReason reason) {
         DisclosureCommand command = DisclosureCommand.SUPERSEDE;
         DisclosureStateTable.require(status, command);
         Objects.requireNonNull(next, "next");
+        Objects.requireNonNull(reason, "reason");
         if (next.equals(id)) {
             throw new IllegalArgumentException("a disclosure cannot supersede itself");
         }
         Disclosure candidate = copy();
         candidate.supersededByOrNull = next;
+        candidate.supersedeReasonOrNull = reason;
         candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.SUPERSEDED);
         DisclosureStatus from = status;
         adopt(candidate);
@@ -375,8 +384,9 @@ public final class Disclosure implements ValidationSubject {
         if ((status == DisclosureStatus.VOID) != (voidOrNull != null)) {
             throw new IllegalStateException("void mark exactly on VOID (status " + status + ")");
         }
-        if ((status == DisclosureStatus.SUPERSEDED) != (supersededByOrNull != null)) {
-            throw new IllegalStateException("superseded-by exactly on SUPERSEDED (status " + status + ")");
+        if ((status == DisclosureStatus.SUPERSEDED) != (supersededByOrNull != null)
+                || (supersededByOrNull != null) != (supersedeReasonOrNull != null)) {
+            throw new IllegalStateException("superseded-by and its reason exactly on SUPERSEDED (status " + status + ")");
         }
         if (sealOrNull != null && snapshotOrNull == null) {
             throw new IllegalStateException("a sealed disclosure carries its engine snapshot");
@@ -448,6 +458,10 @@ public final class Disclosure implements ValidationSubject {
 
     public Optional<DisclosureId> supersededBy() {
         return Optional.ofNullable(supersededByOrNull);
+    }
+
+    public Optional<LifecycleReason> supersedeReason() {
+        return Optional.ofNullable(supersedeReasonOrNull);
     }
 
     public Optional<RuleVersionId> tenantRuleVersionId() {

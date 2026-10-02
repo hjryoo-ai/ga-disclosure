@@ -165,14 +165,14 @@ class RuleResolverTest {
     void overridableKeysAreMergedAndNestedObjectsReplacedWhole() {
         JsonNode house = json("""
                 {"signDeadlineDays": 10,
-                 "channels": {"TOUCH_PAD": true, "REMOTE_LINK": true, "PAPER_SCAN": false, "CERTIFIED_ESIGN": false},
+                 "channels": {"TOUCH_PAD": {"enabled": true}, "REMOTE_LINK": {"enabled": true}, "PAPER_SCAN": {"enabled": false, "requiresManagerReview": true}, "CERTIFIED_ESIGN": {"enabled": false}},
                  "identityCheck": {"REMOTE_LINK": ["LINK_POSSESSION", "BIRTH_DATE"], "maxFailures": 3}}
                 """);
         EffectiveRule rule = new RuleResolver(withGlobal().add(Bundles.tenant("HOUSE", FROM, null, RuleStatus.ACTIVE, house)))
                 .resolve(T, D);
         assertThat(rule.tenantRuleVersion()).hasValueSatisfying(id -> assertThat(id.value()).isEqualTo("HOUSE"));
         assertThat(rule.signDeadlineDays()).isEqualTo(10);
-        assertThat(rule.channels()).containsEntry(SignatureChannel.PAPER_SCAN, false);
+        assertThat(rule.channel(SignatureChannel.PAPER_SCAN).enabled()).isFalse();
         // 깊은 병합이 아니다: TENANT의 identityCheck에 TOUCH_PAD가 없으므로 병합 결과에도 없다.
         assertThat(rule.identityCheckMaxFailures()).isEqualTo(3);
         assertThatThrownBy(() -> rule.identityCheck(SignatureChannel.TOUCH_PAD)).isInstanceOf(MissingRuleKeyException.class);

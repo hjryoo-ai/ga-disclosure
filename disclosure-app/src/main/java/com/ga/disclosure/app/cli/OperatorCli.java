@@ -2,6 +2,7 @@ package com.ga.disclosure.app.cli;
 
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.DisclosureService;
+import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
@@ -74,8 +75,8 @@ import java.util.stream.Stream;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
  * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
  * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]       (거부면 종료 코드 2와 거부 코드 목록)
- * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-file &lt;path&gt; --operator &lt;id&gt; --role &lt;ROLE&gt;
- * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-file &lt;path&gt; --operator &lt;id&gt; --role &lt;ROLE&gt;
+ * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
+ * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
  * disclosure rebase     --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]
  * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON --out &lt;path&gt; --operator &lt;id&gt; [--role COMPLIANCE]
  * artifacts gc          --tenants all|T1,T2 [--grace PT24H] --operator &lt;id&gt;
@@ -308,13 +309,13 @@ public class OperatorCli implements ApplicationRunner {
         return DisclosureId.parse(args.required("id"));
     }
 
-    /** 사유 파일(UTF-8). 내용은 출력하지 않는다. */
-    private static String reasonFile(CliArguments args) {
-        String reason = read(Path.of(args.required("reason-file"))).strip();
-        if (reason.isEmpty()) {
+    /** 사유 = 코드(인자) + 선택 텍스트(파일, UTF-8 — 자유 텍스트는 인자로 받지 않는다). 텍스트는 출력하지 않는다. */
+    private static LifecycleReason reason(CliArguments args) {
+        String text = args.optional("reason-file").map(f -> read(Path.of(f)).strip()).orElse(null);
+        if (text != null && text.isEmpty()) {
             throw new CliFailure("reason file is empty");
         }
-        return reason;
+        return new LifecycleReason(args.required("reason-code"), text);
     }
 
     private void sealDisclosure(CliArguments args) {
@@ -331,14 +332,14 @@ public class OperatorCli implements ApplicationRunner {
     private void voidDisclosure(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         LifecycleService.Outcome o = lifecycle.voidDisclosure(tenant, new Actor(args.required("operator"), args.required("role")),
-                disclosureId(args), reasonFile(args));
+                disclosureId(args), reason(args));
         lifecycleResult("VOID", tenant, o);
     }
 
     private void supersede(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         LifecycleService.Outcome o = lifecycle.supersede(tenant, new Actor(args.required("operator"), args.required("role")), disclosureId(args),
-                reasonFile(args));
+                reason(args));
         lifecycleResult("SUPERSEDE", tenant, o);
     }
 

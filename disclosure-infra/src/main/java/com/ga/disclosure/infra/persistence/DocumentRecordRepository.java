@@ -86,15 +86,16 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
     }
 
     @Override
-    public boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at) {
+    public boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at, LocalDate until) {
         return update("""
                 UPDATE document_artifact
-                   SET retention_applied_at = :at
+                   SET retention_applied_at = coalesce(retention_applied_at, :at),
+                       retention_applied_until = :until
                  WHERE tenant_id = :tenantId
                    AND disclosure_id = :disclosureId
                    AND kind = :kind
-                   AND retention_applied_at IS NULL
-                """, Map.of("disclosureId", disclosure.value(), "kind", kind.name(), "at", Timestamp.from(at))) == 1;
+                   AND (retention_applied_until IS NULL OR retention_applied_until < :until)
+                """, Map.of("disclosureId", disclosure.value(), "kind", kind.name(), "at", Timestamp.from(at), "until", until)) == 1;
     }
 
     @Override
@@ -106,7 +107,7 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
                   JOIN disclosure d ON d.tenant_id = a.tenant_id AND d.disclosure_id = a.disclosure_id
                  WHERE a.tenant_id = :tenantId
                    AND d.tenant_id = :tenantId
-                   AND a.retention_applied_at IS NULL
+                   AND (a.retention_applied_until IS NULL OR a.retention_applied_until < d.retention_until)
                  ORDER BY a.created_at, a.disclosure_id, a.kind
                  LIMIT :limit
                 """, Map.of("limit", limit), (rs, n) -> new Unretained(artifact(rs), rs.getObject("retention_until", LocalDate.class)));

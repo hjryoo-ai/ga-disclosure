@@ -30,6 +30,7 @@ import com.ga.disclosure.workflow.disclosure.DisclosureItem;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.disclosure.DisclosureRecord;
 import com.ga.disclosure.workflow.disclosure.DisclosureStore;
+import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.Lineage;
 import com.ga.disclosure.workflow.disclosure.SealStamp;
 import com.ga.disclosure.workflow.disclosure.VoidMark;
@@ -103,7 +104,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                        tenant_rule_version_id, issuer_mode, status, consult_date, grade_snapshot_id, grading_policy_version_id,
                        ranking_policy_version_id, tie_break, grade_basis::text AS grade_basis, snapshot_generated_at, version, supersedes_id,
                        superseded_by_id, disclosure_no, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq, retention_until,
-                       voided_at, void_reason
+                       voided_at, void_reason_code, void_reason_text, supersede_reason_code, supersede_reason_text
                   FROM disclosure
                  WHERE tenant_id = :tenantId
                    AND disclosure_id = :id
@@ -166,8 +167,11 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                            chain_seq = :chainSeq,
                            retention_until = :retentionUntil,
                            voided_at = :voidedAt,
-                           void_reason = :voidReason,
-                           superseded_by_id = :supersededBy
+                           void_reason_code = :voidReasonCode,
+                           void_reason_text = :voidReasonText,
+                           superseded_by_id = :supersededBy,
+                           supersede_reason_code = :supersedeReasonCode,
+                           supersede_reason_text = :supersedeReasonText
                      WHERE tenant_id = :tenantId
                        AND disclosure_id = :id
                     """, p);
@@ -236,8 +240,11 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         p.put("chainSeq", seal.map(SealStamp::chainSeq).orElse(null));
         p.put("retentionUntil", seal.map(SealStamp::retentionUntil).orElse(null));
         p.put("voidedAt", d.voidMark().map(v -> Timestamp.from(v.at())).orElse(null));
-        p.put("voidReason", d.voidMark().map(VoidMark::reason).orElse(null));
+        p.put("voidReasonCode", d.voidMark().map(v -> v.reason().code()).orElse(null));
+        p.put("voidReasonText", d.voidMark().map(v -> v.reason().textOrNull()).orElse(null));
         p.put("supersededBy", d.supersededBy().map(DisclosureId::value).orElse(null));
+        p.put("supersedeReasonCode", d.supersedeReason().map(LifecycleReason::code).orElse(null));
+        p.put("supersedeReasonText", d.supersedeReason().map(LifecycleReason::textOrNull).orElse(null));
         return p;
     }
 
@@ -325,7 +332,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                           java.time.LocalDate consultDate, String snapshotIdOrNull, String grading, String ranking, String tieBreak,
                           String basis, java.time.Instant generatedAt, Lineage lineage,
                           SealStamp sealOrNull, VoidMark voidOrNull,
-                          DisclosureId supersededByOrNull) {
+                          DisclosureId supersededByOrNull, LifecycleReason supersedeReasonOrNull) {
     }
 
     private static Header header(ResultSet rs) throws SQLException {
@@ -341,7 +348,9 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 rs.getObject("retention_until", java.time.LocalDate.class));
         Timestamp voidedAt = rs.getTimestamp("voided_at");
         VoidMark voidMark = voidedAt == null ? null
-                : new VoidMark(voidedAt.toInstant(), rs.getString("void_reason"));
+                : new VoidMark(voidedAt.toInstant(), new LifecycleReason(rs.getString("void_reason_code"), rs.getString("void_reason_text")));
+        String supersedeCode = rs.getString("supersede_reason_code");
+        LifecycleReason supersedeReason = supersedeCode == null ? null : new LifecycleReason(supersedeCode, rs.getString("supersede_reason_text"));
         return new Header(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), rs.getString("agent_id"),
                 CustomerRef.of(rs.getString("customer_ref")), GroupCode.of(rs.getString("group_code")),
                 TemplateRef.of(rs.getString("template_id"), rs.getInt("template_version")), RuleVersionId.of(rs.getString("rule_version_id")),
@@ -350,7 +359,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 rs.getString("grade_snapshot_id"), rs.getString("grading_policy_version_id"), rs.getString("ranking_policy_version_id"),
                 rs.getString("tie_break"), rs.getString("grade_basis"), generated == null ? null : generated.toInstant(),
                 new Lineage(rs.getInt("version"), supersedes == null ? null : DisclosureId.of(supersedes)),
-                seal, voidMark, supersededBy == null ? null : DisclosureId.of(supersededBy));
+                seal, voidMark, supersededBy == null ? null : DisclosureId.of(supersededBy), supersedeReason);
     }
 
     private record Row(DisclosureItem item, GradeSnapshotItem engineOrNull) {
@@ -390,7 +399,8 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 new GradeSnapshot(SnapshotId.of(h.snapshotIdOrNull()), h.grading(), h.ranking(), TieBreak.valueOf(h.tieBreak()), engineItems),
                 new String(Canonicalizer.canonicalize(Canonicalizer.parseStrict(h.basis())), StandardCharsets.UTF_8), h.generatedAt());
         return new DisclosureRecord(h.id(), h.agentId(), h.customerRef(), h.group(), h.consultDate(), h.rule(), h.tenantRuleOrNull(),
-                h.template(), h.issuerMode(), h.lineage(), h.status(), items, snapshot, h.sealOrNull(), h.voidOrNull(), h.supersededByOrNull());
+                h.template(), h.issuerMode(), h.lineage(), h.status(), items, snapshot, h.sealOrNull(), h.voidOrNull(), h.supersededByOrNull(),
+                h.supersedeReasonOrNull());
     }
 
     private static Row row(ResultSet rs, Map<Integer, Recommendation> recs) throws SQLException {

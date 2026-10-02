@@ -30,7 +30,8 @@ public record DisclosureRecord(
         EngineSnapshot snapshotOrNull,
         SealStamp sealOrNull,
         VoidMark voidOrNull,
-        DisclosureId supersededByOrNull) {
+        DisclosureId supersededByOrNull,
+        LifecycleReason supersedeReasonOrNull) {
 
     public DisclosureRecord {
         Objects.requireNonNull(id, "id");
@@ -42,6 +43,7 @@ public record DisclosureRecord(
 
     public Disclosure restore(DisclosureContext context) {
         return Disclosure.restore(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull,
+                supersedeReasonOrNull);
     }
 }

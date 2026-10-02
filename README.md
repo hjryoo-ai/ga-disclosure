@@ -25,7 +25,7 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
 # rules approve --tenant T1 --rule <id> | rules activate [--as-of 2027-01-01] | rules reconcile | demo seed --file <json>
 # catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | crypto init-kek --file <path> [--kek-id KEK-LOCAL-1]
-# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-file <path> --role <ROLE>
+# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-code <CODE> [--reason-file <path>] --role <ROLE>
 #      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON --out <path> | artifacts gc|reconcile --tenants all
 # 업무 거부(봉인 조건 실패 등)는 종료 코드 2, 인자·명령 오류는 1
 ```

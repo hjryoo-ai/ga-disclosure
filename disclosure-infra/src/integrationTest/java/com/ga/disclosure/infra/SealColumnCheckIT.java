@@ -67,16 +67,27 @@ class SealColumnCheckIT {
 
     private static String insert(String status, String no, String sealedAt, String canonical, String pdf, String chain, Long chainSeq,
                                  String retention, String voidedAt, String voidReason, boolean superseded, String ruleVersion) {
+        return insert(status, no, sealedAt, canonical, pdf, chain, chainSeq, retention, voidedAt, voidReason == null ? null : "CUSTOMER_CANCELLED",
+                voidReason, superseded, superseded ? "CONTENT_ERROR" : null, status.equals("COMPLETED") ? "2026-09-24 10:00:00+09" : null,
+                ruleVersion);
+    }
+
+    /** V8: 무효 사유 = 코드 + 선택 텍스트, 정정 = 후속 ID + 사유 코드, 완료 시각. */
+    private static String insert(String status, String no, String sealedAt, String canonical, String pdf, String chain, Long chainSeq,
+                                 String retention, String voidedAt, String voidCode, String voidText, boolean superseded,
+                                 String supersedeCode, String completedAt, String ruleVersion) {
         return sqlStateOrNull(() -> DB.asApp(T, c -> {
             SeedData.exec(c, "INSERT INTO disclosure_counter (tenant_id, year, seq) VALUES (?, 2026, 1)", T);
             return SeedData.exec(c, """
                     INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
                                             issuer_mode, status, consult_date, rule_version_id, disclosure_no, sealed_at, canonical_hash,
-                                            pdf_hash, chain_hash, chain_seq, retention_until, voided_at, void_reason, superseded_by_id)
+                                            pdf_hash, chain_hash, chain_seq, retention_until, voided_at, void_reason_code, void_reason_text,
+                                            superseded_by_id, supersede_reason_code, completed_at)
                     VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', ?, ?,
-                            CAST(? AS timestamptz), ?, ?, ?, ?, CAST(? AS date), CAST(? AS timestamptz), ?,
-                            CASE WHEN ? THEN gen_random_uuid() END)
-                    """, T, status, ruleVersion, no, sealedAt, canonical, pdf, chain, chainSeq, retention, voidedAt, voidReason, superseded);
+                            CAST(? AS timestamptz), ?, ?, ?, ?, CAST(? AS date), CAST(? AS timestamptz), ?, ?,
+                            CASE WHEN ? THEN gen_random_uuid() END, ?, CAST(? AS timestamptz))
+                    """, T, status, ruleVersion, no, sealedAt, canonical, pdf, chain, chainSeq, retention, voidedAt, voidCode, voidText,
+                    superseded, supersedeCode, completedAt);
         }));
     }
 
@@ -136,39 +147,91 @@ class SealColumnCheckIT {
         }
         out.add(Arguments.of("VOID"));
         return out.stream().flatMap(a -> Stream.of(true, false).flatMap(voided ->
-                Stream.of("NONE", "BLANK", "TEXT").map(reason -> Arguments.of(a.get()[0], voided, reason))));
+                Stream.of("NONE", "CODE", "CODE_TEXT", "CODE_BLANK", "TEXT_ONLY", "BAD_CODE")
+                        .map(reason -> Arguments.of(a.get()[0], voided, reason))));
     }
 
-    /** 봉인 전 상태(가변 4 + 봉인 전 VOID)에서: VOID ⇔ 무효 시각 ⇔ 무효 사유, 사유는 공백이 아니다. */
+    /**
+     * 봉인 전 상태(가변 4 + 봉인 전 VOID)에서: VOID ⇔ 무효 시각 ⇔ 사유 코드(V8), 텍스트는 코드가 있을 때만·공백 아님, 코드 형식.
+     */
     @ParameterizedTest(name = "{0} voided={1} reason={2}")
     @MethodSource("voidCombinations")
     void voidColumnsMatchTheStatus(String status, boolean voided, String reason) {
-        String reasonValue = switch (reason) {
-            case "NONE" -> null;
-            case "BLANK" -> "   ";
-            default -> "상담 취소";
+        String code = switch (reason) {
+            case "NONE", "TEXT_ONLY" -> null;
+            case "BAD_CODE" -> "cancelled";
+            default -> "CUSTOMER_CANCELLED";
         };
-        boolean ok = status.equals("VOID") == voided && voided == (reasonValue != null) && !"BLANK".equals(reason);
-        String state = insert(status, null, null, null, null, null, null, null, voided ? "2026-09-24 09:00:00+09" : null, reasonValue,
-                false, "DISC-2026-07");
+        String text = switch (reason) {
+            case "CODE_TEXT", "TEXT_ONLY" -> "상담 취소";
+            case "CODE_BLANK" -> "   ";
+            default -> null;
+        };
+        boolean ok = status.equals("VOID") == voided && voided == (code != null)
+                && !reason.equals("CODE_BLANK") && !reason.equals("TEXT_ONLY") && !reason.equals("BAD_CODE");
+        String state = insert(status, null, null, null, null, null, null, null, voided ? "2026-09-24 09:00:00+09" : null, code, text,
+                false, null, null, "DISC-2026-07");
+        assertThat(state).isEqualTo(ok ? null : "23514");
+    }
+
+    /** V8: 옛 {@code void_reason}은 이관 뒤 쓰지 않는다(V9에서 제거) — 값이 있으면 거부. */
+    @Test
+    void legacyVoidReasonIsNoLongerWritten() {
+        String state = sqlStateOrNull(() -> DB.asApp(T, c -> SeedData.exec(c, """
+                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
+                                        issuer_mode, status, consult_date, rule_version_id, voided_at, void_reason_code, void_reason)
+                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', 'VOID', DATE '2026-09-23', 'DISC-2026-07',
+                        TIMESTAMPTZ '2026-09-24 09:00:00+09', 'CUSTOMER_CANCELLED', '상담 취소')
+                """, T)));
+        assertThat(state).isEqualTo("23514");
+    }
+
+    static Stream<Arguments> completedCombinations() {
+        return SeedData.ALL_STATUSES.stream().flatMap(s -> Stream.of(true, false).map(b -> Arguments.of(s, b)));
+    }
+
+    /** V8: COMPLETED ⇒ 완료 시각, 완료 시각 ⇒ COMPLETED·VOID·SUPERSEDED(완료 뒤 무효·정정은 시각을 유지). */
+    @ParameterizedTest(name = "{0} completedAt={1}")
+    @MethodSource("completedCombinations")
+    void completedAtMatchesTheStatus(String status, boolean completed) {
+        boolean sealed = !mutable(status) && !status.equals("VOID");
+        String state = insert(status, sealed ? NUMBER : null, sealed ? SeedData.SEALED_AT : null, sealed ? CANONICAL : null, sealed ? PDF : null,
+                sealed ? CHAIN : null, sealed ? 1L : null, sealed ? SeedData.RETENTION_UNTIL : null, voidedAt(status),
+                status.equals("VOID") ? "CUSTOMER_CANCELLED" : null, null, status.equals("SUPERSEDED"),
+                status.equals("SUPERSEDED") ? "CONTENT_ERROR" : null, completed ? "2026-09-24 10:00:00+09" : null, "DISC-2026-07");
+        boolean ok = completed ? List.of("COMPLETED", "VOID", "SUPERSEDED").contains(status) : !status.equals("COMPLETED");
         assertThat(state).isEqualTo(ok ? null : "23514");
     }
 
     static Stream<Arguments> supersededCombinations() {
-        return SeedData.ALL_STATUSES.stream().flatMap(s -> Stream.of(true, false).map(b -> Arguments.of(s, b)));
+        return SeedData.ALL_STATUSES.stream().flatMap(s -> Stream.of(true, false).flatMap(b ->
+                Stream.of("NONE", "CODE", "CODE_TEXT", "TEXT_ONLY").map(r -> Arguments.of(s, b, r))));
     }
 
-    /** SUPERSEDED ⇔ 후속 ID(봉인 컬럼은 상태에 맞게 채운다 — 이 축만 바꾼다). */
-    @ParameterizedTest(name = "{0} supersededBy={1}")
+    /** SUPERSEDED ⇔ 후속 ID ⇔ 정정 사유 코드(V8), 텍스트는 코드가 있을 때만(봉인 컬럼은 상태에 맞게 채운다 — 이 축들만 바꾼다). */
+    @ParameterizedTest(name = "{0} supersededBy={1} reason={2}")
     @MethodSource("supersededCombinations")
-    void supersededByIdOnlyOnSuperseded(String status, boolean supersededBy) {
+    void supersededByIdOnlyOnSuperseded(String status, boolean supersededBy, String reason) {
         boolean sealed = !mutable(status) && !status.equals("VOID");
-        String state = sealed
-                ? insert(status, NUMBER, SeedData.SEALED_AT, CANONICAL, PDF, CHAIN, 1L, SeedData.RETENTION_UNTIL, voidedAt(status),
-                        voidReason(status), supersededBy, "DISC-2026-07")
-                : insert(status, null, null, null, null, null, null, null, voidedAt(status), voidReason(status), supersededBy,
-                        "DISC-2026-07");
-        assertThat(state).isEqualTo(status.equals("SUPERSEDED") == supersededBy ? null : "23514");
+        String code = reason.startsWith("CODE") ? "CONTENT_ERROR" : null;
+        String text = reason.equals("CODE_TEXT") || reason.equals("TEXT_ONLY") ? "오기 정정" : null;
+        String state = sqlStateOrNull(() -> DB.asApp(T, c -> {
+            SeedData.exec(c, "INSERT INTO disclosure_counter (tenant_id, year, seq) VALUES (?, 2026, 1)", T);
+            return SeedData.exec(c, """
+                    INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
+                                            issuer_mode, status, consult_date, rule_version_id, disclosure_no, sealed_at, canonical_hash,
+                                            pdf_hash, chain_hash, chain_seq, retention_until, voided_at, void_reason_code, superseded_by_id,
+                                            supersede_reason_code, supersede_reason_text, completed_at)
+                    VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', 'DISC-2026-07', ?,
+                            CAST(? AS timestamptz), ?, ?, ?, ?, CAST(? AS date), CAST(? AS timestamptz), ?, CASE WHEN ? THEN gen_random_uuid() END,
+                            ?, ?, CAST(? AS timestamptz))
+                    """, T, status, sealed ? NUMBER : null, sealed ? SeedData.SEALED_AT : null, sealed ? CANONICAL : null, sealed ? PDF : null,
+                    sealed ? CHAIN : null, sealed ? 1L : null, sealed ? SeedData.RETENTION_UNTIL : null, voidedAt(status),
+                    status.equals("VOID") ? "CUSTOMER_CANCELLED" : null, supersededBy, code, text,
+                    status.equals("COMPLETED") ? "2026-09-24 10:00:00+09" : null);
+        }));
+        boolean ok = status.equals("SUPERSEDED") == supersededBy && supersededBy == (code != null) && !reason.equals("TEXT_ONLY");
+        assertThat(state).isEqualTo(ok ? null : "23514");
     }
 
     @Test

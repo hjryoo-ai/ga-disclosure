@@ -23,10 +23,12 @@ public interface DocumentRecordStore {
     /** 감싼 키가 남아 있는 문서 키. 파기됐으면 {@link KeyLookup.Shredded}, 없으면 {@link KeyLookup.Missing}. */
     KeyLookup key(DisclosureId disclosure);
 
-    /** Object Lock 적용 기록(NULL → 값 1회, GD093). 이미 기록돼 있으면 false. */
-    boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at);
+    /**
+     * Object Lock 적용 기록: 첫 적용 시각(NULL → 값 1회)과 적용 기한(증가만, V8 GD093). 이미 그 기한 이상으로 기록돼 있으면 false.
+     */
+    boolean markRetentionApplied(DisclosureId disclosure, ArtifactKind kind, Instant at, LocalDate until);
 
-    /** 커밋됐지만 잠금 적용이 기록되지 않은 산출물(재적용 대상)과 그 확인서의 보존기한. */
+    /** 커밋됐지만 잠금이 지금 보존기한까지 걸렸다고 기록되지 않은 산출물(재적용 대상 — 미적용·연장 뒤 미적용)과 그 확인서의 보존기한. */
     List<Unretained> unretained(int limit);
 
     /** 그 객체 키를 가리키는 산출물 기록이 있는가(잔여물 정리 판정). */

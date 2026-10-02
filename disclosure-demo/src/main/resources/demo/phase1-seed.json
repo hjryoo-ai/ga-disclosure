@@ -10,7 +10,7 @@
       "applyFrom": "2026-07-01",
       "body": {
         "signDeadlineDays": 10,
-        "channels": { "TOUCH_PAD": true, "REMOTE_LINK": true, "PAPER_SCAN": false, "CERTIFIED_ESIGN": false }
+        "channels": { "TOUCH_PAD": { "enabled": true }, "REMOTE_LINK": { "enabled": true }, "PAPER_SCAN": { "enabled": false, "requiresManagerReview": true }, "CERTIFIED_ESIGN": { "enabled": false } }
       }
     }
   ]

@@ -1,9 +1,12 @@
 package com.ga.disclosure.rules.resolve;
 
+import com.ga.disclosure.domain.enums.IdentityMethod;
 import com.ga.disclosure.domain.enums.ManagerConfirmMode;
 import com.ga.disclosure.domain.enums.PiiField;
+import com.ga.disclosure.domain.enums.RetentionAnchor;
 import com.ga.disclosure.domain.enums.SignOrder;
 import com.ga.disclosure.domain.enums.SignatureChannel;
+import com.ga.disclosure.domain.enums.SignatureMethod;
 import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.TieBreak;
 import com.ga.disclosure.domain.enums.ValidationStage;
@@ -156,13 +159,75 @@ public record EffectiveRule(
         return intValue("remoteLinkTtlHours");
     }
 
-    public Map<SignatureChannel, Boolean> channels() {
+    /** 고객 채널별 정책(룰 {@code channels}, 값은 {@code {enabled, requiresManagerReview?}} 객체 — 4 계획 승인 Q5). */
+    public Map<SignatureChannel, ChannelPolicy> channels() {
         JsonNode channels = object("channels");
-        Map<SignatureChannel, Boolean> out = new EnumMap<>(SignatureChannel.class);
+        Map<SignatureChannel, ChannelPolicy> out = new EnumMap<>(SignatureChannel.class);
         for (String name : channels.propertyNames()) {
-            out.put(SignatureChannel.valueOf(name), boolValue(channels, "channels." + name, name));
+            JsonNode policy = channels.get(name);
+            String path = "channels." + name;
+            if (policy == null || !policy.isObject()) {
+                throw missing(path);
+            }
+            JsonNode review = policy.get("requiresManagerReview");
+            if (review != null && !review.isBoolean()) {
+                throw missing(path + ".requiresManagerReview");
+            }
+            out.put(SignatureChannel.valueOf(name), new ChannelPolicy(boolValue(policy, path + ".enabled", "enabled"),
+                    review != null && review.booleanValue()));
         }
         return Collections.unmodifiableMap(out);
+    }
+
+    /** 고객 채널 하나의 정책. 룰에 그 채널 키가 없으면 예외(기본값 없음). */
+    public ChannelPolicy channel(SignatureChannel channel) {
+        ChannelPolicy policy = channels().get(channel);
+        if (policy == null) {
+            throw missing("channels." + channel.name());
+        }
+        return policy;
+    }
+
+    /** 고객 서명 세션 유효 시간(분, 룰 {@code sessionTtlMinutes}) — TOUCH_PAD·PAPER_SCAN. REMOTE_LINK는 {@link #remoteLinkTtlHours()}. */
+    public int sessionTtlMinutes(SignatureChannel channel) {
+        return intValue(object("sessionTtlMinutes"), "sessionTtlMinutes." + channel.name(), channel.name());
+    }
+
+    /** 설계사 서명 방식(룰 {@code agentSignMethod}): DRAWN 또는 SSO_APPROVAL. */
+    public SignatureMethod agentSignMethod() {
+        SignatureMethod method = SignatureMethod.valueOf(text(body, "agentSignMethod", "agentSignMethod"));
+        if (method == SignatureMethod.UPLOADED_SCAN) {
+            throw missing("agentSignMethod (UPLOADED_SCAN is not an agent method)");
+        }
+        return method;
+    }
+
+    /** 채널별 본인확인 수단(닫힌 어휘 {@link IdentityMethod}). 채널 키가 없으면 예외. */
+    public List<IdentityMethod> identityMethods(SignatureChannel channel) {
+        return identityCheck(channel).stream().map(IdentityMethod::valueOf).toList();
+    }
+
+    /** 대리 서명 탐지: 같은 기기 지문으로 같은 날(Asia/Seoul) 서명한 서로 다른 고객 수 임계치. */
+    public int sameDeviceDistinctCustomersPerDay() {
+        return intValue(object("proxySignatureDetection"), "proxySignatureDetection.sameDeviceDistinctCustomersPerDay",
+                "sameDeviceDistinctCustomersPerDay");
+    }
+
+    /** 대리 서명 탐지: 같은 IP 임계치(선택 — 없으면 IP 지표를 쓰지 않는다, 4 계획 승인 Q8). */
+    public java.util.OptionalInt sameIpDistinctCustomersPerDay() {
+        JsonNode n = object("proxySignatureDetection").get("sameIpDistinctCustomersPerDay");
+        if (n == null) {
+            return java.util.OptionalInt.empty();
+        }
+        if (!n.isInt()) {
+            throw missing("proxySignatureDetection.sameIpDistinctCustomersPerDay");
+        }
+        return java.util.OptionalInt.of(n.intValue());
+    }
+
+    /** 대리 서명 탐지: 원격 링크 발송부터 서명까지 최소 초. */
+    public int minSecondsFromSendToSign() {
+        return intValue(object("proxySignatureDetection"), "proxySignatureDetection.minSecondsFromSendToSign", "minSecondsFromSendToSign");
     }
 
     /** 채널별 본인확인 수단(데이터 문자열, 어휘는 설계서 §5 {@code signature.identity_check}). 채널 키가 없으면 예외. */
@@ -184,6 +249,35 @@ public record EffectiveRule(
 
     public int retentionYears() {
         return intValue("retentionYears");
+    }
+
+    /** 보존기한 앵커(3B 수용심사 §3-3). GLOBAL 전용 키. */
+    public List<RetentionAnchor> retentionAnchors() {
+        return List.copyOf(strings("retentionAnchors", RetentionAnchor::valueOf));
+    }
+
+    /** 무효 사유 코드 목록(닫힌 목록, 3B 수용심사 §2-2). */
+    public List<LifecycleReasonRule> voidReasons() {
+        return lifecycleReasons("voidReasons");
+    }
+
+    /** 정정 사유 코드 목록(닫힌 목록, 3B 수용심사 §2-2). */
+    public List<LifecycleReasonRule> supersedeReasons() {
+        return lifecycleReasons("supersedeReasons");
+    }
+
+    /** 무효·정정 사유 텍스트 상한. */
+    public int lifecycleReasonTextMaxLength() {
+        return intValue("lifecycleReasonTextMaxLength");
+    }
+
+    private List<LifecycleReasonRule> lifecycleReasons(String key) {
+        List<LifecycleReasonRule> out = new ArrayList<>();
+        for (JsonNode n : array(key)) {
+            out.add(new LifecycleReasonRule(text(n, key + "[].code", "code"), text(n, key + "[].label", "label"),
+                    n.path("requiresText").asBoolean(false)));
+        }
+        return List.copyOf(out);
     }
 
     public boolean retainUnlinked() {

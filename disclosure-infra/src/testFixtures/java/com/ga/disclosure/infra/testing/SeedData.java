@@ -54,6 +54,11 @@ public final class SeedData {
      * 넣은 뒤 {@link #seal}로 봉인 경로 그대로 봉인하고 그 상태로 옮긴다 — 봉인 컬럼은 카운터·체인 머리와 맞아야 한다(V7 GD095).
      */
     public static UUID disclosure(Connection c, String tenant, String status, String canonicalHash) throws SQLException {
+        return disclosure(c, tenant, status, canonicalHash, "DISC-2026-07");
+    }
+
+    /** {@link #disclosure(Connection, String, String, String)}과 같되 고정 GLOBAL 룰 버전을 지정한다(서명자 집합 검사 V8 GD104). */
+    public static UUID disclosure(Connection c, String tenant, String status, String canonicalHash, String ruleVersionId) throws SQLException {
         UUID id = UUID.randomUUID();
         boolean sealed = !MUTABLE_STATUSES.contains(status);
         String inserted = sealed ? "REASONED" : status;
@@ -63,13 +68,13 @@ public final class SeedData {
                                         template_id, template_version, rule_version_id, issuer_mode, status, consult_date,
                                         grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break, grade_basis,
                                         snapshot_generated_at)
-                VALUES (?, ?, 'AGENT-1', 'C-0001', 'PG-HEALTH', 'STANDARD', 1, 'DISC-2026-07', 'SELF', ?, DATE '2026-09-23',
+                VALUES (?, ?, 'AGENT-1', 'C-0001', 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
                         CASE WHEN ? THEN 'GRD-1' END, CASE WHEN ? THEN 'GRADING-2026-07' END, CASE WHEN ? THEN 'RANK-2026-07' END,
                         CASE WHEN ? THEN 'SHARED_RANK' END,
                         CASE WHEN ? THEN '{"groupAvgSource": "ASSOC_DISCLOSURE", "period": "2026Q2", "groupPopulation": 27}'::jsonb END,
                         CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 09:30:00+09' END)
                 """,
-                tenant, id, inserted, graded, graded, graded, graded, graded, graded);
+                tenant, id, ruleVersionId, inserted, graded, graded, graded, graded, graded, graded);
         if (sealed) {
             seal(c, tenant, id, canonicalHash, status);
         }
@@ -78,8 +83,8 @@ public final class SeedData {
 
     /**
      * 가변 상태의 확인서를 봉인 경로 그대로 봉인한다: 카운터 채번(테넌트, 2026) → 체인 머리 잠금 → 봉인 컬럼 UPDATE(번호·해시·체인·
-     * 보존기한) → 머리 이동. {@code status}가 SEALED가 아니면 그 상태로 옮긴다(VOID는 무효 시각·사유, SUPERSEDED는 후속 ID를 함께 —
-     * V7 일관성 CHECK). 상태표를 거치지 않는 시드 경로이므로 DB가 허용하는 조합만 만든다.
+     * 보존기한) → 머리 이동. {@code status}가 SEALED가 아니면 그 상태로 옮긴다(VOID는 무효 시각·사유 코드, SUPERSEDED는 후속 ID·사유 코드,
+     * COMPLETED는 완료 시각을 함께 — V7·V8 일관성 CHECK). 상태표를 거치지 않는 시드 경로이므로 DB가 허용하는 조합만 만든다.
      */
     public static void seal(Connection c, String tenant, UUID id, String canonicalHash, String status) throws SQLException {
         long seq = longValue(c, """
@@ -115,11 +120,16 @@ public final class SeedData {
             case "SEALED" -> {
             }
             case "VOID" -> exec(c, """
-                    UPDATE disclosure SET status = 'VOID', voided_at = TIMESTAMPTZ '2026-09-24 09:00:00+09', void_reason = '시드 무효'
+                    UPDATE disclosure SET status = 'VOID', voided_at = TIMESTAMPTZ '2026-09-24 09:00:00+09',
+                                          void_reason_code = 'SEED_VOID', void_reason_text = '시드 무효'
                      WHERE tenant_id = ? AND disclosure_id = ?
                     """, tenant, id);
             case "SUPERSEDED" -> exec(c, """
-                    UPDATE disclosure SET status = 'SUPERSEDED', superseded_by_id = gen_random_uuid()
+                    UPDATE disclosure SET status = 'SUPERSEDED', superseded_by_id = gen_random_uuid(), supersede_reason_code = 'SEED_CORRECTION'
+                     WHERE tenant_id = ? AND disclosure_id = ?
+                    """, tenant, id);
+            case "COMPLETED" -> exec(c, """
+                    UPDATE disclosure SET status = 'COMPLETED', completed_at = TIMESTAMPTZ '2026-09-24 10:00:00+09'
                      WHERE tenant_id = ? AND disclosure_id = ?
                     """, tenant, id);
             default -> exec(c, "UPDATE disclosure SET status = ? WHERE tenant_id = ? AND disclosure_id = ?", status, tenant, id);
@@ -151,12 +161,68 @@ public final class SeedData {
                 tenant, disclosure, (short) itemNo);
     }
 
-    public static void signature(Connection c, String tenant, UUID disclosure, String role, String signedDocHash) throws SQLException {
+    /**
+     * 서명 1건(V8 형식: 두 해시, 결과만의 본인확인). 고객은 부모가 서명 가능 상태면 부모 해시를 고정한 OPEN 세션을 먼저 발급해 그 세션으로
+     * 서명하고 세션을 USED로 닫는다(실제 경로와 같은 순서 — 트리거가 OPEN 세션을 본다). 설계사·관리자는 SSO 행위자로 서명한다(승인 Q3).
+     * 서명자 집합 검사(GD104)를 위해 고정 룰 {@code DISC-2026-07}에 {@link #SIGNER_RULE_BODY}가 없으면 넣는다.
+     */
+    public static UUID signature(Connection c, String tenant, UUID disclosure, String role, String signedDocHash) throws SQLException {
+        signerRule(c, tenant);
+        UUID signatureId = UUID.randomUUID();
+        UUID session = role.equals("CUSTOMER") ? openSession(c, tenant, disclosure) : null;
         exec(c, """
-                INSERT INTO signature (tenant_id, signature_id, disclosure_id, signer_role, channel, method, signed_doc_hash,
-                                       evidence_key, evidence_hash, signed_at)
-                VALUES (?, ?, ?, ?, 'TOUCH_PAD', 'DRAWN', ?, 'evidence/key', ?, TIMESTAMPTZ '2026-09-23 10:05:00+09')
-                """, tenant, UUID.randomUUID(), disclosure, role, signedDocHash, hash('e'));
+                INSERT INTO signature (tenant_id, signature_id, disclosure_id, signer_role, signer_subject, channel, method, signed_doc_hash,
+                                       signed_pdf_hash, session_id, identity_check, signed_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'DRAWN', ?, ?, ?, '[]'::jsonb, TIMESTAMPTZ '2026-09-23 10:05:00+09')
+                """, tenant, signatureId, disclosure, role, session == null ? role.toLowerCase(java.util.Locale.ROOT) + "@seed" : null,
+                session == null ? "SSO" : "TOUCH_PAD", signedDocHash, PDF_HASH, session);
+        if (session != null) {
+            exec(c, "UPDATE sign_session SET status = 'USED', used_at = TIMESTAMPTZ '2026-09-23 10:05:00+09' WHERE tenant_id = ? AND session_id = ?",
+                    tenant, session);
+        }
+        return signatureId;
+    }
+
+    /** 부모가 서명 가능 상태(SEALED·PARTIALLY_SIGNED)면 부모의 두 해시를 고정한 고객 OPEN 세션을 발급한다(V8 GD101). 아니면 null. */
+    public static UUID openSession(Connection c, String tenant, UUID disclosure) throws SQLException {
+        UUID session = UUID.randomUUID();
+        int inserted = exec(c, """
+                INSERT INTO sign_session (tenant_id, session_id, disclosure_id, signer_role, channel, token_hash, expires_at, status,
+                                          issued_by, issued_at, signed_doc_hash, signed_pdf_hash)
+                SELECT d.tenant_id, ?, d.disclosure_id, 'CUSTOMER', 'TOUCH_PAD', encode(sha256(convert_to(?::text, 'UTF8')), 'hex'),
+                       TIMESTAMPTZ '2026-09-23 10:30:00+09', 'OPEN', 'agent@seed', TIMESTAMPTZ '2026-09-23 10:01:00+09',
+                       d.canonical_hash, d.pdf_hash
+                  FROM disclosure d
+                 WHERE d.tenant_id = ? AND d.disclosure_id = ? AND d.status IN ('SEALED', 'PARTIALLY_SIGNED')
+                """, session, tenant + "~seed-token-" + session, tenant, disclosure);
+        return inserted == 1 ? session : null;
+    }
+
+    /** 서명자 집합 검사(V8 GD104)가 읽는 고정 GLOBAL 룰 본문(JCS 정렬). */
+    public static final String SIGNER_RULE_BODY = "{\"managerConfirmMode\":\"REQUIRED\",\"signerSet\":[\"CUSTOMER\",\"AGENT\",\"MANAGER\"]}";
+
+    /**
+     * 시드 고정 룰 {@code DISC-2026-07}(GLOBAL·APPROVED, 본문 = {@link #SIGNER_RULE_BODY})이 없으면 넣는다. 활성화하지 않는다 — 같은 테넌트의
+     * 다른 ACTIVE GLOBAL 룰과 기간 배타 제약이 부딪히지 않게(서명자 집합 검사는 상태를 보지 않는다).
+     */
+    public static void signerRule(Connection c, String tenant) throws SQLException {
+        exec(c, """
+                INSERT INTO rule_version (tenant_id, rule_version_id, scope, apply_from, status, approved_by, approved_at, body,
+                                          source_bundle_id, bundle_hash)
+                VALUES (?, 'DISC-2026-07', 'GLOBAL', DATE '2026-07-01', 'APPROVED', 'OPERATOR:seed', TIMESTAMPTZ '2026-06-30 09:00:00+09',
+                        CAST(? AS jsonb), 'DISC-2026-07@' || substr(?, 1, 12), ?)
+                ON CONFLICT (tenant_id, rule_version_id) DO NOTHING
+                """, tenant, SIGNER_RULE_BODY, hashOf(SIGNER_RULE_BODY), hashOf(SIGNER_RULE_BODY));
+    }
+
+    /** UTF-8 바이트의 SHA-256 소문자 hex. */
+    public static String hashOf(String text) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** 봉인된 확인서의 문서 키 ID(시드 규약: {@code DOC-} + 확인서 UUID hex). */
@@ -243,7 +309,32 @@ public final class SeedData {
                 bundleIdOrNull == null ? null : EMPTY_OBJECT_HASH);
     }
 
-    /** 테넌트 테이블 전부(V7 기준 24개)에 한 행 이상을 넣는다(RLS 격리 검증용). 봉인 시드가 카운터·체인 머리를, 산출물 시드가 문서 키를 만든다. */
+    /** 서명 증거 객체 행 1건(V8 형식, 문서 키는 산출물 시드가 만든 것). */
+    public static void signatureEvidence(Connection c, String tenant, UUID disclosure, UUID signatureId, String kind) throws SQLException {
+        String cipher = hash('c');
+        exec(c, """
+                INSERT INTO signature_evidence (tenant_id, signature_id, kind, disclosure_id, storage_key, sha256, bytes, cipher_sha256,
+                                                cipher_bytes, key_id, created_at)
+                VALUES (?, ?, ?, ?, ? || '/' || ? || '/SIG/' || ? || '/' || ? || '/' || ?, ?, 10, ?, 39, ?, TIMESTAMPTZ '2026-09-23 10:05:00+09')
+                """, tenant, signatureId, kind, disclosure, tenant, disclosure.toString(), signatureId.toString(), kind, cipher, hash('d'),
+                cipher, documentKeyId(disclosure));
+    }
+
+    /** 아웃박스 이벤트 1건 + 머리 이동(V8: seq = 머리 + 1, 머리는 실재 이벤트를 가리킨다). */
+    public static void outboxEvent(Connection c, String tenant, UUID disclosure) throws SQLException {
+        long next = longValue(c, "SELECT coalesce((SELECT seq FROM outbox_head WHERE tenant_id = ?), 0) + 1", tenant);
+        exec(c, """
+                INSERT INTO outbox_event (tenant_id, seq, event_id, type, version, occurred_at, aggregate_kind, aggregate_id, payload)
+                VALUES (?, ?, gen_random_uuid(), 'DisclosureSealed', 1, TIMESTAMPTZ '2026-09-23 10:00:00+09', 'DISCLOSURE', ?, '{}'::jsonb)
+                """, tenant, next, disclosure.toString());
+        if (next == 1) {
+            exec(c, "INSERT INTO outbox_head (tenant_id, seq) VALUES (?, 1)", tenant);
+        } else {
+            exec(c, "UPDATE outbox_head SET seq = ? WHERE tenant_id = ?", next, tenant);
+        }
+    }
+
+    /** 테넌트 테이블 전부(V8 기준 27개)에 한 행 이상을 넣는다(RLS 격리 검증용). 봉인 시드가 카운터·체인 머리를, 산출물 시드가 문서 키를 만든다. */
     public static void everyTable(Connection c, String tenant) throws SQLException {
         tenant(c, tenant);
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'sub-1', 'AGENT-1', ARRAY['AGENT'], '/HQ/B1')", tenant);
@@ -251,8 +342,8 @@ public final class SeedData {
                 INSERT INTO rule_version (tenant_id, rule_version_id, scope, apply_from, status, approved_by, approved_at, body,
                                           source_bundle_id, bundle_hash)
                 VALUES (?, 'DISC-2026-07', 'GLOBAL', DATE '2026-07-01', 'APPROVED', 'OPERATOR:seed', TIMESTAMPTZ '2026-06-30 09:00:00+09',
-                        '{}'::jsonb, 'DISC-2026-07@44136fa355b3', ?)
-                """, tenant, EMPTY_OBJECT_HASH);
+                        CAST(? AS jsonb), 'DISC-2026-07@' || substr(?, 1, 12), ?)
+                """, tenant, SIGNER_RULE_BODY, hashOf(SIGNER_RULE_BODY), hashOf(SIGNER_RULE_BODY));
         // GLOBAL 복제본은 APPROVED로만 들어가고(V4 GD040) 활성화는 한 단계 전진이다.
         exec(c, "UPDATE rule_version SET status = 'ACTIVE' WHERE tenant_id = ? AND rule_version_id = 'DISC-2026-07'", tenant);
         exec(c, """
@@ -293,11 +384,9 @@ public final class SeedData {
         review(c, tenant, draft, "R-TEMP-PRODUCT");
         UUID sealed = disclosure(c, tenant, "SEALED", hash('a'));
         artifact(c, tenant, sealed, "PDF");
-        exec(c, """
-                INSERT INTO sign_session (tenant_id, session_id, disclosure_id, signer_role, channel, expires_at, status)
-                VALUES (?, ?, ?, 'CUSTOMER', 'REMOTE_LINK', TIMESTAMPTZ '2026-09-26 00:00:00+09', 'OPEN')
-                """, tenant, UUID.randomUUID(), sealed);
-        signature(c, tenant, sealed, "CUSTOMER", hash('a'));
+        UUID signatureId = signature(c, tenant, sealed, "CUSTOMER", hash('a'));
+        signatureEvidence(c, tenant, sealed, signatureId, "STROKES");
+        outboxEvent(c, tenant, sealed);
         auditLog(c, tenant, 1);
         anchor(c, tenant);
         exec(c, """

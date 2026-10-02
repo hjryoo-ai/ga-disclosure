@@ -21,7 +21,8 @@
       "type": "object",
       "required": [
         "title",
-        "sections"
+        "sections",
+        "signaturePage"
       ],
       "properties": {
         "title": {
@@ -98,6 +99,199 @@
                 }
               }
             ]
+          }
+        },
+        "signaturePage": {
+          "type": "object",
+          "description": "서명본 PDF의 서명 외관 페이지 문구(v1.9, 4 계획 §6). 역할·채널·방법·본인확인 수단은 코드의 닫힌 어휘이고 인쇄 문구는 여기 데이터다. labelRef는 협회 서식 확인 전 가정 표시(데이터에만, 인쇄 안 함).",
+          "required": [
+            "labelRef",
+            "title",
+            "columns",
+            "originalPdfLabel",
+            "roleLabels",
+            "channelLabels",
+            "methodLabels",
+            "identityLabels",
+            "resultLabels"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "labelRef": {
+              "type": "string",
+              "pattern": "^TODO\\(confirm#[0-9]+\\)$"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "columns": {
+              "type": "object",
+              "required": [
+                "role",
+                "channel",
+                "method",
+                "signedAt",
+                "identity",
+                "image"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "channel": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "method": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "signedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "image": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "originalPdfLabel": {
+              "type": "string",
+              "minLength": 1
+            },
+            "roleLabels": {
+              "type": "object",
+              "required": [
+                "CUSTOMER",
+                "AGENT",
+                "MANAGER"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "CUSTOMER": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "AGENT": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "MANAGER": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "channelLabels": {
+              "type": "object",
+              "required": [
+                "TOUCH_PAD",
+                "REMOTE_LINK",
+                "PAPER_SCAN",
+                "SSO"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "TOUCH_PAD": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "REMOTE_LINK": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "PAPER_SCAN": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "SSO": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "methodLabels": {
+              "type": "object",
+              "required": [
+                "DRAWN",
+                "UPLOADED_SCAN",
+                "SSO_APPROVAL"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "DRAWN": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "UPLOADED_SCAN": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "SSO_APPROVAL": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "identityLabels": {
+              "type": "object",
+              "required": [
+                "LINK_POSSESSION",
+                "BIRTH_DATE",
+                "AGENT_FACE_TO_FACE",
+                "SCROLL_COMPLETE",
+                "PROVIDER"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "LINK_POSSESSION": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "BIRTH_DATE": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "AGENT_FACE_TO_FACE": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "SCROLL_COMPLETE": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "PROVIDER": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "resultLabels": {
+              "type": "object",
+              "required": [
+                "PASS",
+                "FAIL"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "PASS": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "FAIL": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
           }
         }
       },

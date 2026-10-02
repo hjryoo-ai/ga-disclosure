@@ -373,7 +373,15 @@ class ContractSchemaTest {
         assertThat(rule.path("reasonCodes")).hasSize(5);
         assertThat(rule.path("tenantOverridable")).extracting(JsonNode::asString).containsExactly(
                 "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "anchor", "kpi",
-                "retainUnlinked", "masking");
+                "retainUnlinked", "masking", "gateRequiresManager", "sessionTtlMinutes", "agentSignMethod");
+        // Phase 4(3B 수용심사 §3, 4 계획 승인 Q5·Q7): 사유 코드 닫힌 목록, 보존 앵커, 채널 객체
+        assertThat(rule.path("voidReasons")).extracting(r -> r.path("code").asString())
+                .containsExactly("CUSTOMER_CANCELLED", "WRITTEN_IN_ERROR", "DUPLICATE", "OTHER");
+        assertThat(rule.path("supersedeReasons")).extracting(r -> r.path("code").asString())
+                .containsExactly("CONTENT_ERROR", "PRODUCT_DATA_CORRECTED", "OTHER");
+        assertThat(rule.path("lifecycleReasonTextMaxLength").asInt()).isEqualTo(500);
+        assertThat(rule.path("retentionAnchors")).extracting(JsonNode::asString).containsExactly("SEAL", "COMPLETION", "CONTRACT_DATE");
+        assertThat(rule.at("/channels/PAPER_SCAN/requiresManagerReview").asBoolean()).isTrue();
         assertThat(rule.path("allowedTieBreaks")).extracting(JsonNode::asString).containsExactly("SHARED_RANK", "STRICT");
         assertThat(rule.at("/exceptionApproval/role").asString()).isEqualTo("MANAGER");
         assertThat(rule.at("/validations/10/id").asString()).isEqualTo("R-SIGNER-SET");
