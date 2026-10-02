@@ -97,6 +97,21 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         writeChildren(d);
     }
 
+    /** 감사 로그(append-only)에서 고정 때 기록한 유효 룰 본문 해시를 읽는다 — 마지막 생성·재기준 행(4 계획 승인 Q1). */
+    @Override
+    public Optional<String> pinnedRuleBodyHash(DisclosureId id) {
+        return queryAtMostOne("""
+                SELECT detail ->> 'ruleBodyHash' AS hash
+                  FROM audit_log
+                 WHERE tenant_id = :tenantId
+                   AND target_kind = 'DISCLOSURE'
+                   AND target_id = :targetId
+                   AND action IN ('DISCLOSURE_CREATE', 'DISCLOSURE_REBASE')
+                 ORDER BY seq DESC
+                 LIMIT 1
+                """, Map.of("targetId", id.toString()), (rs, n) -> rs.getString("hash"));
+    }
+
     @Override
     public Optional<DisclosureRecord> loadForUpdate(DisclosureId id) {
         Optional<Header> header = queryAtMostOne("""

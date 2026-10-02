@@ -17,4 +17,10 @@ public interface DisclosureStore {
     Optional<DisclosureRecord> loadForUpdate(DisclosureId id);
 
     void save(Disclosure disclosure);
+
+    /**
+     * 초안 고정(생성·정정 새 버전·재기준) 때 감사에 기록한 유효 룰 본문 해시 — 그 확인서를 대상으로 한 마지막 {@code DISCLOSURE_CREATE}·
+     * {@code DISCLOSURE_REBASE} 행의 {@code ruleBodyHash}(감사 로그는 append-only, 4 계획 승인 Q1 로더 조건). 없으면 빈 값.
+     */
+    Optional<String> pinnedRuleBodyHash(DisclosureId id);
 }

@@ -18,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -87,11 +88,18 @@ class RuleResolverTest {
         assertThat(catchThrowableOfType(RuleResolutionException.class,
                 () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-NOPE"))).failure())
                 .isEqualTo(ResolutionFailure.PINNED_VERSION_MISSING);
+        // 4 계획 승인 Q1: 고정 로드는 ACTIVE·RETIRED만(DRAFT·APPROVED 거부), scope가 맞고 시작일 ≤ 상담일이어야 한다
         port.add(Bundles.tenant("HOUSE-DRAFT", FROM, null, RuleStatus.DRAFT, json("{}")));
-        assertThatThrownBy(() -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-DRAFT")))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> new RuleResolver(port).load(T, LocalDate.parse("2026-06-30"), RuleVersionId.of("DISC-2026-07"), null))
-                .isInstanceOf(IllegalStateException.class);
+        port.add(Bundles.global("DISC-APPROVED", FROM, null, RuleStatus.APPROVED, Y2026.body()));
+        port.add(Bundles.tenant("HOUSE-ACTIVE", FROM, null, RuleStatus.ACTIVE, json("{}")));
+        for (Runnable notInForce : List.<Runnable>of(
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-2026-07"), RuleVersionId.of("HOUSE-DRAFT")),
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("DISC-APPROVED"), null),
+                () -> new RuleResolver(port).load(T, D, RuleVersionId.of("HOUSE-ACTIVE"), null),                    // TENANT를 GLOBAL 자리에
+                () -> new RuleResolver(port).load(T, LocalDate.parse("2026-06-30"), RuleVersionId.of("DISC-2026-07"), null))) {
+            assertThat(catchThrowableOfType(RuleResolutionException.class, notInForce::run).failure())
+                    .isEqualTo(ResolutionFailure.PINNED_VERSION_NOT_IN_FORCE);
+        }
     }
 
     // ------------------------------------------------------------------ C2

@@ -70,7 +70,8 @@ public final class RuleResolver {
                 "pinned " + scope + " rule " + id + " does not exist for " + tenant));
         boolean wasInForce = r.status() == RuleStatus.ACTIVE || r.status() == RuleStatus.RETIRED;
         if (r.scope() != scope || !wasInForce || r.applyFrom().isAfter(asOf)) {
-            throw new IllegalStateException("pinned rule " + id + " (" + r.scope() + ", " + r.status() + ") had not started on " + asOf);
+            throw new RuleResolutionException(ResolutionFailure.PINNED_VERSION_NOT_IN_FORCE,
+                    "pinned rule " + id + " (" + r.scope() + ", " + r.status() + ") had not started on " + asOf);
         }
         return r;
     }
