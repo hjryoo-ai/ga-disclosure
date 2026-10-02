@@ -20,7 +20,13 @@ public interface DisclosureFlagPort {
         /** 오버라이드 가능한 검증 실패가 있다 — 봉인 전에 관리자 승인이 필요하다(대상 = 확인서/규칙 ID, 3A 계획 Q2). */
         VALIDATION_OVERRIDE,
         /** 소급 배포로 고정 룰·서식이 상담일 재해석과 다르다 — 봉인 거부, 재기준 필요(대상 = 확인서, 3B 봉인 조건 ①·②). */
-        RULE_SUPERSEDED_DRAFT
+        RULE_SUPERSEDED_DRAFT,
+        /** 본인확인 실패가 룰 {@code identityCheck.maxFailures}에 닿아 세션을 취소했다(대상 = 세션, Phase 4). */
+        IDENTITY_FAILED,
+        /** 대리 서명 의심 — 기기·IP 재사용 또는 발송 직후 서명(대상 = 서명, 4 계획 §5). 서명을 막지 않는다. */
+        SIGNATURE_DEVICE_REUSE,
+        /** 종이 스캔 서명의 관리자 검토 대기(대상 = 서명, 룰 {@code channels.PAPER_SCAN.requiresManagerReview}). 열려 있으면 완료되지 않는다. */
+        PAPER_SCAN_REVIEW
     }
 
     /** 해소 사유. */
@@ -32,18 +38,31 @@ public interface DisclosureFlagPort {
         /** 무효·정정으로 문서가 닫혔다. */
         SUPERSEDED_BY_DOCUMENT_STATE,
         /** 재기준으로 새 룰·서식에 고정됐다. */
-        REBASED
+        REBASED,
+        /** 종이 스캔을 관리자 확인 또는 예외 승인 역할이 검토했다(4 계획 승인 Q10). */
+        PAPER_SCAN_REVIEWED
     }
 
     RaisedFlag raise(Type type, String severity, DisclosureId disclosureId, String targetKind, String targetId, Instant raisedAt);
 
-    /** 확인서의 열린 플래그. */
+    /** 확인서의 열린 플래그(이 포트의 유형만). */
     List<OpenFlag> openFor(DisclosureId disclosureId);
+
+    /** 확인서에 걸린 플래그 전부(유형 무관, 열림·닫힘) — 관리자 확인의 사유 확인 대상(4 계획 승인 Q9). */
+    List<FlagSummary> allFor(DisclosureId disclosureId);
 
     /** 열린 플래그 하나를 해소한다(이미 닫혔으면 false — 해소는 한 번). */
     boolean resolve(UUID flagId, Resolution resolution, String resolvedBy, Instant at);
 
     record RaisedFlag(UUID flagId, boolean created) {
+    }
+
+    /** 플래그 1건 요약: ID·유형(데이터 문자열 — 준법 배치 유형 포함)·열림 여부. */
+    record FlagSummary(UUID flagId, String type, boolean open) {
+        public FlagSummary {
+            Objects.requireNonNull(flagId, "flagId");
+            Objects.requireNonNull(type, "type");
+        }
     }
 
     record OpenFlag(UUID flagId, Type type, String targetKind, String targetId) {

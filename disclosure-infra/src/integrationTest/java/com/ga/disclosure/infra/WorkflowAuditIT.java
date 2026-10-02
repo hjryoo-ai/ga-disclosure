@@ -105,6 +105,11 @@ class WorkflowAuditIT {
             public List<AuditRecord> readAll() {
                 return s.audit.readAll();
             }
+
+            @Override
+            public List<AuditRecord> readTarget(String targetKind, String targetId) {
+                return s.audit.readTarget(targetKind, targetId);
+            }
         };
         DisclosureService failing = new DisclosureService(s.disclosures, s.reviews, s.flags, new TenantRepository(s.gateway),
                 new EngineGradeClient(new HttpEngineTransport(s.settings, t -> Optional.of(WorkflowSetup.TOKEN), t -> s.engine.baseUrl())),

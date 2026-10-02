@@ -125,6 +125,7 @@ public final class SealService {
     public static final Duration DEFAULT_TRANSACTION_TIMEOUT = Duration.ofSeconds(60);
 
     private final Duration transactionTimeout;
+    private final RetentionLocks locks;
 
     public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
                        ArtifactStore storage, DisclosurePdfRenderer renderer) {
@@ -151,6 +152,7 @@ public final class SealService {
         this.renderer = Objects.requireNonNull(renderer, "renderer");
         this.runner = new CommandRunner(transactions, audit, clock);
         this.loader = deps.loader();
+        this.locks = new RetentionLocks(records, storage, audit, transactions, clock);
     }
 
     public Duration transactionTimeout() {
@@ -285,34 +287,9 @@ public final class SealService {
         return retentionUntil.plusDays(1).atStartOfDay(SEOUL).toInstant();
     }
 
-    /** 커밋 후 Object Lock 적용. 실패해도 봉인은 유효하다 — 재적용 대상으로 남기고 사실을 감사한다. 하나라도 실패하면 true. */
+    /** 커밋 후 Object Lock 적용(공통 경로 {@link RetentionLocks}). 실패해도 봉인은 유효하다 — 하나라도 실패하면 true. */
     boolean applyRetention(TenantId tenant, Actor actor, List<ArtifactRecord> artifacts, LocalDate retentionUntil) {
-        boolean pending = false;
-        Instant until = retainUntilInstant(retentionUntil);
-        for (ArtifactRecord a : artifacts) {
-            try {
-                storage.applyRetention(a.storageKey(), until);
-                transactions.inTenant(tenant, () -> {
-                    if (records.markRetentionApplied(a, clock.instant(), retentionUntil)) {
-                        audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_RETAIN, ARTIFACT_TARGET,
-                                a.storageKey(), JSON.createObjectNode().put("disclosureId", a.disclosureId().toString())
-                                        .put("kind", a.kind().name()).put("retainUntil", until.toString())));
-                    }
-                    return null;
-                });
-            } catch (RuntimeException e) {
-                pending = true;
-                try {
-                    transactions.inTenant(tenant, () -> audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(),
-                            AuditAction.ARTIFACT_RETAIN_DEFERRED, ARTIFACT_TARGET, a.storageKey(), JSON.createObjectNode()
-                            .put("disclosureId", a.disclosureId().toString()).put("kind", a.kind().name())
-                            .put("exception", e.getClass().getSimpleName()))));
-                } catch (RuntimeException auditFailure) {
-                    e.addSuppressed(auditFailure);
-                }
-            }
-        }
-        return pending;
+        return locks.apply(tenant, actor, artifacts, retentionUntil);
     }
 
     /**

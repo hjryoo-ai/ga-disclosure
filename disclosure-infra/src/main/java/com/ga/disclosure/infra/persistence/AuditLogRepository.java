@@ -77,17 +77,31 @@ public class AuditLogRepository extends TenantScopedRepository implements AuditP
 
     @Override
     public List<AuditRecord> readAll() {
-        TenantId tenant = TenantContext.current();
-        RowMapper<AuditRecord> mapper = (rs, n) -> new AuditRecord(tenant, rs.getLong("seq"),
-                new AuditEntry(rs.getTimestamp("at").toInstant(), rs.getString("actor_subject"), rs.getString("actor_role"),
-                        AuditAction.valueOf(rs.getString("action")), rs.getString("target_kind"), rs.getString("target_id"),
-                        JSON.readTree(rs.getString("detail"))),
-                rs.getString("prev_hash"), rs.getString("entry_hash"));
         return query("""
                 SELECT seq, at, actor_subject, actor_role, action, target_kind, target_id, detail::text AS detail, prev_hash, entry_hash
                   FROM audit_log
                  WHERE tenant_id = :tenantId
                  ORDER BY seq
-                """, Map.of(), mapper);
+                """, Map.of(), mapper(TenantContext.current()));
+    }
+
+    @Override
+    public List<AuditRecord> readTarget(String targetKind, String targetId) {
+        return query("""
+                SELECT seq, at, actor_subject, actor_role, action, target_kind, target_id, detail::text AS detail, prev_hash, entry_hash
+                  FROM audit_log
+                 WHERE tenant_id = :tenantId
+                   AND target_kind = :targetKind
+                   AND target_id = :targetId
+                 ORDER BY seq
+                """, Map.of("targetKind", targetKind, "targetId", targetId), mapper(TenantContext.current()));
+    }
+
+    private static RowMapper<AuditRecord> mapper(TenantId tenant) {
+        return (rs, n) -> new AuditRecord(tenant, rs.getLong("seq"),
+                new AuditEntry(rs.getTimestamp("at").toInstant(), rs.getString("actor_subject"), rs.getString("actor_role"),
+                        AuditAction.valueOf(rs.getString("action")), rs.getString("target_kind"), rs.getString("target_id"),
+                        JSON.readTree(rs.getString("detail"))),
+                rs.getString("prev_hash"), rs.getString("entry_hash"));
     }
 }

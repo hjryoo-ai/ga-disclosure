@@ -7,6 +7,7 @@ import com.ga.disclosure.domain.disclosure.ItemGrade;
 import com.ga.disclosure.domain.disclosure.Recommendation;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.enums.IssuerMode;
+import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.TieBreak;
 import com.ga.disclosure.domain.grade.EngineSnapshot;
 import com.ga.disclosure.domain.grade.GradeSnapshot;
@@ -24,6 +25,7 @@ import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.domain.vo.Sha256;
 import com.ga.disclosure.domain.vo.SnapshotId;
 import com.ga.disclosure.domain.vo.TemplateRef;
+import com.ga.disclosure.rules.validation.ValidationSubject;
 import com.ga.disclosure.workflow.disclosure.CanonicalValue;
 import com.ga.disclosure.workflow.disclosure.Disclosure;
 import com.ga.disclosure.workflow.disclosure.DisclosureItem;
@@ -119,7 +121,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                        tenant_rule_version_id, issuer_mode, status, consult_date, grade_snapshot_id, grading_policy_version_id,
                        ranking_policy_version_id, tie_break, grade_basis::text AS grade_basis, snapshot_generated_at, version, supersedes_id,
                        superseded_by_id, disclosure_no, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq, retention_until,
-                       voided_at, void_reason_code, void_reason_text, supersede_reason_code, supersede_reason_text
+                       voided_at, void_reason_code, void_reason_text, supersede_reason_code, supersede_reason_text, completed_at
                   FROM disclosure
                  WHERE tenant_id = :tenantId
                    AND disclosure_id = :id
@@ -181,6 +183,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                            chain_hash = :chainHash,
                            chain_seq = :chainSeq,
                            retention_until = :retentionUntil,
+                           completed_at = :completedAt,
                            voided_at = :voidedAt,
                            void_reason_code = :voidReasonCode,
                            void_reason_text = :voidReasonText,
@@ -254,6 +257,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         p.put("chainHash", seal.map(x -> x.chainHash().toString()).orElse(null));
         p.put("chainSeq", seal.map(SealStamp::chainSeq).orElse(null));
         p.put("retentionUntil", seal.map(SealStamp::retentionUntil).orElse(null));
+        p.put("completedAt", d.completedAt().map(Timestamp::from).orElse(null));
         p.put("voidedAt", d.voidMark().map(v -> Timestamp.from(v.at())).orElse(null));
         p.put("voidReasonCode", d.voidMark().map(v -> v.reason().code()).orElse(null));
         p.put("voidReasonText", d.voidMark().map(v -> v.reason().textOrNull()).orElse(null));
@@ -347,7 +351,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                           java.time.LocalDate consultDate, String snapshotIdOrNull, String grading, String ranking, String tieBreak,
                           String basis, java.time.Instant generatedAt, Lineage lineage,
                           SealStamp sealOrNull, VoidMark voidOrNull,
-                          DisclosureId supersededByOrNull, LifecycleReason supersedeReasonOrNull) {
+                          DisclosureId supersededByOrNull, LifecycleReason supersedeReasonOrNull, java.time.Instant completedAtOrNull) {
     }
 
     private static Header header(ResultSet rs) throws SQLException {
@@ -366,6 +370,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 : new VoidMark(voidedAt.toInstant(), new LifecycleReason(rs.getString("void_reason_code"), rs.getString("void_reason_text")));
         String supersedeCode = rs.getString("supersede_reason_code");
         LifecycleReason supersedeReason = supersedeCode == null ? null : new LifecycleReason(supersedeCode, rs.getString("supersede_reason_text"));
+        Timestamp completedAt = rs.getTimestamp("completed_at");
         return new Header(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), rs.getString("agent_id"),
                 CustomerRef.of(rs.getString("customer_ref")), GroupCode.of(rs.getString("group_code")),
                 TemplateRef.of(rs.getString("template_id"), rs.getInt("template_version")), RuleVersionId.of(rs.getString("rule_version_id")),
@@ -374,7 +379,8 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 rs.getString("grade_snapshot_id"), rs.getString("grading_policy_version_id"), rs.getString("ranking_policy_version_id"),
                 rs.getString("tie_break"), rs.getString("grade_basis"), generated == null ? null : generated.toInstant(),
                 new Lineage(rs.getInt("version"), supersedes == null ? null : DisclosureId.of(supersedes)),
-                seal, voidMark, supersededBy == null ? null : DisclosureId.of(supersededBy), supersedeReason);
+                seal, voidMark, supersededBy == null ? null : DisclosureId.of(supersededBy), supersedeReason,
+                completedAt == null ? null : completedAt.toInstant());
     }
 
     private record Row(DisclosureItem item, GradeSnapshotItem engineOrNull) {
@@ -413,9 +419,18 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         EngineSnapshot snapshot = h.snapshotIdOrNull() == null ? null : new EngineSnapshot(
                 new GradeSnapshot(SnapshotId.of(h.snapshotIdOrNull()), h.grading(), h.ranking(), TieBreak.valueOf(h.tieBreak()), engineItems),
                 new String(Canonicalizer.canonicalize(Canonicalizer.parseStrict(h.basis())), StandardCharsets.UTF_8), h.generatedAt());
+        // 서명 목록(역할·시각): 서명 레코드 본체는 서명 저장소가 쓰고 읽는다 — 애그리게이트는 완료 조건(R-SIGNER-SET)에 필요한 것만
+        List<ValidationSubject.SignatureMark> signatures = query("""
+                SELECT signer_role, signed_at
+                  FROM signature
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :id
+                 ORDER BY signed_at, signature_id
+                """, Map.of("id", h.id().value()), (rs, n) -> new ValidationSubject.SignatureMark(SignerRole.valueOf(rs.getString("signer_role")),
+                rs.getTimestamp("signed_at").toInstant()));
         return new DisclosureRecord(h.id(), h.agentId(), h.customerRef(), h.group(), h.consultDate(), h.rule(), h.tenantRuleOrNull(),
                 h.template(), h.issuerMode(), h.lineage(), h.status(), items, snapshot, h.sealOrNull(), h.voidOrNull(), h.supersededByOrNull(),
-                h.supersedeReasonOrNull());
+                h.supersedeReasonOrNull(), signatures, h.completedAtOrNull());
     }
 
     private static Row row(ResultSet rs, Map<Integer, Recommendation> recs) throws SQLException {

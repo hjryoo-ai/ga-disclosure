@@ -105,6 +105,18 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
     }
 
     @Override
+    public List<DisclosureFlagPort.FlagSummary> allFor(DisclosureId disclosureId) {
+        return query("""
+                SELECT flag_id, type, resolved_at IS NULL AS open
+                  FROM compliance_flag
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :disclosureId
+                 ORDER BY raised_at, flag_id
+                """, Map.of("disclosureId", disclosureId.value()),
+                (rs, n) -> new DisclosureFlagPort.FlagSummary(rs.getObject("flag_id", UUID.class), rs.getString("type"), rs.getBoolean("open")));
+    }
+
+    @Override
     public boolean resolve(UUID flagId, DisclosureFlagPort.Resolution resolution, String resolvedBy, Instant at) {
         return update("""
                 UPDATE compliance_flag

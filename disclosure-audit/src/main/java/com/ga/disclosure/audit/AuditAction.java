@@ -70,5 +70,24 @@ public enum AuditAction {
     /** 산출물 열람 거부: 문서 키 파기·해시 불일치·객체 없음. */
     ARTIFACT_VIEW_DENIED,
     /** 참조 없는 잠금 없는 객체(커밋 실패 잔여물) 삭제. */
-    ARTIFACT_GC
+    ARTIFACT_GC,
+    // ---------------------------------------------------------------- Phase 4: 서명(대상 DISCLOSURE, detail에 세션·서명 ID — 토큰·입력값 없음)
+    /** 고객 서명 세션 발급(채널·만료 시각, 재발급이면 닫은 이전 세션). */
+    SIGN_SESSION_ISSUE,
+    /** 원격 서명 링크 발송(발송 시각 기록, 번호 없음). */
+    SIGN_SESSION_SEND,
+    /** 세션 열람 증거 기록(스크롤 완료·소요 초). */
+    SIGN_SESSION_VIEW,
+    /** 토큰으로 세션을 열 수 없었다(사유 코드만 — 모르는 토큰·닫힌 세션·TTL 경과). */
+    SIGN_SESSION_DENIED,
+    /** 본인확인 시도 결과(수단·통과 여부·실패 횟수·취소 여부 — 입력값 없음). */
+    SIGN_IDENTITY_CHECK,
+    /** 세션 취소(재발급·본인확인 실패 한도·문서 무효·정정·만료). */
+    SIGN_SESSION_REVOKE,
+    /** TTL이 지난 세션을 EXPIRED로 기록(재발급 직전·만료 배치). */
+    SIGN_SESSION_EXPIRE,
+    /** 서명 1건 수집(역할·채널·방법·두 해시·증거 객체 해시·본인확인 결과). */
+    SIGNATURE_CAPTURED,
+    /** 완료: 서명본·증거 패키지 해시, 연장된 보존기한, 증거 패키지가 담은 감사 범위. */
+    DISCLOSURE_COMPLETED
 }

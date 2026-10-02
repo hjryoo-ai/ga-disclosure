@@ -74,6 +74,7 @@ final class DisclosureLoader {
                 .map(ProductGroup::name).findFirst().orElse(null);
         Map<ReasonCode, String> labels = new LinkedHashMap<>();
         rule.reasonCodes().forEach(r -> labels.put(r.code(), r.label()));
-        return new DisclosureContext(profile.largeGa(), panel.lookupFor(tenant), template, groupName, panel.panel(tenant, consultDate), labels);
+        return new DisclosureContext(profile.largeGa(), panel.lookupFor(tenant), template, groupName, panel.panel(tenant, consultDate), labels,
+                rule.signDeadlineDays());
     }
 }

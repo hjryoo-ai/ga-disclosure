@@ -39,12 +39,16 @@ class OutboxEventsIT {
 
     /** 테넌트 아웃박스를 seq 순으로 envelope 형태로 읽는다. */
     private List<ObjectNode> envelopes() {
-        return s.w.db.asApp(s.w.tenant.value(), c -> {
+        return envelopes(s.w);
+    }
+
+    private static List<ObjectNode> envelopes(WorkflowSetup w) {
+        return w.db.asApp(w.tenant.value(), c -> {
             List<ObjectNode> out = new ArrayList<>();
             try (var ps = c.prepareStatement("""
                     SELECT seq, event_id, type, version, occurred_at, aggregate_kind, aggregate_id, payload::text
                       FROM outbox_event WHERE tenant_id = ? ORDER BY seq""")) {
-                ps.setString(1, s.w.tenant.value());
+                ps.setString(1, w.tenant.value());
                 try (var rs = ps.executeQuery()) {
                     while (rs.next()) {
                         ObjectNode e = JSON.createObjectNode();
@@ -91,6 +95,34 @@ class OutboxEventsIT {
         assertThat(events.get(3).at("/payload/version").asInt()).isEqualTo(2);
         assertThat(events.get(4).at("/payload/previousStatus").asString()).isEqualTo("DRAFT");
         assertThat(events.get(4).at("/payload/disclosureNo").isNull()).as("voided before sealing").isTrue();
+    }
+
+    /** Phase 4: 서명·완료 이벤트도 같은 트랜잭션·같은 규약 — 계약 스키마 통과, 갭 없음, 고객 개인정보·토큰 없음, pendingRoles는 게이트 산식. */
+    @Test
+    void signingEventsAreContractValidAndGapless() {
+        try (SignSetup x = new SignSetup()) {
+            DisclosureId id = x.sealed();
+            x.customerSignsOnTouchPad(id);
+            x.agentSigns(id);
+            x.managerConfirms(id);
+            List<ObjectNode> events = envelopes(x.w);
+            assertThat(types(events)).containsSubsequence("DisclosureSealed", "SignatureCaptured", "SignatureCaptured", "SignatureCaptured",
+                    "DisclosureCompleted");
+            for (int i = 0; i < events.size(); i++) {
+                assertThat(events.get(i).path("seq").asLong()).as("gapless").isEqualTo(i + 1);
+                assertThat(EventContract.validate(events.get(i))).as("contract: %s", events.get(i).path("type").asString()).isEmpty();
+                assertThat(events.get(i).toString()).doesNotContain("가상서명고객").doesNotContain(SignSetup.BIRTH).doesNotContain(SignSetup.PHONE);
+            }
+            List<ObjectNode> captured = events.stream().filter(e -> e.path("type").asString().equals("SignatureCaptured")).toList();
+            assertThat(captured).extracting(e -> e.at("/payload/signerRole").asString()).containsExactly("CUSTOMER", "AGENT", "MANAGER");
+            assertThat(captured.getFirst().at("/payload/channel").asString()).isEqualTo("TOUCH_PAD");
+            assertThat(captured.get(1).at("/payload/channel").asString()).isEqualTo("SSO");
+            assertThat(captured.getFirst().at("/payload/pendingRoles").toString()).isEqualTo("[\"AGENT\",\"MANAGER\"]");
+            assertThat(captured.getLast().at("/payload/pendingRoles").size()).isZero();
+            ObjectNode completed = events.getLast();
+            assertThat(completed.path("type").asString()).isEqualTo("DisclosureCompleted");
+            assertThat(completed.at("/payload/retentionUntil").asString()).isEqualTo("2031-09-23");
+        }
     }
 
     @Test

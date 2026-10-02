@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,6 +105,39 @@ class SignatureEvidenceEncryptionIT {
                 && r.entry().detail().path("signatureId").asString().equals(st.signatureId().toString()));
         assertThat(s.artifacts.viewEvidence(s.w.tenant, SealSetup.COMPLIANCE, st.id(), st.signatureId(), SignatureEvidenceKind.SCAN))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.NO_ARTIFACT));
+    }
+
+    /**
+     * 유스케이스 경로(4 계획 §7.1 4항): 터치 서명이 올린 스트로크·이미지가 버킷에는 암호문으로만 있고(PNG 시그니처·좌표 문자열 없음), 열람하면 받은 PNG·
+     * 정규화된 스트로크와 같으며, 완료 증거 패키지에는 스트로크 원본이 들어가지 않는다(해시만).
+     */
+    @Test
+    void theCapturePathStoresOnlyCiphertextAndThePackageCarriesOnlyHashes() {
+        try (SignSetup x = new SignSetup()) {
+            DisclosureId id = x.sealed();
+            UUID signatureId = x.customerSignsOnTouchPad(id).signatureId().orElseThrow();
+            x.agentSigns(id);
+            x.managerConfirms(id);
+            List<SignatureEvidenceRecord> evidence = x.w.in(() -> x.s.records.evidence(id));
+            assertThat(evidence).hasSize(4);
+            byte[] coordinate = "\"x\":131".getBytes(StandardCharsets.US_ASCII);
+            for (SignatureEvidenceRecord r : evidence) {
+                byte[] raw = x.s.bucket.get(r.storageKey());
+                assertThat(contains(raw, new byte[]{(byte) 0x89, 'P', 'N', 'G'})).as("PNG signature in %s", r.kindName()).isFalse();
+                assertThat(contains(raw, coordinate)).as("coordinates in %s", r.kindName()).isFalse();
+            }
+            ArtifactService.View image = x.s.artifacts.viewEvidence(x.w.tenant, SealSetup.COMPLIANCE, id, signatureId, SignatureEvidenceKind.IMAGE);
+            assertThat(((ArtifactService.View.Granted) image).plaintext()).isEqualTo(SignSetup.png());
+            ArtifactService.View strokes = x.s.artifacts.viewEvidence(x.w.tenant, SealSetup.COMPLIANCE, id, signatureId, SignatureEvidenceKind.STROKES);
+            assertThat(contains(((ArtifactService.View.Granted) strokes).plaintext(), coordinate)).isTrue();
+            byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, SealSetup.COMPLIANCE, id,
+                    com.ga.disclosure.domain.enums.ArtifactKind.EVIDENCE_ZIP)).plaintext();
+            assertThat(contains(zip, coordinate)).as("no strokes in the evidence package").isFalse();
+            java.util.Map<String, byte[]> entries = com.ga.disclosure.seal.evidence.EvidencePackageReader.entries(zip);
+            assertThat(entries.keySet()).noneMatch(n -> n.endsWith(".png") || n.contains("stroke"));
+            String manifest = new String(entries.get("manifest.json"), StandardCharsets.UTF_8);
+            evidence.forEach(r -> assertThat(manifest).contains(r.sha256().hex()));
+        }
     }
 
     @Test

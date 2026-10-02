@@ -101,6 +101,25 @@ final class WorkflowSetup implements AutoCloseable {
 
     /** 배포할 정본 번들을 고른다(3B: 2027 룰 없이 2026 룰을 소급 대체하는 시나리오). */
     WorkflowSetup(String instant, EngineClientSettings settings, List<String> bundles) {
+        this(instant, settings, bundles.stream().map(Bundles::load).toArray(com.ga.disclosure.rules.bundle.Bundle[]::new));
+    }
+
+    /**
+     * 룰 데이터 변형 테넌트(Phase 4 G2): DISC-2026-07 본문을 고친 GLOBAL 번들(번들 ID는 고친 본문의 해시로 다시 만든다)과 STANDARD-v1만 배포한다.
+     */
+    static WorkflowSetup withRule(java.util.function.Consumer<tools.jackson.databind.node.ObjectNode> edit) {
+        tools.jackson.databind.node.ObjectNode bundle = (tools.jackson.databind.node.ObjectNode) com.ga.platform.canonical.Canonicalizer
+                .parseStrict(Bundles.text(Bundles.DISC_2026_07));
+        tools.jackson.databind.node.ObjectNode body = (tools.jackson.databind.node.ObjectNode) bundle.get("body");
+        edit.accept(body);
+        String hash = com.ga.platform.canonical.Sha256.of(com.ga.platform.canonical.Canonicalizer.canonicalize(body));
+        bundle.put("bundleId", bundle.get("ruleVersionId").asString() + "@" + hash.substring(0, 12));
+        com.ga.disclosure.rules.bundle.Bundle variant = com.ga.disclosure.rules.bundle.BundleLoader.parse("variant", bundle.toString());
+        return new WorkflowSetup("2026-09-23T01:00:00Z", new EngineClientSettings(Duration.ofSeconds(2), Duration.ofSeconds(3), 3), variant,
+                Bundles.load(Bundles.STANDARD_V1));
+    }
+
+    private WorkflowSetup(String instant, EngineClientSettings settings, com.ga.disclosure.rules.bundle.Bundle... bundles) {
         this.clock = Clock.fixed(Instant.parse(instant), Governance.SEOUL);
         this.settings = settings;
         this.engine = new FakeEngine(TableEngineStub.load(resource("/workflow/engine-table.json")), TOKEN, clock);
@@ -115,7 +134,7 @@ final class WorkflowSetup implements AutoCloseable {
                 new NewCustomer(CustomerName.of("가상고객"), null, null));
     }
 
-    private TenantId freshTenant(List<String> bundles) {
+    private TenantId freshTenant(com.ga.disclosure.rules.bundle.Bundle... bundles) {
         String t = SeedData.uniqueTenant("WF");
         db.seed(t, c -> {
             SeedData.tenant(c, t);
@@ -124,8 +143,8 @@ final class WorkflowSetup implements AutoCloseable {
         });
         TenantId tenant = TenantId.of(t);
         Governance g = new Governance();
-        for (String b : bundles) {
-            g.distribution.distribute(Bundles.load(b), tenant, Governance.OPERATOR);
+        for (com.ga.disclosure.rules.bundle.Bundle b : bundles) {
+            g.distribution.distribute(b, tenant, Governance.OPERATOR);
         }
         for (String day : List.of("2026-09-23", "2027-01-01")) {
             new Governance(LocalDate.parse(day).atStartOfDay(Governance.SEOUL).toInstant().toString()).activation.run(tenant, Governance.OPERATOR);
@@ -178,7 +197,14 @@ final class WorkflowSetup implements AutoCloseable {
 
     /** 3사 비교 → 산출 → 추천사유(항목 1·3)까지 = 봉인 직전(REASONED). */
     DisclosureId reasoned() {
-        DisclosureId id = compared();
+        return reasoned(customer);
+    }
+
+    /** 그 고객의 확인서로 봉인 직전(REASONED)까지(Phase 4: 연락처·생년월일이 있는 고객). */
+    DisclosureId reasoned(CustomerRef who) {
+        DisclosureId id = service.createDraft(tenant, AGENT, who, GROUP, CONSULT, TemplateType.STANDARD);
+        service.replaceItems(tenant, AGENT, id, threeItems());
+        service.compare(tenant, AGENT, id);
         service.requestGrades(tenant, AGENT, id);
         service.setRecommendations(tenant, AGENT, id, List.of(
                 new com.ga.disclosure.domain.disclosure.AgentReason(1, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("PREMIUM")), null),

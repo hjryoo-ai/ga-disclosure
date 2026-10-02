@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-TEST-REASON@5c843c6d9355",
+  "bundleId": "DISC-TEST-REASON@61c4a20c64c9",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-TEST-REASON",
@@ -126,6 +126,9 @@
       "TOUCH_PAD": [
         "AGENT_FACE_TO_FACE",
         "SCROLL_COMPLETE"
+      ],
+      "PAPER_SCAN": [
+        "AGENT_FACE_TO_FACE"
       ],
       "maxFailures": 5
     },

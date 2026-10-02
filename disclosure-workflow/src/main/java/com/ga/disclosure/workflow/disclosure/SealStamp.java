@@ -26,4 +26,12 @@ public record SealStamp(DisclosureNo number, Instant sealedAt, Sha256 canonicalH
             throw new IllegalArgumentException("chain_seq starts at 1");
         }
     }
+
+    /** 보존기한 연장(완료 앵커, 3B 수용심사 §3-3). 짧아지면 호출자 오류다 — DB GD094·Object Lock COMPLIANCE와 같은 규칙. */
+    public SealStamp withRetentionUntil(LocalDate later) {
+        if (later.isBefore(retentionUntil)) {
+            throw new IllegalArgumentException("retention_until only extends: " + retentionUntil + " -> " + later);
+        }
+        return new SealStamp(number, sealedAt, canonicalHash, pdfHash, chainHash, chainSeq, later);
+    }
 }

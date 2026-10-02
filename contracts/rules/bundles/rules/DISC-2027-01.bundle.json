@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-2027-01@b7a52dba7131",
+  "bundleId": "DISC-2027-01@64ab37ed001f",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-2027-01",
@@ -121,6 +121,9 @@
       "TOUCH_PAD": [
         "AGENT_FACE_TO_FACE",
         "SCROLL_COMPLETE"
+      ],
+      "PAPER_SCAN": [
+        "AGENT_FACE_TO_FACE"
       ],
       "maxFailures": 5
     },

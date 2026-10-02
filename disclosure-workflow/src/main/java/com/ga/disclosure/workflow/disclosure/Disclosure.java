@@ -24,6 +24,7 @@ import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.rules.template.BindingView;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.rules.validation.ValidationSubject;
+import com.ga.disclosure.sign.retention.SignDeadline;
 import com.ga.disclosure.workflow.catalog.PanelEntry;
 import com.ga.platform.canonical.Canonicalizer;
 import tools.jackson.databind.JsonNode;
@@ -51,6 +52,10 @@ import java.util.Set;
  * <p>밖에 있는 것: 룰·서식 본문(유스케이스가 고정 ID로 로드해 {@link StageCheck}·{@link DisclosureContext}로 건넨다), 카탈로그, 엔진 호출
  * (검증을 마친 {@link EngineSnapshot}만 들어온다), 예외 승인, 준법 플래그·감사, 고객 개인정보({@code customerRef}만 가진다).
  * 상담일을 바꾸는 명령은 없다 — 상담일이 다르면 새 초안을 만든다.
+ *
+ * <p>서명(Phase 4): 서명 목록은 역할·서명 시각만 가진다(서명 레코드 본체는 서명 저장소). 서명 기한은 봉인 시각과 고정 룰의 {@code signDeadlineDays}로
+ * 정해지고(설계서 §6.5), 완료는 COMPLETE 단계 검증(R-SIGNER-SET)이 <b>전부 통과</b>할 때만이다 — 완료에는 승인 경로가 없으므로 오버라이드 가능
+ * 실패도 막는다.
  */
 public final class Disclosure implements ValidationSubject {
 
@@ -78,12 +83,15 @@ public final class Disclosure implements ValidationSubject {
     private VoidMark voidOrNull;
     private DisclosureId supersededByOrNull;
     private LifecycleReason supersedeReasonOrNull;
+    /** 받은 서명(서명 시각 순). 봉인 이후에만 있고, 무효·정정·만료 뒤에도 보존된다(3B 수용심사 §3-5). */
+    private List<SignatureMark> signatures;
+    private Instant completedAtOrNull;
 
     private Disclosure(DisclosureId id, String agentId, CustomerRef customerRef, GroupCode groupCode, LocalDate consultDate,
                        RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template, IssuerMode issuerMode,
                        DisclosureContext context, Lineage lineage, DisclosureStatus status, List<DisclosureItem> items,
                        EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull, DisclosureId supersededByOrNull,
-                       LifecycleReason supersedeReasonOrNull) {
+                       LifecycleReason supersedeReasonOrNull, List<SignatureMark> signatures, Instant completedAtOrNull) {
         this.id = Objects.requireNonNull(id, "id");
         this.agentId = Objects.requireNonNull(agentId, "agentId");
         this.customerRef = Objects.requireNonNull(customerRef, "customerRef");
@@ -99,6 +107,8 @@ public final class Disclosure implements ValidationSubject {
         this.voidOrNull = voidOrNull;
         this.supersededByOrNull = supersededByOrNull;
         this.supersedeReasonOrNull = supersedeReasonOrNull;
+        this.signatures = List.copyOf(signatures);
+        this.completedAtOrNull = completedAtOrNull;
         checkInvariants();
     }
 
@@ -120,7 +130,7 @@ public final class Disclosure implements ValidationSubject {
                                    RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template,
                                    IssuerMode issuerMode, DisclosureContext context) {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, Lineage.FIRST, DisclosureStatus.DRAFT, List.of(), null, null, null, null, null);
+                issuerMode, context, Lineage.FIRST, DisclosureStatus.DRAFT, List.of(), null, null, null, null, null, List.of(), null);
     }
 
     /**
@@ -132,22 +142,25 @@ public final class Disclosure implements ValidationSubject {
         List<DisclosureItem> copied = original.items.stream().map(DisclosureItem::ungraded).toList();
         return new Disclosure(newId, original.agentId, original.customerRef, original.groupCode, original.consultDate, ruleVersionId,
                 tenantRuleVersionIdOrNull, template, original.issuerMode, context, original.lineage.next(original.id), DisclosureStatus.DRAFT,
-                copied, null, null, null, null, null);
+                copied, null, null, null, null, null, List.of(), null);
     }
 
-    /** 저장소에서 복원. 불변식(스냅샷·봉인·무효·정정 ↔ 상태·항목)을 다시 검사한다. */
+    /** 저장소에서 복원. 불변식(스냅샷·봉인·무효·정정·서명·완료 ↔ 상태·항목)을 다시 검사한다. */
     public static Disclosure restore(DisclosureId id, String agentId, CustomerRef customerRef, GroupCode groupCode, LocalDate consultDate,
                                      RuleVersionId ruleVersionId, RuleVersionId tenantRuleVersionIdOrNull, TemplateRef template,
                                      IssuerMode issuerMode, DisclosureContext context, Lineage lineage, DisclosureStatus status,
                                      List<DisclosureItem> items, EngineSnapshot snapshotOrNull, SealStamp sealOrNull, VoidMark voidOrNull,
-                                     DisclosureId supersededByOrNull, LifecycleReason supersedeReasonOrNull) {
+                                     DisclosureId supersededByOrNull, LifecycleReason supersedeReasonOrNull, List<SignatureMark> signatures,
+                                     Instant completedAtOrNull) {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull, supersedeReasonOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull, supersedeReasonOrNull,
+                signatures, completedAtOrNull);
     }
 
     private Disclosure copy() {
         return new Disclosure(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
-                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull, supersedeReasonOrNull);
+                issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull, supersedeReasonOrNull,
+                signatures, completedAtOrNull);
     }
 
     private void adopt(Disclosure candidate) {
@@ -158,6 +171,8 @@ public final class Disclosure implements ValidationSubject {
         this.voidOrNull = candidate.voidOrNull;
         this.supersededByOrNull = candidate.supersededByOrNull;
         this.supersedeReasonOrNull = candidate.supersedeReasonOrNull;
+        this.signatures = candidate.signatures;
+        this.completedAtOrNull = candidate.completedAtOrNull;
         if (candidate.ruleVersionId != ruleVersionId || candidate.template != template || candidate.context != context
                 || candidate.tenantRuleVersionIdOrNull != tenantRuleVersionIdOrNull) {
             pin(candidate.ruleVersionId, candidate.tenantRuleVersionIdOrNull, candidate.template, candidate.context);
@@ -323,6 +338,94 @@ public final class Disclosure implements ValidationSubject {
     }
 
     /**
+     * 서명 1건(SIGN, 설계서 §6.1·§6.5): SEALED·PARTIALLY_SIGNED에서. 서명 레코드 본체(두 해시·증거)는 유스케이스가 이 명령 전에 저장했다 — 애그리게이트는
+     * 역할·서명 시각만 목록에 더한다. {@code completion}이 없으면 PARTIALLY_SIGNED, 있으면 그 서명으로 COMPLETE 단계 검증을 <b>전부</b> 통과해야
+     * COMPLETED다(유스케이스가 {@link #completionResults}로 먼저 확인하고 서명본·증거 패키지를 만든 뒤 부른다 — 통과하지 못하면 아무것도 바뀌지 않는다).
+     * 같은 역할의 두 번째 서명, 앞 서명보다 늦지 않은 시각은 호출자 오류다(DB 유일 제약·R-SIGNER-SET의 이중화 — 서명 시각은 확인서마다 엄격히 증가해
+     * 저장 뒤에도 목록 순서가 서명 순서다).
+     */
+    public TransitionOutcome sign(SignatureMark mark, CompletionStamp completionOrNull, StageCheck check) {
+        DisclosureCommand command = DisclosureCommand.SIGN;
+        DisclosureStateTable.require(status, command);
+        Disclosure candidate = copy();
+        candidate.signatures = withSignature(mark);
+        if (completionOrNull == null) {
+            candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.PARTIALLY_SIGNED);
+            DisclosureStatus from = status;
+            adopt(candidate);
+            return new TransitionOutcome.Applied(command, from, status, null, List.of());
+        }
+        return completeGate(command, candidate, completionOrNull, check);
+    }
+
+    /**
+     * 완료(COMPLETE): PARTIALLY_SIGNED에서 서명을 더하지 않고 완료 조건을 다시 확인한다 — 종이 스캔 검토가 해소된 뒤(4 계획 §7.2, 승인 Q10). COMPLETE
+     * 단계 검증을 전부 통과해야 한다(아니면 {@link TransitionOutcome.Rejected}, 상태 불변).
+     */
+    public TransitionOutcome complete(CompletionStamp completion, StageCheck check) {
+        DisclosureCommand command = DisclosureCommand.COMPLETE;
+        DisclosureStateTable.require(status, command);
+        return completeGate(command, copy(), Objects.requireNonNull(completion, "completion"), check);
+    }
+
+    /** 서명 기한 경과(EXPIRE, 4 계획 §7.4): SEALED·PARTIALLY_SIGNED → EXPIRED. 기한 끝을 지나지 않았으면 호출자 오류다. 받은 서명은 보존한다. */
+    public TransitionOutcome expire(Instant asOf) {
+        DisclosureCommand command = DisclosureCommand.EXPIRE;
+        DisclosureStateTable.require(status, command);
+        if (!deadline().orElseThrow().passed(Objects.requireNonNull(asOf, "asOf"))) {
+            throw new IllegalArgumentException("disclosure " + id + " is not past its sign deadline " + deadline().orElseThrow().lastDay()
+                    + " at " + asOf);
+        }
+        Disclosure candidate = copy();
+        candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.EXPIRED);
+        DisclosureStatus from = status;
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, null, List.of());
+    }
+
+    /**
+     * 완료 조건 미리 보기(질의, 상태 불변): {@code addingOrNull} 서명을 더한 모습에 COMPLETE 단계 검증을 돌린다. 결과가 전부 통과면 그 서명(또는 COMPLETE
+     * 명령)으로 완료된다.
+     */
+    public List<ValidationResult> completionResults(SignatureMark addingOrNull, StageCheck check) {
+        Disclosure candidate = copy();
+        if (addingOrNull != null) {
+            candidate.signatures = withSignature(addingOrNull);
+        }
+        return check.run(ValidationStage.COMPLETE, candidate);
+    }
+
+    private TransitionOutcome completeGate(DisclosureCommand command, Disclosure candidate, CompletionStamp completion, StageCheck check) {
+        Instant last = candidate.signatures.isEmpty() ? null : candidate.signatures.getLast().signedAt();
+        if (last == null || completion.completedAt().isBefore(last)) {
+            throw new IllegalArgumentException("completion at " + completion.completedAt() + " precedes the last signature " + last);
+        }
+        candidate.completedAtOrNull = completion.completedAt();
+        candidate.sealOrNull = sealOrNull.withRetentionUntil(completion.retentionUntil());
+        candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.COMPLETED);
+        List<ValidationResult> results = check.run(ValidationStage.COMPLETE, candidate);
+        DisclosureStatus from = status;
+        if (!results.stream().allMatch(ValidationResult::passed)) {
+            return new TransitionOutcome.Rejected(command, from, ValidationStage.COMPLETE, results);
+        }
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, ValidationStage.COMPLETE, results);
+    }
+
+    private List<SignatureMark> withSignature(SignatureMark mark) {
+        Objects.requireNonNull(mark, "mark");
+        if (signatures.stream().anyMatch(m -> m.role() == mark.role())) {
+            throw new IllegalArgumentException(mark.role() + " has already signed disclosure " + id);
+        }
+        if (!signatures.isEmpty() && !mark.signedAt().isAfter(signatures.getLast().signedAt())) {
+            throw new IllegalArgumentException("signature at " + mark.signedAt() + " is not after the previous one");
+        }
+        List<SignatureMark> next = new ArrayList<>(signatures);
+        next.add(mark);
+        return List.copyOf(next);
+    }
+
+    /**
      * 재기준(REBASE, 3A 수용심사 §3-8): 상담일 재해석으로 얻은 룰·서식을 새로 고정하고 스냅샷·추천사유를 버린다(항목 입력은 그대로). 새 룰의 COMPARE
      * 단계 검증을 통과하면 COMPARED, 오버라이드 불가 실패가 있으면 DRAFT(3B 계획 승인 Q3) — 어느 쪽이든 적용되고 결과에 검증 결과를 싣는다.
      */
@@ -387,6 +490,29 @@ public final class Disclosure implements ValidationSubject {
         if ((status == DisclosureStatus.SUPERSEDED) != (supersededByOrNull != null)
                 || (supersededByOrNull != null) != (supersedeReasonOrNull != null)) {
             throw new IllegalStateException("superseded-by and its reason exactly on SUPERSEDED (status " + status + ")");
+        }
+        if (!signatures.isEmpty() && sealOrNull == null) {
+            throw new IllegalStateException("signatures exist only on a sealed disclosure");
+        }
+        if ((status == DisclosureStatus.PARTIALLY_SIGNED || status == DisclosureStatus.COMPLETED) && signatures.isEmpty()) {
+            throw new IllegalStateException(status + " requires at least one signature");
+        }
+        if (status == DisclosureStatus.SEALED && !signatures.isEmpty()) {
+            throw new IllegalStateException("SEALED carries no signature");
+        }
+        Set<com.ga.disclosure.domain.enums.SignerRole> signedRoles = new HashSet<>();
+        for (int i = 0; i < signatures.size(); i++) {
+            if (!signedRoles.add(signatures.get(i).role())
+                    || (i > 0 && !signatures.get(i).signedAt().isAfter(signatures.get(i - 1).signedAt()))) {
+                throw new IllegalStateException("signatures are one per role in strictly increasing signing time");
+            }
+        }
+        if (status == DisclosureStatus.COMPLETED && completedAtOrNull == null) {
+            throw new IllegalStateException("COMPLETED requires completed_at");
+        }
+        if (completedAtOrNull != null && status != DisclosureStatus.COMPLETED && status != DisclosureStatus.VOID
+                && status != DisclosureStatus.SUPERSEDED) {
+            throw new IllegalStateException(status + " cannot carry completed_at");
         }
         if (sealOrNull != null && snapshotOrNull == null) {
             throw new IllegalStateException("a sealed disclosure carries its engine snapshot");
@@ -488,6 +614,15 @@ public final class Disclosure implements ValidationSubject {
         return Optional.ofNullable(snapshotOrNull);
     }
 
+    public Optional<Instant> completedAt() {
+        return Optional.ofNullable(completedAtOrNull);
+    }
+
+    /** 서명 기한(봉인 이후만): D = 봉인일(KST) + 고정 룰 {@code signDeadlineDays}. */
+    public Optional<SignDeadline> deadline() {
+        return sealStamp().map(s -> SignDeadline.of(s.sealedAt(), context.signDeadlineDays()));
+    }
+
     // ------------------------------------------------------------------ ValidationSubject
 
     @Override
@@ -573,12 +708,12 @@ public final class Disclosure implements ValidationSubject {
 
     @Override
     public List<SignatureMark> signatures() {
-        return List.of();
+        return signatures;
     }
 
     @Override
     public Optional<Instant> signDeadline() {
-        return Optional.empty();
+        return deadline().map(SignDeadline::lastInstant);
     }
 
     @Override

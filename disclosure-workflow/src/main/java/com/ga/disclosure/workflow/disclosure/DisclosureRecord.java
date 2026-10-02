@@ -8,7 +8,9 @@ import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.domain.vo.TemplateRef;
+import com.ga.disclosure.rules.validation.ValidationSubject;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
@@ -31,7 +33,9 @@ public record DisclosureRecord(
         SealStamp sealOrNull,
         VoidMark voidOrNull,
         DisclosureId supersededByOrNull,
-        LifecycleReason supersedeReasonOrNull) {
+        LifecycleReason supersedeReasonOrNull,
+        List<ValidationSubject.SignatureMark> signatures,
+        Instant completedAtOrNull) {
 
     public DisclosureRecord {
         Objects.requireNonNull(id, "id");
@@ -39,11 +43,12 @@ public record DisclosureRecord(
         Objects.requireNonNull(template, "template");
         Objects.requireNonNull(lineage, "lineage");
         items = List.copyOf(items);
+        signatures = List.copyOf(signatures);
     }
 
     public Disclosure restore(DisclosureContext context) {
         return Disclosure.restore(id, agentId, customerRef, groupCode, consultDate, ruleVersionId, tenantRuleVersionIdOrNull, template,
                 issuerMode, context, lineage, status, items, snapshotOrNull, sealOrNull, voidOrNull, supersededByOrNull,
-                supersedeReasonOrNull);
+                supersedeReasonOrNull, signatures, completedAtOrNull);
     }
 }
