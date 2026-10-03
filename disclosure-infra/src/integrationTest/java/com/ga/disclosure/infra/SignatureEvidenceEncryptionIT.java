@@ -160,14 +160,7 @@ class SignatureEvidenceEncryptionIT {
     @Test
     void shreddingTheDocumentKeyMakesEvidenceUnreadableToo() {
         Stored st = signedWithEvidence();
-        s.w.db.seed(s.w.tenant.value(), c -> {
-            try (var ps = c.prepareStatement("SELECT ga_shred_document_key(?, ?, ?, 'RETENTION:test')")) {
-                ps.setString(1, s.w.tenant.value());
-                ps.setObject(2, st.id().value());
-                ps.setTimestamp(3, java.sql.Timestamp.from(Instant.parse("2031-09-24T00:00:00Z")));
-                ps.execute();
-            }
-        });
+        s.w.db.seed(s.w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.shredDocumentKey(c, s.w.tenant.value(), st.id().value()));
         assertThat(s.artifacts.viewEvidence(s.w.tenant, SealSetup.COMPLIANCE, st.id(), st.signatureId(), SignatureEvidenceKind.IMAGE))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.KEY_SHREDDED));
         assertThat(s.bucket.exists(st.image().storageKey())).as("the locked copy stays, unreadable").isTrue();

@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * C8: signed_doc_hash ≠ canonical_hash 인 signature INSERT 거부; 부모가 SEALED·PARTIALLY_SIGNED일 때만 INSERT 허용,
- * 나머지 8개 상태 전부 거부; signature·audit_log·document_artifact·audit_anchor UPDATE·DELETE 거부.
+ * 나머지 8개 상태 전부 거부; signature·audit_log·document_artifact·anchor(V9, V1 audit_anchor 대체) UPDATE·DELETE 거부.
  * V7(3B): document_artifact는 Object Lock 적용 기록({@code retention_applied_at} NULL→값 1회)만 UPDATE를 허용한다 — 애플리케이션 롤은 그
  * 컬럼만 UPDATE 권한이 있고(나머지 42501), 소유 롤의 다른 변경은 GD093, 삭제는 여전히 GD030.
  * V8(Phase 4): 서명은 PDF 해시도 묶는다(GD102). 애플리케이션 롤은 signature UPDATE·DELETE 권한 자체가 없고(42501), 소유 롤은 트리거가
@@ -42,6 +42,7 @@ class AppendOnlyTriggerIT {
             SeedData.artifact(c, T, sealedWithSignature, "PDF");
             SeedData.auditLog(c, T, 1);
             SeedData.anchor(c, T);
+            SeedData.anchorReceipt(c, T);
         });
     }
 
@@ -119,11 +120,22 @@ class AppendOnlyTriggerIT {
     @ValueSource(strings = {
             "UPDATE audit_log SET detail = '{}'::jsonb WHERE tenant_id = ?",
             "DELETE FROM audit_log WHERE tenant_id = ?",
-            "UPDATE audit_anchor SET head_hash = repeat('0', 64) WHERE tenant_id = ?",
-            "DELETE FROM audit_anchor WHERE tenant_id = ?",
     })
     void appendOnlyTablesRejectUpdateAndDelete(String sql) {
         assertRejected(DB, T, "GD030", sql, T);
+    }
+
+    /** V9: 앵커·영수증은 애플리케이션 롤에 삽입·조회만 있고(42501), 소유 롤은 트리거가 막는다(GD030). */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "UPDATE anchor SET leaf_hash = repeat('0', 64) WHERE tenant_id = ?",
+            "DELETE FROM anchor WHERE tenant_id = ?",
+            "UPDATE anchor_receipt SET root_hash = repeat('0', 64) WHERE tenant_id = ?",
+            "DELETE FROM anchor_receipt WHERE tenant_id = ?",
+    })
+    void anchorsAndReceiptsCannotChange(String sql) {
+        assertRejected(DB, T, "42501", sql, T);
+        assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c, sql, T)))).isEqualTo("GD030");
     }
 
     @Test
@@ -162,7 +174,7 @@ class AppendOnlyTriggerIT {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"signature", "audit_log", "document_artifact", "audit_anchor", "disclosure", "disclosure_item", "recommendation"})
+    @ValueSource(strings = {"signature", "audit_log", "document_artifact", "anchor", "anchor_receipt", "disclosure", "disclosure_item", "recommendation"})
     void ownerCannotTruncateOrRewriteHistoryEither(String table) {
         assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c, "TRUNCATE " + table + " CASCADE"))))
                 .isEqualTo("GD030");

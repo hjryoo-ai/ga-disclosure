@@ -18,6 +18,16 @@ CREATE ROLE disclosure_app LOGIN PASSWORD 'app_local_only'
 CREATE ROLE disclosure_operator LOGIN PASSWORD 'operator_local_only'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 
+-- 파기(Phase 5 V9, 승인 Q2). 파기자 롤은 파기 함수 3개의 EXECUTE만 받는다(V9). 앱 롤은 이 롤로 SET ROLE만 할 수 있고(트랜잭션 안
+-- SET LOCAL ROLE), 권한을 물려받지 않는다. 정의자 롤은 그 함수들의 소유자(SECURITY DEFINER)이며 테이블 소유자가 아니다 — 지정 컬럼의
+-- 갱신과 판정 읽기만 받고 RLS를 그대로 따른다. 마이그레이터는 함수 소유권을 넘기기 위해 정의자 롤로 SET ROLE할 수 있다.
+CREATE ROLE disclosure_destroyer NOLOGIN
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE disclosure_destroy_definer NOLOGIN
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+GRANT disclosure_destroyer TO disclosure_app WITH INHERIT FALSE, SET TRUE;
+GRANT disclosure_destroy_definer TO disclosure_migrator WITH INHERIT FALSE, SET TRUE;
+
 ALTER DATABASE disclosure OWNER TO disclosure_migrator;
 REVOKE ALL ON DATABASE disclosure FROM PUBLIC;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_app;

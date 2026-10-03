@@ -75,13 +75,7 @@ class SignatureEvidenceGuardIT {
     @Test
     void shreddedKeyRejected() {
         UUID[] a = signed('a');
-        DB.seed(T, c -> {
-            try (var ps = c.prepareStatement("SELECT ga_shred_document_key(?, ?, TIMESTAMPTZ '2031-09-24 00:00:00+09', 'RETENTION:test')")) {
-                ps.setString(1, T);
-                ps.setObject(2, a[0]);
-                ps.execute();
-            }
-        });
+        DB.seed(T, c -> SeedData.shredDocumentKey(c, T, a[0]));
         assertRejected(DB, T, "GD105", INSERT.formatted("", ""), row(a[0], a[1], "IMAGE", SeedData.documentKeyId(a[0])));
     }
 

@@ -12,7 +12,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
@@ -88,18 +87,8 @@ class ArtifactEncryptionIT {
         SealService.Outcome o = s.sealReasoned();
         DisclosureId id = o.id();
         assertThat(s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.CANONICAL_JSON)).isInstanceOf(ArtifactService.View.Granted.class);
-        // 파기 경로(Phase 5 파기 배치 예약): 소유 롤 전용 함수 — 애플리케이션 롤은 실행 권한이 없다(SealTriggerIT)
-        s.w.db.seed(s.w.tenant.value(), c -> {
-            try (var ps = c.prepareStatement("SELECT ga_shred_document_key(?, ?, ?, 'RETENTION:test')")) {
-                ps.setString(1, s.w.tenant.value());
-                ps.setObject(2, id.value());
-                ps.setTimestamp(3, java.sql.Timestamp.from(Instant.parse("2031-09-24T00:00:00Z")));
-                try (var rs = ps.executeQuery()) {
-                    assertThat(rs.next()).isTrue();
-                    assertThat(rs.getString(1)).startsWith("DOC-");
-                }
-            }
-        });
+        // 키 파기의 효과(V9: 정의자 롤 + 함수 표식만 — 판정 조건을 거치는 함수 경로는 DestroyerRoleIT)
+        s.w.db.seed(s.w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.shredDocumentKey(c, s.w.tenant.value(), id.value()));
         ArtifactService.View denied = s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF);
         assertThat(denied).isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.KEY_SHREDDED));
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED

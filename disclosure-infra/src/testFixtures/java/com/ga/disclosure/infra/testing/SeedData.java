@@ -65,6 +65,12 @@ public final class SeedData {
 
     /** {@link #disclosure(Connection, String, String, String)}과 같되 고정 GLOBAL 룰 버전을 지정한다(서명자 집합 검사 V8 GD104). */
     public static UUID disclosure(Connection c, String tenant, String status, String canonicalHash, String ruleVersionId) throws SQLException {
+        return disclosure(c, tenant, status, canonicalHash, ruleVersionId, "C-0001");
+    }
+
+    /** 고객을 지정한다(V9 고객 파기·고객 보류 — {@code customer_ref}에 실재하는 고객이어야 할 때, {@link #customer}). */
+    public static UUID disclosure(Connection c, String tenant, String status, String canonicalHash, String ruleVersionId, String customerRef)
+            throws SQLException {
         UUID id = UUID.randomUUID();
         boolean sealed = !MUTABLE_STATUSES.contains(status);
         String inserted = sealed ? "REASONED" : status;
@@ -74,13 +80,13 @@ public final class SeedData {
                                         template_id, template_version, rule_version_id, issuer_mode, status, consult_date,
                                         grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break, grade_basis,
                                         snapshot_generated_at)
-                VALUES (?, ?, 'AGENT-1', 'C-0001', 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
+                VALUES (?, ?, 'AGENT-1', ?, 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
                         CASE WHEN ? THEN 'GRD-1' END, CASE WHEN ? THEN 'GRADING-2026-07' END, CASE WHEN ? THEN 'RANK-2026-07' END,
                         CASE WHEN ? THEN 'SHARED_RANK' END,
                         CASE WHEN ? THEN '{"groupAvgSource": "ASSOC_DISCLOSURE", "period": "2026Q2", "groupPopulation": 27}'::jsonb END,
                         CASE WHEN ? THEN TIMESTAMPTZ '2026-09-23 09:30:00+09' END)
                 """,
-                tenant, id, ruleVersionId, inserted, graded, graded, graded, graded, graded, graded);
+                tenant, id, customerRef, ruleVersionId, inserted, graded, graded, graded, graded, graded, graded);
         if (sealed) {
             seal(c, tenant, id, canonicalHash, status);
         }
@@ -195,6 +201,41 @@ public final class SeedData {
         return signatureId;
     }
 
+    /**
+     * 고객 서명 1건에 V9 파기 대상 컬럼(기기·IP·열람 증거)을 채운다. 세션에도 열람 증거를 남긴다(세션은 OPEN일 때만 기록할 수 있다).
+     * 부모는 서명 가능 상태여야 한다.
+     */
+    public static UUID customerSignatureWithEvidence(Connection c, String tenant, UUID disclosure, String signedDocHash) throws SQLException {
+        signerRule(c, tenant);
+        UUID signatureId = UUID.randomUUID();
+        UUID session = openSession(c, tenant, disclosure);
+        exec(c, """
+                UPDATE sign_session SET view_evidence = '{"scrollComplete": true, "viewSeconds": 61}'::jsonb
+                 WHERE tenant_id = ? AND session_id = ?
+                """, tenant, session);
+        exec(c, """
+                INSERT INTO signature (tenant_id, signature_id, disclosure_id, signer_role, signer_subject, channel, method, signed_doc_hash,
+                                       signed_pdf_hash, session_id, identity_check, signed_at, device, ip, view_evidence)
+                VALUES (?, ?, ?, 'CUSTOMER', NULL, 'TOUCH_PAD', 'DRAWN', ?, ?, ?, '[]'::jsonb, TIMESTAMPTZ '2026-09-23 10:05:00+09',
+                        '{"fingerprint": "fp-seed", "userAgent": "SeedTablet/1"}'::jsonb, INET '198.51.100.23',
+                        '{"scrollComplete": true, "viewSeconds": 61}'::jsonb)
+                """, tenant, signatureId, disclosure, signedDocHash, PDF_HASH, session);
+        exec(c, "UPDATE sign_session SET status = 'USED', used_at = TIMESTAMPTZ '2026-09-23 10:05:00+09' WHERE tenant_id = ? AND session_id = ?",
+                tenant, session);
+        return signatureId;
+    }
+
+    /**
+     * 고객 1명(V9 파기 대상 컬럼 전부: 성명·전화·생년월일 암호문 자리값, CRM ID). 데이터 키 {@link #SEED_KEY_ID}가 있어야 한다.
+     */
+    public static void customer(Connection c, String tenant, String customerRef) throws SQLException {
+        exec(c, """
+                INSERT INTO customer_ref (tenant_id, customer_ref, name_enc, phone_enc, birth_date_enc, crm_customer_id, enc_key_id, created_at)
+                VALUES (?, ?, decode('01' || repeat('11', 28), 'hex'), decode('01' || repeat('22', 28), 'hex'),
+                        decode('01' || repeat('33', 28), 'hex'), 'CRM-SEED-1', ?, TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant, customerRef, SEED_KEY_ID);
+    }
+
     /** 부모가 서명 가능 상태(SEALED·PARTIALLY_SIGNED)면 부모의 두 해시를 고정한 고객 OPEN 세션을 발급한다(V8 GD101). 아니면 null. */
     public static UUID openSession(Connection c, String tenant, UUID disclosure) throws SQLException {
         UUID session = UUID.randomUUID();
@@ -271,11 +312,43 @@ public final class SeedData {
                 """, tenant, seq, hash('0'), hash('1'));
     }
 
+    /** 첫 앵커(V9): 봉인 없음(0·ZERO), 감사 seq 1(시드 {@link #auditLog}의 머리 {@code hash('1')}), 잎은 DB 식 그대로. */
     public static void anchor(Connection c, String tenant) throws SQLException {
         exec(c, """
-                INSERT INTO audit_anchor (tenant_id, anchored_at, head_seq, head_hash)
-                VALUES (?, TIMESTAMPTZ '2026-09-24 00:00:00+09', 1, ?)
-                """, tenant, hash('1'));
+                INSERT INTO anchor (tenant_id, anchor_seq, anchor_date, seal_chain_seq, seal_chain_head, audit_seq, audit_head, leaf_hash, created_at)
+                VALUES (?, 1, DATE '2026-09-24', 0, repeat('0', 64), 1, ?,
+                        ga_anchor_leaf(?, 1, DATE '2026-09-24', 0, repeat('0', 64), 1, ?), TIMESTAMPTZ '2026-09-24 00:00:05+09')
+                """, tenant, hash('1'), tenant, hash('1'));
+    }
+
+    /** 첫 앵커의 영수증(깊이 1, 형제 = 64개 0, 루트 = SHA-256(0x01 ‖ 잎 ‖ 형제) — DB GD111이 다시 계산한다). 토큰은 자리값. */
+    public static void anchorReceipt(Connection c, String tenant) throws SQLException {
+        exec(c, """
+                INSERT INTO anchor_receipt (tenant_id, anchor_seq, batch_id, root_hash, tree_depth, leaf_index, merkle_path, tsa_token,
+                                            tsa_gen_time, tsa_policy_oid, tsa_serial, created_at)
+                SELECT a.tenant_id, a.anchor_seq, gen_random_uuid(),
+                       encode(sha256('\\x01'::bytea || decode(a.leaf_hash, 'hex') || decode(repeat('0', 64), 'hex')), 'hex'),
+                       1, 0, jsonb_build_array(repeat('0', 64)), decode('3000', 'hex'),
+                       TIMESTAMPTZ '2026-09-24 00:00:07+09', '1.2.3.4', '01', TIMESTAMPTZ '2026-09-24 00:00:08+09'
+                  FROM anchor a
+                 WHERE a.tenant_id = ? AND a.anchor_seq = 1
+                """, tenant);
+    }
+
+    /**
+     * 문서 키 파기의 효과만 만든다(V9 트리거가 허용하는 유일한 경로 — 정의자 롤 + 함수 표식 — 를 마이그레이터 연결이 직접 밟는다).
+     * 판정 조건(종료 상태·보존 만료·보류)을 거치는 실제 경로 {@code ga_document_key_shred}는 {@code DestroyerRoleIT}가 본다.
+     * 암호화 테스트처럼 "키가 없어진 뒤"만 필요한 곳에서 쓴다.
+     */
+    public static void shredDocumentKey(Connection c, String tenant, java.util.UUID disclosureId) throws SQLException {
+        exec(c, "SET LOCAL ROLE disclosure_destroy_definer");
+        call(c, "SELECT set_config('ga.destroy', 'key:' || ?, true)", disclosureId.toString());
+        exec(c, """
+                UPDATE document_key SET wrapped_dek = NULL, shredded_at = TIMESTAMPTZ '2031-09-24 00:00:00+09', shredded_by = 'RETENTION:test'
+                 WHERE tenant_id = ? AND disclosure_id = ? AND wrapped_dek IS NOT NULL
+                """, tenant, disclosureId);
+        call(c, "SELECT set_config('ga.destroy', '', true)");
+        exec(c, "RESET ROLE");
     }
 
     /**
@@ -401,6 +474,11 @@ public final class SeedData {
         outboxEvent(c, tenant, sealed);
         auditLog(c, tenant, 1);
         anchor(c, tenant);
+        anchorReceipt(c, tenant);
+        exec(c, """
+                INSERT INTO legal_hold (tenant_id, hold_id, disclosure_id, reason_code, placed_by, placed_at)
+                VALUES (?, ?, ?, 'LITIGATION', 'compliance@seed', TIMESTAMPTZ '2026-10-01 00:00:00+09')
+                """, tenant, UUID.randomUUID(), sealed);
         exec(c, """
                 INSERT INTO subject_policy (tenant_id, policy_no, agent_id, contract_date, required, recon_status)
                 VALUES (?, 'POL-1', 'AGENT-1', DATE '2026-09-30', true, 'MISSING')
@@ -441,6 +519,18 @@ public final class SeedData {
                     throw new IllegalStateException("no row: " + sql);
                 }
                 return rs.getLong(1);
+            }
+        }
+    }
+
+    /** 결과 집합을 돌려주는 문장(SELECT 함수 호출 등)을 실행하고 첫 행 첫 열을 문자열로 돌려준다(없으면 null). */
+    public static String call(Connection c, String sql, Object... params) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                ps.setObject(i + 1, params[i]);
+            }
+            try (var rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
             }
         }
     }
