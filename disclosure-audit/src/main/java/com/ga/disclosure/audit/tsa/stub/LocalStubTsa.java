@@ -98,7 +98,7 @@ public final class LocalStubTsa implements TimestampAuthorityPort {
 
     /**
      * 데모: {@code keyStore}(PKCS#12)가 있으면 읽고(소유자 전용 권한 확인), 없으면 만든다. 신뢰 앵커 인증서는 {@code trustPem}에
-     * 내보낸다(이미 있으면 그대로 둔다).
+     * 내보낸다(매번 덮어쓴다 — 키를 다시 만들면 신뢰 앵커도 따라간다).
      */
     public static LocalStubTsa loadOrCreate(Path keyStore, Path trustPem, Clock clock) {
         try {
@@ -121,10 +121,9 @@ public final class LocalStubTsa implements TimestampAuthorityPort {
                     ks.store(out, P12_PASSWORD);
                 }
             }
-            if (!Files.exists(trustPem)) {
-                Files.createDirectories(trustPem.toAbsolutePath().getParent());
-                Files.writeString(trustPem, tsa.trustAnchors().toPem(), StandardCharsets.US_ASCII);
-            }
+            // 매번 쓴다: 키를 다시 만들었는데 옛 인증서가 남으면 검증이 UNTRUSTED가 된다(내용은 키가 같으면 같다)
+            Files.createDirectories(trustPem.toAbsolutePath().getParent());
+            Files.writeString(trustPem, tsa.trustAnchors().toPem(), StandardCharsets.US_ASCII);
             return tsa;
         } catch (IOException e) {
             throw new UncheckedIOException("cannot load or create the stub TSA key store", e);

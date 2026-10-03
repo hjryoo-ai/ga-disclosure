@@ -246,6 +246,11 @@ class TsaStubTest {
         byte[] later = new TimestampClient(again, () -> NONCE, TrustAnchors.fromPem(Files.readAllBytes(trust))).stamp(ROOT).tokenDer();
         assertThat(TimestampVerifier.parse(later).genTime()).isEqualTo(NOW.plus(Duration.ofDays(400)));
 
+        Files.delete(keyStore);                                            // 키를 다시 만들면 신뢰 앵커 파일도 새 인증서로
+        LocalStubTsa renewed = LocalStubTsa.loadOrCreate(keyStore, trust, CLOCK);
+        assertThat(renewed.certificate()).isNotEqualTo(first.certificate());
+        assertThat(TrustAnchors.fromPem(Files.readAllBytes(trust)).certificates()).containsExactly(renewed.certificate());
+
         Files.setPosixFilePermissions(keyStore, PosixFilePermissions.fromString("rw-r--r--"));
         assertThatThrownBy(() -> LocalStubTsa.loadOrCreate(keyStore, trust, CLOCK)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("chmod 600");

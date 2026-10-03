@@ -104,6 +104,17 @@ class AnchorJobTest {
         assertThat(report.batches()).singleElement().satisfies(b -> assertThat(b.leaves()).isEqualTo(1));
     }
 
+    /** 5 계획 §8.8: 오늘(KST) 뒤의 날짜는 앵커도 영수증도 만들지 않는다. 오늘은 된다. */
+    @Test
+    void aFutureDateIsRefusedForEveryTenantAndTodayIsAllowed() {
+        AnchorJob.Report future = job(Map.of(A, 16, B, 16), new Bound()).run(List.of(A, B), DAY.plusDays(1), SYSTEM);
+
+        assertThat(future.failures()).containsExactly(new AnchorJob.Failure("A", A, DAY.plusDays(1), "DATE_IN_FUTURE"),
+                new AnchorJob.Failure("A", B, DAY.plusDays(1), "DATE_IN_FUTURE"));
+        assertThat(future.created()).isEmpty();
+        assertThat(job(Map.of(A, 16), new Bound()).run(List.of(A), DAY, SYSTEM).created()).as("미래 앵커가 남았으면 DATE_NOT_AFTER_LATEST").containsExactly(A);
+    }
+
     @Test
     void conflictsAreRetriedOnlyUpToTheLimit() {
         Bound alwaysConflicting = new Bound() {

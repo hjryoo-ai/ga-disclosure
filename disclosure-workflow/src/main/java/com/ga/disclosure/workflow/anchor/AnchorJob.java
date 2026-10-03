@@ -108,6 +108,11 @@ public final class AnchorJob {
     public Report run(List<TenantId> tenants, LocalDate date, Actor actor) {
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(actor, "actor");
+        if (date.isAfter(LocalDate.ofInstant(clock.instant(), SEOUL))) {
+            // 5 계획 §8.8: 미래 날짜는 거부한다 — A단계는 지금의 머리를 읽으므로 미래 날짜 앵커는 "그 날의 머리"가 아니다
+            List<Failure> refused = tenants.stream().map(t -> new Failure("A", t, date, "DATE_IN_FUTURE")).toList();
+            return new Report(date, List.of(), List.of(), Map.of(), List.of(), 0, refused);
+        }
         List<TenantId> created = new ArrayList<>();
         List<TenantId> unchanged = new ArrayList<>();
         Map<TenantId, Integer> retries = new LinkedHashMap<>();

@@ -12,6 +12,11 @@ import com.ga.disclosure.workflow.disclosure.ExpireService;
 import com.ga.disclosure.workflow.disclosure.SignService;
 import com.ga.disclosure.workflow.disclosure.SignSessionService;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
+import com.ga.disclosure.workflow.anchor.AnchorJob;
+import com.ga.disclosure.workflow.retention.DestructionJob;
+import com.ga.disclosure.workflow.retention.LegalHoldService;
+import com.ga.disclosure.workflow.verify.ReceiptExporter;
+import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.disclosure.workflow.customer.RegisterCustomer;
 import com.ga.disclosure.workflow.customer.CustomerVault;
 import com.ga.disclosure.workflow.customer.CustomerFileParser;
@@ -75,7 +80,7 @@ import java.util.stream.Stream;
  * rules distribute --bundle &lt;path&gt; --tenants all|T1,T2 --operator &lt;id&gt; [--bundles-dir contracts/rules/bundles]
  * rules approve    --tenant T1 --rule &lt;id&gt; --operator &lt;id&gt;
  * rules activate   [--as-of 2027-01-01] [--tenants all|T1,T2] --operator &lt;id&gt;
- * rules reconcile  [--tenants all|T1,T2] [--bundles-dir contracts/rules/bundles] --operator &lt;id&gt;
+ * rules reconcile  [--tenants all|T1,T2] [--bundles-dir contracts/rules/bundles[,dir2]] --operator &lt;id&gt;
  * demo seed        --file &lt;seed.json&gt; --operator &lt;id&gt;
  * catalog import   --tenant T1 --file &lt;catalog.json&gt; --operator &lt;id&gt;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
@@ -91,6 +96,7 @@ import java.util.stream.Stream;
  * artifacts reconcile   --tenants all|T1,T2 [--limit 500] --operator &lt;id&gt;
  * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
  * sign …·disclosure complete|expire — {@link SignCommands}(Phase 4)
+ * anchor run|receipt export·verify package|tenant·retention destroy·legal-hold place|release — {@link RetentionCommands}(Phase 5)
  * </pre>
  * 무효·정정 사유는 파일로만 받는다 — 자유 텍스트에 개인정보가 섞일 수 있다(CLAUDE.md 규칙 6). 출력에는 사유를 싣지 않는다.
  * 고객 개인정보는 CLI 인자·환경변수로 받지 않는다(셸 기록·프로세스 목록에 남는다) — 파일(허구 데이터) 또는 API로만(CLAUDE.md 규칙 6).
@@ -122,6 +128,7 @@ public class OperatorCli implements ApplicationRunner {
     private final IdentityLinkRepository identityLinks;
     private final SignCommands sign;
     private final DemoSignatureSeeder demoSignatures;
+    private final RetentionCommands retention;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
@@ -130,7 +137,8 @@ public class OperatorCli implements ApplicationRunner {
                        RegisterCustomer registerCustomer, DisclosureService disclosures, DisclosureLookup lookup, CustomerVault customers,
                        SealService seal, LifecycleService lifecycle, ArtifactService artifacts, IdentityLinkRepository identityLinks,
                        SignSessionService signSessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags,
-                       WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock) {
+                       WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock, AnchorJob anchorJob,
+                       ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -151,6 +159,7 @@ public class OperatorCli implements ApplicationRunner {
         this.identityLinks = identityLinks;
         this.sign = new SignCommands(signSessions, signing, expiry, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
+        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, this::tenants, clock, out);
     }
 
     @Override
@@ -158,6 +167,10 @@ public class OperatorCli implements ApplicationRunner {
         CliArguments args = CliArguments.parse(arguments.getSourceArgs());
         if (sign.handles(args.command())) {
             sign.run(args);
+            return;
+        }
+        if (retention.handles(args.command())) {
+            retention.run(args);
             return;
         }
         switch (args.command()) {
@@ -221,7 +234,8 @@ public class OperatorCli implements ApplicationRunner {
 
     private void reconcile(CliArguments args) {
         Operator operator = new Operator(args.required("operator"));
-        List<Bundle> known = allBundles(bundlesDir(args));
+        List<Bundle> known = new ArrayList<>();
+        bundlesDirs(args).forEach(dir -> known.addAll(allBundles(dir)));
         int drift = 0;
         for (TenantId tenant : tenants(args.optional("tenants").orElse("all"))) {
             ReconcileReport r = reconciler.reconcile(tenant, known, operator);
@@ -450,7 +464,13 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private static Path bundlesDir(CliArguments args) {
-        return Path.of(args.optional("bundles-dir").orElse(DEFAULT_BUNDLES_DIR));
+        return bundlesDirs(args).getFirst();
+    }
+
+    /** {@code --bundles-dir a,b}: 대사는 모든 디렉터리의 번들을 정본으로 본다(데모 전용 번들은 contracts 밖 — 5 계획 §8.7). 배포 검색은 첫 디렉터리. */
+    private static List<Path> bundlesDirs(CliArguments args) {
+        return Arrays.stream(args.optional("bundles-dir").orElse(DEFAULT_BUNDLES_DIR).split(",")).map(String::strip).filter(p -> !p.isEmpty())
+                .map(Path::of).toList();
     }
 
     /** 경로 그대로 → 번들 디렉터리 기준 → 클래스패스(ga-contracts/rules/bundles) 순으로 찾는다. */

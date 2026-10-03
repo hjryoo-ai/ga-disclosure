@@ -35,7 +35,7 @@ import java.util.Objects;
 /**
  * 데모 확인서 흐름(설계서 부록 A-1·A-2, 3A 지시문 §5, 3B 지시문 §7): 고객(등록 멱등 키로 찾는다) → 초안 → 항목 → 비교 → 산출 → 사유 →
  * REASONED, 고객 요청 보험사 추가(→ COMPARED → 재산출 → 사유), 그리고 3B — 봉인(필요하면 관리자 예외 승인 먼저)과 정정(봉인본 → 새 버전 →
- * 다시 REASONED). 전부 운영과 같은 유스케이스를 부른다.
+ * 다시 REASONED), 5 — 무효(관리자, 짧은 보존 데모의 종료 상태). 전부 운영과 같은 유스케이스를 부른다.
  *
  * <p><b>데모 편의 규칙(운영 동작이 아님):</b> 같은 고객·상담일·상품군의 확인서가 이미 있으면 생성을 NOOP으로 건너뛰고, 그 중 봉인 이후 상태가
  * 있으면 봉인을, 정정본(supersedes가 있는 버전)이 있으면 정정을 NOOP으로 건너뛴다 — 시드를 두 번 돌려도 확인서·번호가 늘지 않게 하려는 것뿐이다.
@@ -83,6 +83,7 @@ final class DemoDisclosureSeeder {
         if (!existing.isEmpty()) {
             out.println("DEMO_DISCLOSURE " + tenant + " " + id + " NOOP existing=" + existing.getFirst().id() + " (demo rule: same customer, date, group)");
             sealAndSupersede(tenant, agent, manager, id, c, existing.getFirst().id(), existing);
+            voidIfAsked(tenant, manager, id, c, existing.getFirst().id(), existing);
             return;
         }
         DisclosureId d = disclosures.createDraft(tenant, agent, customer, group, consult, TemplateType.STANDARD);
@@ -101,6 +102,26 @@ final class DemoDisclosureSeeder {
         }
         out.println("DEMO_DISCLOSURE " + tenant + " " + id + " CREATED id=" + d + " status=" + last.status());
         sealAndSupersede(tenant, agent, manager, id, c, d, List.of());
+        voidIfAsked(tenant, manager, id, c, d, List.of());
+    }
+
+    /** Phase 5: 사례에 {@code void}가 있으면 봉인본을 관리자가 무효로(이미 VOID면 NOOP) — 짧은 보존 데모의 종료 상태. */
+    private void voidIfAsked(TenantId tenant, Actor manager, String id, JsonNode c, DisclosureId d, List<DisclosureLookup.Summary> existing) {
+        JsonNode spec = c.get("void");
+        if (spec == null) {
+            return;
+        }
+        if (existing.stream().anyMatch(x -> x.status() == com.ga.disclosure.domain.enums.DisclosureStatus.VOID)) {
+            out.println("  " + id + " void NOOP (already VOID)");
+            return;
+        }
+        JsonNode text = spec.get("reasonText");
+        LifecycleService.Outcome o = lifecycle.voidDisclosure(tenant, manager, d, new LifecycleReason(spec.get("reasonCode").asString(),
+                text == null ? null : text.asString()));
+        if (!o.applied()) {
+            throw new CliFailure("case " + id + " could not be voided: " + o.rejection().orElseThrow());
+        }
+        out.println("  " + id + " void -> " + o.status());
     }
 
     /** 3B: 사례에 {@code seal}이 있으면 봉인(승인 필요 시 관리자 예외 승인 먼저), {@code supersede}가 있으면 봉인본을 정정해 새 버전을 REASONED까지. */

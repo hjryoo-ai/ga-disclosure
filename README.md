@@ -29,6 +29,9 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 #      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out <path> | artifacts gc|reconcile --tenants all
 # (4) sign session --tenant T1 --id <uuid> --channel TOUCH_PAD|REMOTE_LINK|PAPER_SCAN | sign open|verify|capture|scan --token <token> (입력은 --*-file)
 #     sign agent|manager|review-scan --tenant T1 --id <uuid> | disclosure complete --tenant T1 --id <uuid> | disclosure expire [--as-of <instant>|P30D]
+# (5) anchor run [--date YYYY-MM-DD] | anchor receipt export --tenant T1 --id <uuid> --out <json> (스텁 TSA: --ga.tsa.mode=stub)
+#     verify package --package <zip> [--receipt <json>] [--tsa-trust <pem>] (0 일치, 2 불일치, 3 입력 오류) | verify tenant [--tenants all]
+#     retention destroy [--tenants all] [--dry-run yes] | legal-hold place --tenant T1 --id <uuid> --reason-code <CODE> | legal-hold release --hold <uuid>
 # 업무 거부(봉인 조건 실패 등)는 종료 코드 2, 인자·명령 오류는 1
 ```
 
@@ -58,6 +61,13 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 - 번호는 (테넌트, 봉인 연도)별 무간격 카운터이고, 봉인마다 테넌트 체인 `SHA-256(직전 ‖ canonical ‖ pdf)`이 이어진다. 둘 다 DB 트리거가 강제한다. 봉인 조건(소급 룰·서식, 스냅샷 노후, 막는 검증, 승인 누락, 성명 복호화 불가)은 단락 없이 전부 평가하고, 거부되면 번호·산출물·키가 하나도 생기지 않는다.
 - 산출물은 확인서마다 새 데이터 키로 암호화해 S3 호환 저장소에 올리고, DB 커밋 **뒤에** Object Lock(COMPLIANCE)을 건다. 커밋 실패의 잔여물은 `artifacts gc`가, 잠금 실패는 `artifacts reconcile`이 처리한다. 데이터 키를 파기하면 모든 사본이 읽을 수 없게 된다.
 - 정정은 새 버전(SUPERSEDE), 취소는 VOID뿐이다. 소급 룰로 봉인이 막힌 초안은 재기준(REBASE)으로 새 룰에 다시 고정되고, 옛 승인은 효력을 잃는다.
+
+## 앵커·검증·파기 (Phase 5)
+
+- **일일 앵커**: 매일 테넌트마다 봉인 체인 머리와 감사 체인 머리를 한 스냅샷에서 기록한다. 그 날짜의 앵커 전부를 잎으로 머클 루트 하나를 만들고 RFC 3161 타임스탬프를 받는다. 테넌트는 자기 잎의 경로와 루트·토큰이 담긴 영수증만 갖는다. 잎과 경로는 DB 트리거가 다시 계산한다.
+- **검증**: `verify package`는 DB·저장소 없이 증거 패키지와 (있으면) 영수증만으로 내용·체인 구간·토큰을 확인하는 독립 검증기다(생산자 코드 의존 금지, ArchUnit). 결론은 "이 문서는 {토큰 시각} 이전에 이 내용으로 존재했다"이다. `verify tenant`는 감사·봉인 체인, 채번, 객체, 앵커, 영수증을 한 스냅샷에서 걷는다.
+- **파기**: 보존기간이 끝나면 문서 키 파기 → 객체의 모든 버전·마커 삭제 → 묘비 순으로 진행한다. 묘비는 지정 개인정보 컬럼만 NULL이 되고 번호·상태·해시·시각·체인은 남는다. 파기는 전용 롤의 DB 함수만 할 수 있고 감사에는 지운 값의 해시를 남긴다. 지정 컬럼 전수는 설계서의 기계 판독 표가 정본이며 테스트가 DB 함수·카탈로그와 양방향 대조한다. 법적 보류(DB가 통제, 저장소 legal hold는 보조)는 파기를 막는다.
+- 보존기간·대기 일수·보류 사유 코드는 룰 데이터다. 데모의 짧은 보존(0년 1일)은 데모 전용 번들과, 데모 프로파일에서만 존재하는 시계 오프셋으로 만든다.
 
 ## 플랫폼 아티팩트 소비
 
