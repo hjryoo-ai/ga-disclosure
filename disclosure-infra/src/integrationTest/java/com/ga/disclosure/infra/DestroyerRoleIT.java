@@ -439,7 +439,7 @@ class DestroyerRoleIT {
         });
         String row = DB.asApp(T, c -> SeedData.call(c, """
                 SELECT (name_enc IS NULL) || ':' || (phone_enc IS NULL) || ':' || (birth_date_enc IS NULL) || ':' || (crm_customer_id IS NULL)
-                       || ':' || (destroyed_at IS NOT NULL) || ':' || enc_key_id || ':' || created_at::date
+                       || ':' || (destroyed_at IS NOT NULL) || ':' || enc_key_id || ':' || (created_at AT TIME ZONE 'Asia/Seoul')::date
                   FROM customer_ref WHERE tenant_id = ? AND customer_ref = ?
                 """, T, d.customer()));
         assertThat(row).isEqualTo("true:true:true:true:true:" + SeedData.SEED_KEY_ID + ":2026-09-01");
