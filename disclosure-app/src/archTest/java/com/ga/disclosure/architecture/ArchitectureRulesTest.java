@@ -55,7 +55,14 @@ class ArchitectureRulesTest {
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(
-            new Allowed(P + "infra.json", "엔진 응답 JSON 역직렬화 경계 — 숫자를 비교·정렬·분류하지 않는다"));
+            new Allowed(P + "infra.json", "엔진 응답 JSON 역직렬화 경계 — 숫자를 비교·정렬·분류하지 않는다"),
+            new Allowed(P + "audit.tsa.stub", "BC 인증서·토큰 생성 API의 ASN.1 INTEGER 일련번호(BigInteger 매개변수) — 금액·비율이 아니며 "
+                    + "연산·비교하지 않는다(Phase 5 계획 §3). 검증 쪽(audit.tsa)은 ASN1Integer·hex로 다뤄 BigInteger를 쓰지 않는다"));
+
+    /** {@code org.bouncycastle..} 참조 허용 패키지(4 수용심사 승인 ① — 테스트 픽스처는 이 검사 대상 밖). 하위 패키지 불포함. */
+    static final List<Allowed> BOUNCY_CASTLE_PACKAGES = List.of(
+            new Allowed(P + "audit.tsa", "RFC 3161 요청 생성·응답 수락·토큰 검증(TimestampClient·TimestampVerifier)"),
+            new Allowed(P + "audit.tsa.stub", "로컬 스텁 TSA — BC TimeStampResponseGenerator·자체 서명 인증서(데모 프로파일이 런타임에 쓴다)"));
 
     /** RatioLabel.value()(엔진 ratioToAvg 원문 문자열) 호출 허용 패키지 — 전부 "원문을 그대로 옮기는" 자리다. */
     static final List<Allowed> RATIO_LABEL_VALUE_PACKAGES = List.of(
@@ -104,6 +111,7 @@ class ArchitectureRulesTest {
         assertThat(classes.containPackage("com.ga.platform.canonical")).isTrue();
         assertThat(classes.containPackage(P + "infra.persistence")).isTrue();
         assertThat(classes.containPackage(P + "app")).isTrue();
+        assertThat(classes.containPackage(P + "audit.tsa.stub")).isTrue();
         assertThat(classes.stream().map(c -> c.getName()))
                 .noneMatch(n -> n.contains(".architecture.") || n.endsWith("IT") || n.endsWith("Test"));
     }
@@ -215,12 +223,25 @@ class ArchitectureRulesTest {
                 .check(classes);
     }
 
+    // (j) Phase 5: BouncyCastle은 TSA 패키지 안에서만 — 포트·결과 타입에 BC 타입이 없어 바깥은 DER 바이트·record만 본다
+    @Test
+    void bouncyCastleOnlyInTsaPackages() {
+        String[] allowed = BOUNCY_CASTLE_PACKAGES.stream().map(Allowed::fqn).toArray(String[]::new);
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().resideOutsideOfPackages(allowed)
+                .should().dependOnClassesThat().resideInAPackage("org.bouncycastle..")
+                .allowEmptyShould(true)
+                .because("4 수용심사 승인 ①: org.bouncycastle.. 참조는 disclosure-audit의 ..tsa..와 테스트 픽스처만")
+                .check(classes);
+    }
+
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
         List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE), DB_INFRASTRUCTURE, ORDERING_CLASSES)
                 .flatMap(List::stream).toList();
-        List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE))
+        List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE),
+                        BOUNCY_CASTLE_PACKAGES)
                 .flatMap(List::stream).toList();
         assertThat(ArchRules.staleClasses(classes, classAllowlist)).as("stale class entries").isEmpty();
         assertThat(ArchRules.stalePackages(classes, packageAllowlist)).as("stale package entries").isEmpty();

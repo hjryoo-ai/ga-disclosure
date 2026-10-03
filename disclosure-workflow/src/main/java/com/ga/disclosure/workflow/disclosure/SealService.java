@@ -72,7 +72,7 @@ public final class SealService {
 
     public static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final String ZERO_CHAIN = "0".repeat(64);
+    private static final String ZERO_CHAIN = com.ga.disclosure.audit.chain.SealChain.ZERO;
     static final String CUSTOMER_TARGET = "CUSTOMER_REF";
     static final String ARTIFACT_TARGET = "DOCUMENT_ARTIFACT";
 
@@ -277,9 +277,9 @@ public final class SealService {
         return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, retentionUntil);
     }
 
-    /** SHA-256(prev ‖ canonical ‖ pdf), 세 값은 소문자 hex ASCII(V7 GD095와 같은 식). */
+    /** 봉인 체인 식 하나({@link com.ga.disclosure.audit.chain.SealChain} — 검증·앵커가 같은 식을 쓴다, V7 GD095는 SQL로 다시 계산). */
     static String chainHash(String prev, String canonicalHash, String pdfHash) {
-        return com.ga.platform.canonical.Sha256.of((prev + canonicalHash + pdfHash).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        return com.ga.disclosure.audit.chain.SealChain.next(prev, canonicalHash, pdfHash);
     }
 
     /** 보존기한(날짜) 당일 끝 = 다음 날 00:00 Asia/Seoul. */
