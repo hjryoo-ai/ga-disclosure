@@ -56,8 +56,9 @@ import static com.ga.disclosure.audit.verify.ReportBuilder.map;
  * 앵커 대조용 머리는 checkpoint seq에서 다시 계산한 값만 기억한다. 순서: 감사 체인 → 봉인 체인 → 채번(연도별) → 객체(복호화·평문 해시, 파기 건은
  * 버전·마커 0) → 앵커(잎·두 머리) → 영수증(경로·루트·토큰) → 미고정 기간.
  *
- * <p>쓰기는 끝에 별도 트랜잭션 하나: 감사 {@code VERIFY_RUN}(보고서 해시)과, 무결성 불일치가 있으면 {@code CHAIN_BROKEN} 플래그(끊긴 지점의 확인서마다,
- * 확인서를 정할 수 없으면 테넌트 수준 하나). {@code ANCHOR_UNSTAMPED}·{@code TSA_UNTRUSTED}는 무결성이 아니라 운영·설정 신호라 보고서는 불일치(종료
+ * <p>쓰기는 끝에 별도 트랜잭션 하나: 감사 {@code VERIFY_RUN}(보고서 해시)과, 무결성 불일치가 있으면 {@code CHAIN_BROKEN} 플래그 — 끊긴 지점의
+ * 확인서마다, 확인서를 정할 수 없으면 {@code disclosure_id NULL}로 그 지점을 대상으로(감사 체인 = {@code AUDIT_LOG}·seq, 앵커·영수증 =
+ * {@code ANCHOR}·앵커 순번, 그 밖 = {@code TENANT}, 5 계획 §1.6). {@code ANCHOR_UNSTAMPED}·{@code TSA_UNTRUSTED}는 무결성이 아니라 운영·설정 신호라 보고서는 불일치(종료
  * 2)지만 플래그를 올리지 않는다.
  */
 public final class TenantVerifier {
@@ -307,7 +308,7 @@ public final class TenantVerifier {
         report.findings().forEach(f -> codes.put(f.code().name(), codes.path(f.code().name()).asInt(0) + 1));
         audit.append(new AuditEntry(now, actor.subject(), actor.role(), AuditAction.VERIFY_RUN, "TENANT", tenant.value(), detail));
         Set<String> disclosures = new LinkedHashSet<>();
-        boolean unattached = false;
+        Set<Map.Entry<String, String>> unattached = new LinkedHashSet<>();
         for (VerifyReport.Finding f : report.findings()) {
             if (OPERATIONAL.contains(f.code())) {
                 continue;
@@ -315,17 +316,21 @@ public final class TenantVerifier {
             Object at = f.where().get("disclosureId");
             if (at instanceof String s) {
                 disclosures.add(s);
+            } else if (f.where().get("seq") instanceof Long seq) {
+                unattached.add(Map.entry("AUDIT_LOG", seq.toString()));
+            } else if (f.where().get("anchorSeq") instanceof Long anchorSeq) {
+                unattached.add(Map.entry("ANCHOR", anchorSeq.toString()));
             } else {
-                unattached = true;
+                unattached.add(Map.entry("TENANT", tenant.value()));
             }
         }
         for (String d : disclosures) {
             DisclosureFlagPort.RaisedFlag flag = flags.raise(DisclosureFlagPort.Type.CHAIN_BROKEN, "HIGH", DisclosureId.parse(d), "DISCLOSURE", d, now);
             flagAudit(actor, now, "DISCLOSURE", d, flag);
         }
-        if (unattached) {
-            DisclosureFlagPort.RaisedFlag flag = flags.raiseUnattached(DisclosureFlagPort.Type.CHAIN_BROKEN, "HIGH", "TENANT", tenant.value(), now);
-            flagAudit(actor, now, "TENANT", tenant.value(), flag);
+        for (Map.Entry<String, String> target : unattached) {
+            DisclosureFlagPort.RaisedFlag flag = flags.raiseUnattached(DisclosureFlagPort.Type.CHAIN_BROKEN, "HIGH", target.getKey(), target.getValue(), now);
+            flagAudit(actor, now, target.getKey(), target.getValue(), flag);
         }
     }
 

@@ -132,7 +132,7 @@ class VerifyTenantIT {
     }
 
     @Test
-    void aRewrittenAuditEntryHashBreaksTheAuditChainAndFlagsTheTenant() {
+    void aRewrittenAuditEntryHashBreaksTheAuditChainAndFlagsThatRow() {
         completedAndAnchored();
         asSuperuser("UPDATE audit_log SET entry_hash = ? WHERE tenant_id = ? AND seq = 3", "d".repeat(64), x.w.tenant.value());
 
@@ -140,7 +140,10 @@ class VerifyTenantIT {
 
         assertThat(codes(r)).contains(FindingCode.AUDIT_CHAIN_BROKEN);
         assertThat(r.findings()).anySatisfy(f -> assertThat(f.where()).containsEntry("seq", 3L));
-        assertThat(openChainBroken("TENANT", x.w.tenant.value())).isEqualTo(1);
+        assertThat(openChainBroken("AUDIT_LOG", "3")).as("확인서를 정할 수 없으면 끊긴 감사 행(5 계획 §1.6)").isEqualTo(1);
+        assertThat(openChainBroken("AUDIT_LOG", "4")).as("다음 행의 prevHash도 끊긴다").isEqualTo(1);
+        assertThat(x.s.count("SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND type = 'CHAIN_BROKEN' AND target_kind = 'AUDIT_LOG'"
+                + " AND disclosure_id IS NULL", x.w.tenant.value())).isEqualTo(2);
     }
 
     @Test
@@ -180,7 +183,7 @@ class VerifyTenantIT {
 
         assertThat(codes(r)).contains(FindingCode.ANCHOR_MISMATCH);
         assertThat(r.findings()).anySatisfy(f -> assertThat(f.detail()).containsEntry("problem", "LEAF"));
-        assertThat(openChainBroken("TENANT", x.w.tenant.value())).isEqualTo(1);
+        assertThat(openChainBroken("ANCHOR", "1")).isEqualTo(1);
     }
 
     @Test
@@ -192,7 +195,7 @@ class VerifyTenantIT {
         VerifyReport r = verify();
 
         assertThat(codes(r)).containsExactly(FindingCode.RECEIPT_PATH_INVALID);
-        assertThat(openChainBroken("TENANT", x.w.tenant.value())).isEqualTo(1);
+        assertThat(openChainBroken("ANCHOR", "1")).isEqualTo(1);
     }
 
     @Test
