@@ -97,5 +97,9 @@ public enum AuditAction {
     /** 일일 앵커(대상 ANCHOR, 대상 ID = KST 날짜): 앵커 순번, 두 체인 머리와 seq, 잎 해시. 이 행의 seq = 앵커 audit_seq + 1. */
     ANCHOR_CREATED,
     /** 영수증 저장(대상 ANCHOR): 배치 ID·루트·깊이·잎 위치·TSA 시각·일련번호. */
-    ANCHOR_RECEIPT_STORED
+    ANCHOR_RECEIPT_STORED,
+    /** 영수증 내보내기(대상 DISCLOSURE): 덮는·직전 앵커 순번, 봉인 체인 구간, 내보낸 바이트의 SHA-256. */
+    ANCHOR_RECEIPT_EXPORTED,
+    /** {@code verify tenant} 1회(대상 TENANT): 보고서 JCS의 SHA-256, 결과, 발견 코드별 수. verify의 유일한 쓰기(+ 불일치 시 CHAIN_BROKEN 플래그). */
+    VERIFY_RUN
 }

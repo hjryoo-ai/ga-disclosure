@@ -28,3 +28,5 @@ fad86c179b1a5b43789d2a19cccd086fb3bcd0bf8fbe465687275cd8777b5506  rules/v1/rule-
 8da5884093d8b1d80825f2b0b97c502c1ab409fca88cb3ccba41e8c7720869bb  rules/v1/rule-version.schema.json
 9a676706f04e7d8b0e5b9a7b921adc4e08ebfaaab2ce7dd51f39f705a54bcb2f  seal/v1/canonical.schema.json
 45d5868893deff4a403cf3b71445271cfd0fa82e78e5f2e901f6d68fd7efabaf  seal/v1/evidence-manifest.schema.json
+4f4b30825166cb09a7e824df7871a577f6cc45349cff660bed311ad1e48a5292  verify/v1/anchor-receipt-export.schema.json
+11a413e77cb4c358fa5e6ed1d95603f3332d23f2512626361306fc26adea3a1f  verify/v1/verify-report.schema.json

@@ -112,6 +112,7 @@ class ArchitectureRulesTest {
         assertThat(classes.containPackage(P + "infra.persistence")).isTrue();
         assertThat(classes.containPackage(P + "app")).isTrue();
         assertThat(classes.containPackage(P + "audit.tsa.stub")).isTrue();
+        assertThat(classes.containPackage(P + "audit.verify")).isTrue();
         assertThat(classes.stream().map(c -> c.getName()))
                 .noneMatch(n -> n.contains(".architecture.") || n.endsWith("IT") || n.endsWith("Test"));
     }
@@ -232,6 +233,19 @@ class ArchitectureRulesTest {
                 .should().dependOnClassesThat().resideInAPackage("org.bouncycastle..")
                 .allowEmptyShould(true)
                 .because("4 수용심사 승인 ①: org.bouncycastle.. 참조는 disclosure-audit의 ..tsa..와 테스트 픽스처만")
+                .check(classes);
+    }
+
+    // (k) Phase 5 승인 Q1: verify package는 생산자(seal)·workflow·infra·DB·네트워크·파일 시스템·키에 의존하지 않는다 — 입력 바이트만 받아 자체
+    //     리더와 계약 스키마로 검증한다(스텁·HTTP TSA 어댑터도 쓰지 않는다)
+    @Test
+    void verifyPackageIsIndependentOfTheProducerAndOfEveryEnvironment() {
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().resideInAPackage(P + "audit.verify..")
+                .should().dependOnClassesThat().resideInAnyPackage(P + "seal..", P + "workflow..", P + "infra..", P + "compliance..", P + "api..",
+                        P + "app..", P + "audit.tsa.http..", P + "audit.tsa.stub..", "java.sql..", "javax.sql..", "java.net..", "java.nio.file..",
+                        "javax.crypto..", "org.springframework..")
+                .because("5 계획 승인 Q1: verify package는 DB·키·워크플로·생산자 코드 의존 0 — 패키지와 영수증·신뢰 앵커 바이트만으로 검증한다")
                 .check(classes);
     }
 

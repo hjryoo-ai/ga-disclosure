@@ -28,7 +28,12 @@ public interface DisclosureFlagPort {
         /** 종이 스캔 서명의 관리자 검토 대기(대상 = 서명, 룰 {@code channels.PAPER_SCAN.requiresManagerReview}). 열려 있으면 완료되지 않는다. */
         PAPER_SCAN_REVIEW,
         /** 서명 기한이 지나 만료됐다(대상 = 확인서, 4 계획 §7.4) — 준법 점검 대상(재작성·사후 확인). */
-        SIGN_EXPIRED
+        SIGN_EXPIRED,
+        /**
+         * {@code verify tenant}가 무결성 불일치를 찾았다(대상 = 끊긴 지점의 확인서, 정할 수 없으면 테넌트 — 5 계획 §8.4). 문서 상태로 닫지 않는다 — 준법이
+         * 조사해 해소한다.
+         */
+        CHAIN_BROKEN
     }
 
     /** 해소 사유. */
@@ -46,6 +51,9 @@ public interface DisclosureFlagPort {
     }
 
     RaisedFlag raise(Type type, String severity, DisclosureId disclosureId, String targetKind, String targetId, Instant raisedAt);
+
+    /** 확인서가 없는 플래그({@code disclosure_id NULL} — 테넌트 수준 {@code CHAIN_BROKEN} 등). 같은 대상의 열린 플래그가 있으면 그것. */
+    RaisedFlag raiseUnattached(Type type, String severity, String targetKind, String targetId, Instant raisedAt);
 
     /** 확인서의 열린 플래그(이 포트의 유형만). */
     List<OpenFlag> openFor(DisclosureId disclosureId);

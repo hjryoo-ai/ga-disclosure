@@ -157,6 +157,11 @@ class AnchorJobTest {
         }
 
         @Override
+        public List<AuditRecord> readAfter(long afterSeq, int limit) {
+            return readAll().stream().filter(r -> r.seq() > afterSeq).limit(limit).toList();
+        }
+
+        @Override
         public List<AuditRecord> readTarget(String targetKind, String targetId) {
             return readAll().stream().filter(r -> r.entry().targetKind().equals(targetKind) && r.entry().targetId().equals(targetId)).toList();
         }
@@ -190,6 +195,11 @@ class AnchorJobTest {
         @Override
         public void insert(AnchorRecord record, Instant createdAt) {
             mine().add(new StoredAnchor(record, record.leafHash(), createdAt));
+        }
+
+        @Override
+        public List<StoredAnchor> all() {
+            return List.copyOf(mine());
         }
 
         @Override

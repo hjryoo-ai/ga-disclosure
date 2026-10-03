@@ -20,6 +20,9 @@ public interface AnchorStore {
     /** DB가 잎·두 머리를 다시 계산해 대조한다(GD110). */
     void insert(AnchorRecord record, Instant createdAt);
 
+    /** 앵커 전부(앵커 순번 오름차순 — 하루 1행이라 보존기간 동안에도 작다). */
+    List<StoredAnchor> all();
+
     /** 영수증이 없는 앵커(앵커 순번 오름차순). */
     List<StoredAnchor> unstamped();
 

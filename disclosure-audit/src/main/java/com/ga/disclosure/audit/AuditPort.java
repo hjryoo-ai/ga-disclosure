@@ -13,6 +13,9 @@ public interface AuditPort {
     /** 바인딩된 테넌트의 전 행(seq 오름차순). */
     List<AuditRecord> readAll();
 
+    /** 바인딩된 테넌트의 {@code seq > afterSeq}인 행을 최대 {@code limit}개(seq 오름차순) — {@code verify tenant}가 흘려 읽는다(5 계획 §8.4). */
+    List<AuditRecord> readAfter(long afterSeq, int limit);
+
     /** 바인딩된 테넌트에서 그 대상의 행(seq 오름차순) — 증거 패키지의 감사 발췌(4 계획 §4). */
     List<AuditRecord> readTarget(String targetKind, String targetId);
 }

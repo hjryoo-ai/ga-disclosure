@@ -86,6 +86,12 @@ public class AnchorRepository extends TenantScopedRepository implements AnchorSt
     }
 
     @Override
+    public List<StoredAnchor> all() {
+        return query("SELECT " + ANCHOR_COLUMNS + " FROM anchor WHERE tenant_id = :tenantId ORDER BY anchor_seq", Map.of(),
+                anchorMapper(TenantContext.current()));
+    }
+
+    @Override
     public List<StoredAnchor> unstamped() {
         return query("SELECT " + ANCHOR_COLUMNS + """
                  FROM anchor a

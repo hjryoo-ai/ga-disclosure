@@ -86,6 +86,18 @@ public class AuditLogRepository extends TenantScopedRepository implements AuditP
     }
 
     @Override
+    public List<AuditRecord> readAfter(long afterSeq, int limit) {
+        return query("""
+                SELECT seq, at, actor_subject, actor_role, action, target_kind, target_id, detail::text AS detail, prev_hash, entry_hash
+                  FROM audit_log
+                 WHERE tenant_id = :tenantId
+                   AND seq > :afterSeq
+                 ORDER BY seq
+                 LIMIT :limit
+                """, Map.of("afterSeq", afterSeq, "limit", limit), mapper(TenantContext.current()));
+    }
+
+    @Override
     public List<AuditRecord> readTarget(String targetKind, String targetId) {
         return query("""
                 SELECT seq, at, actor_subject, actor_role, action, target_kind, target_id, detail::text AS detail, prev_hash, entry_hash

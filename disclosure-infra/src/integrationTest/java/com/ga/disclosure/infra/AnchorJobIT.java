@@ -223,6 +223,11 @@ class AnchorJobIT {
         }
 
         @Override
+        public List<StoredAnchor> all() {
+            return delegate.all();
+        }
+
+        @Override
         public List<StoredAnchor> unstamped() {
             return delegate.unstamped();
         }
