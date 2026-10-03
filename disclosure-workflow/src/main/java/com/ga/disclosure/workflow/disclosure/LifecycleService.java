@@ -20,6 +20,11 @@ import com.ga.disclosure.rules.validation.ValidationRegistry;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.sign.session.SessionEvent;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
 import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
@@ -40,8 +45,8 @@ import java.util.UUID;
 /**
  * 무효·정정·재기준 유스케이스(설계서 §6.6, 3B 지시문 §6, 3A 수용심사 §3-7·§3-8).
  * <ul>
- *   <li><b>VOID</b>: 가변 상태는 설계사, 봉인 이후는 고정 룰의 {@code exceptionApproval.role}을 가진 행위자만(인가 자체는 Phase 6 — 지금은 행위자
- *       역할 인자와 감사). 봉인 후 무효는 번호·봉인 컬럼·산출물·잠금을 그대로 둔다.</li>
+ *   <li><b>VOID</b>: 가변 상태는 설계사, 봉인 이후는 고정 룰의 {@code exceptionApproval.role}로 {@code identity_link}에 연결된 주체만(6A — 접근
+ *       인가는 {@code authz-matrix}, 이 검사는 업무 규칙). 봉인 후 무효는 번호·봉인 컬럼·산출물·잠금을 그대로 둔다.</li>
  *   <li><b>SUPERSEDE</b>: 봉인 이후 상태에서 새 버전 DRAFT(버전 + 1, 원본 ID, 항목 입력 복제 — 등급·추천사유는 복제하지 않는다)를 만들고 원본을
  *       SUPERSEDED로. 새 버전의 룰·서식은 <b>원본 상담일로 다시 해석</b>해 고정한다(그 사이 소급 배포가 있었다면 새 버전은 새 룰을 쓴다).</li>
  *   <li><b>REBASE</b>: {@code RULE_SUPERSEDED_DRAFT} 열린 플래그가 있을 때만. 상담일 재해석 결과를 새로 고정, 스냅샷·사유 폐기, 새 룰의 COMPARE
@@ -102,11 +107,13 @@ public final class LifecycleService {
     private final OutboxPort outbox;
     private final SessionClosing closing;
     private final AgentDirectory agents;
+    private final AuthorizationPort authz;
 
     public LifecycleService(DisclosureServiceDeps deps, SignSessionStore sessions) {
         this.closing = new SessionClosing(sessions, deps.audit(), deps.clock());
         this.outbox = deps.outbox();
         this.agents = deps.agents();
+        this.authz = deps.authz();
         this.store = deps.store();
         this.flags = deps.flags();
         this.rules = deps.rules();
@@ -120,9 +127,12 @@ public final class LifecycleService {
 
     // ------------------------------------------------------------------ VOID
 
-    public Outcome voidDisclosure(TenantId tenant, Actor actor, DisclosureId id, LifecycleReason reason) {
+    @UseCaseEntry(Action.VOID)
+    public Outcome voidDisclosure(Caller caller, DisclosureId id, LifecycleReason reason) {
+        TenantId tenant = caller.tenant();
         Objects.requireNonNull(reason, "reason");                // 코드 형식은 LifecycleReason이 검사(입력 전제)
-        return runner.inTransaction(tenant, actor, DisclosureCommand.VOID.name(), id.toString(), () -> {
+        return runner.inTransaction(caller, DisclosureCommand.VOID.name(), id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.VOID, Target.disclosure(id)));
             Loaded l = loader.load(tenant, id);
             Disclosure d = l.disclosure();
             DisclosureStateTable.require(d.status(), DisclosureCommand.VOID);
@@ -150,9 +160,12 @@ public final class LifecycleService {
 
     // ------------------------------------------------------------------ SUPERSEDE
 
-    public Outcome supersede(TenantId tenant, Actor actor, DisclosureId id, LifecycleReason reason) {
+    @UseCaseEntry(Action.SUPERSEDE)
+    public Outcome supersede(Caller caller, DisclosureId id, LifecycleReason reason) {
+        TenantId tenant = caller.tenant();
         Objects.requireNonNull(reason, "reason");
-        return runner.inTransaction(tenant, actor, DisclosureCommand.SUPERSEDE.name(), id.toString(), () -> {
+        return runner.inTransaction(caller, DisclosureCommand.SUPERSEDE.name(), id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.SUPERSEDE, Target.disclosure(id)));
             Loaded l = loader.load(tenant, id);
             Disclosure original = l.disclosure();
             DisclosureStateTable.require(original.status(), DisclosureCommand.SUPERSEDE);
@@ -203,8 +216,11 @@ public final class LifecycleService {
 
     // ------------------------------------------------------------------ REBASE
 
-    public Outcome rebase(TenantId tenant, Actor actor, DisclosureId id) {
-        return runner.inTransaction(tenant, actor, DisclosureCommand.REBASE.name(), id.toString(), () -> {
+    @UseCaseEntry(Action.REBASE)
+    public Outcome rebase(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, DisclosureCommand.REBASE.name(), id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.REBASE, Target.disclosure(id)));
             Loaded l = loader.load(tenant, id);
             Disclosure d = l.disclosure();
             DisclosureStateTable.require(d.status(), DisclosureCommand.REBASE);
@@ -268,8 +284,9 @@ public final class LifecycleService {
         return Optional.empty();
     }
 
-    private static boolean roleAllowed(Actor actor, EffectiveRule rule) {
-        return actor.role().equals(rule.exceptionApprovalRole().name());
+    /** 봉인 이후 무효·정정은 룰의 예외 승인 역할 — 행위자의 {@code identity_link} 역할로 본다(6A, 절대 규칙 5). */
+    private boolean roleAllowed(Actor actor, EffectiveRule rule) {
+        return BusinessRoles.holds(agents, actor, rule.exceptionApprovalRole().name());
     }
 
     private Outcome reject(Actor actor, Disclosure d, DisclosureCommand command, Rejection rejection, EffectiveRule rule) {

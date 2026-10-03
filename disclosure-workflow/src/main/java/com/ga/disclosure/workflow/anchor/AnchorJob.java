@@ -10,6 +10,11 @@ import com.ga.disclosure.audit.tsa.TimestampClient;
 import com.ga.disclosure.audit.tsa.TimestampFailure;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.ConcurrentWriteConflict;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.anchor.AnchorStore.ChainHeads;
@@ -84,9 +89,10 @@ public final class AnchorJob {
     private final TimestampClient tsa;
     private final Clock clock;
     private final Supplier<UUID> batchIds;
+    private final AuthorizationPort authz;
 
     public AnchorJob(AnchorStore store, AuditPort audit, WorkflowTransactions transactions, RuleResolver rules, TimestampClient tsa, Clock clock,
-                     Supplier<UUID> batchIds) {
+                     Supplier<UUID> batchIds, AuthorizationPort authz) {
         this.store = Objects.requireNonNull(store, "store");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
@@ -94,20 +100,43 @@ public final class AnchorJob {
         this.tsa = Objects.requireNonNull(tsa, "tsa");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.batchIds = Objects.requireNonNull(batchIds, "batchIds");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public AnchorJob(AnchorStore store, AuditPort audit, WorkflowTransactions transactions, RuleResolver rules, TimestampClient tsa, Clock clock) {
-        this(store, audit, transactions, rules, tsa, clock, UUID::randomUUID);
+    public AnchorJob(AnchorStore store, AuditPort audit, WorkflowTransactions transactions, RuleResolver rules, TimestampClient tsa, Clock clock,
+                     AuthorizationPort authz) {
+        this(store, audit, transactions, rules, tsa, clock, UUID::randomUUID, authz);
     }
 
-    /** 오늘(KST) 날짜로 실행한다. 다른 날짜는 {@link #run(List, LocalDate, Actor)}가 {@code DATE_NOT_TODAY}로 거부한다(R1). */
-    public Report run(List<TenantId> tenants, Actor actor) {
-        return run(tenants, LocalDate.ofInstant(clock.instant(), SEOUL), actor);
+    /**
+     * 오늘(KST) 날짜로 실행한다. 다른 날짜는 {@link #run(List, LocalDate, String)}가 {@code DATE_NOT_TODAY}로 거부한다(R1). 앵커는 플랫폼
+     * 배치라 운영자 CLI만 부른다(6A 승인 Q7) — 테넌트마다 인가한다.
+     */
+    @UseCaseEntry(Action.ANCHOR_RUN)
+    public Report run(List<TenantId> tenants, String operator) {
+        Actor actor = authorizeAll(tenants, t -> transactions.inTenant(t, () -> authz.require(Caller.cli(t, operator), Action.ANCHOR_RUN,
+                Target.none())), operator);
+        return runAs(tenants, LocalDate.ofInstant(clock.instant(), SEOUL), actor);
     }
 
-    public Report run(List<TenantId> tenants, LocalDate date, Actor actor) {
+    @UseCaseEntry(Action.ANCHOR_RUN)
+    public Report run(List<TenantId> tenants, LocalDate date, String operator) {
         Objects.requireNonNull(date, "date");
-        Objects.requireNonNull(actor, "actor");
+        Actor actor = authorizeAll(tenants, t -> transactions.inTenant(t, () -> authz.require(Caller.cli(t, operator), Action.ANCHOR_RUN,
+                Target.none())), operator);
+        return runAs(tenants, date, actor);
+    }
+
+    /** 테넌트마다 인가하고 감사 행위자(운영자 CLI는 모두 같은 OPERATOR)를 돌려준다. 테넌트가 없으면 운영자 그대로. */
+    private static Actor authorizeAll(List<TenantId> tenants, java.util.function.Function<TenantId, Actor> authorize, String operator) {
+        Actor actor = new Actor(operator, "OPERATOR");
+        for (TenantId t : tenants) {
+            actor = authorize.apply(t);
+        }
+        return actor;
+    }
+
+    private Report runAs(List<TenantId> tenants, LocalDate date, Actor actor) {
         if (!date.equals(LocalDate.ofInstant(clock.instant(), SEOUL))) {
             // 5 수용심사 R1: 앵커 날짜 = 생성 시각의 KST 날짜(V12 CHECK). A단계는 지금의 머리를 읽으므로 다른 날짜의 라벨은 그 날의 머리가
             // 아니다 — 소급(지난 날)도 미래도 거부한다. 빠진 날은 다음 앵커가 덮고 verify tenant가 ANCHOR_MISSING_DAY로 알린다.

@@ -9,6 +9,10 @@ import com.ga.disclosure.rules.resolve.EffectiveRule;
 import com.ga.disclosure.rules.resolve.LifecycleReasonRule;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactMissingException;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
@@ -66,9 +70,10 @@ public final class LegalHoldService {
     private final WorkflowTransactions transactions;
     private final Clock clock;
     private final Supplier<UUID> ids;
+    private final AuthorizationPort authz;
 
     public LegalHoldService(LegalHoldStore holds, RetentionStore retention, DocumentRecordStore records, ArtifactStore storage, RuleResolver rules,
-                            AuditPort audit, WorkflowTransactions transactions, Clock clock, Supplier<UUID> ids) {
+                            AuditPort audit, WorkflowTransactions transactions, Clock clock, Supplier<UUID> ids, AuthorizationPort authz) {
         this.holds = Objects.requireNonNull(holds, "holds");
         this.retention = Objects.requireNonNull(retention, "retention");
         this.records = Objects.requireNonNull(records, "records");
@@ -78,12 +83,19 @@ public final class LegalHoldService {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ids = Objects.requireNonNull(ids, "ids");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public Outcome place(TenantId tenant, Actor actor, Target target, String reasonCode, String reasonTextOrNull) {
+    @UseCaseEntry(Action.LEGAL_HOLD_PLACE)
+    public Outcome place(Caller caller, Target target, String reasonCode, String reasonTextOrNull) {
+        TenantId tenant = caller.tenant();
         Instant now = clock.instant();
         UUID holdId = ids.get();
         Set<String> keys = transactions.inTenant(tenant, () -> {
+            Actor actor = authz.require(caller, Action.LEGAL_HOLD_PLACE, switch (target) {
+                case Target.Disclosure d -> com.ga.disclosure.workflow.authz.Target.disclosure(d.id());
+                case Target.Customer c -> com.ga.disclosure.workflow.authz.Target.none();
+            });
             EffectiveRule rule = rules.resolve(tenant, LocalDate.ofInstant(now, SEOUL));
             LifecycleReasonRule reason = rule.legalHoldReasons().stream().filter(r -> r.code().equals(reasonCode)).findFirst()
                     .orElseThrow(() -> new LegalHoldRejectedException("UNKNOWN_REASON"));
@@ -112,9 +124,12 @@ public final class LegalHoldService {
         return new Outcome(holdId, storageHold(keys, true));
     }
 
-    public Outcome release(TenantId tenant, Actor actor, UUID holdId, String releaseReasonCode) {
+    @UseCaseEntry(Action.LEGAL_HOLD_RELEASE)
+    public Outcome release(Caller caller, UUID holdId, String releaseReasonCode) {
+        TenantId tenant = caller.tenant();
         Instant now = clock.instant();
         Set<String> keys = transactions.inTenant(tenant, () -> {
+            Actor actor = authz.require(caller, Action.LEGAL_HOLD_RELEASE, new com.ga.disclosure.workflow.authz.Target.Hold(holdId));
             LegalHoldStore.Hold hold = holds.find(holdId).orElseThrow(() -> new LegalHoldRejectedException("NOT_FOUND"));
             EffectiveRule rule = rules.resolve(tenant, LocalDate.ofInstant(now, SEOUL));
             if (rule.legalHoldReleaseReasons().stream().noneMatch(r -> r.code().equals(releaseReasonCode))) {

@@ -63,7 +63,7 @@ class SignSessionIT {
     @Test
     void anElapsedSessionIsRefusedWithoutChangingItAndReissueRecordsTheExpiry() {
         DisclosureId id = x.sealed();
-        SignSessionService.IssueOutcome first = x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.TOUCH_PAD);
+        SignSessionService.IssueOutcome first = x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.TOUCH_PAD);
         String token = first.token().orElseThrow().reveal();
         assertThat(x.sessionService.open(token)).isNotEmpty();
         x.clock.advance(Duration.ofMinutes(31));                     // TOUCH_PAD TTL 30분(룰 sessionTtlMinutes)
@@ -81,7 +81,7 @@ class SignSessionIT {
     @Test
     void reissuingRevokesTheOpenSession() {
         DisclosureId id = x.sealed();
-        SignSessionService.IssueOutcome first = x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.TOUCH_PAD);
+        SignSessionService.IssueOutcome first = x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.TOUCH_PAD);
         String old = first.token().orElseThrow().reveal();
         x.issue(id, SignatureChannel.TOUCH_PAD);
         String sessionId = first.sessionId().orElseThrow().toString();
@@ -128,7 +128,7 @@ class SignSessionIT {
     @Test
     void aRemoteLinkGoesOnlyToTheCustomerAndIdentityPassesWithTheBirthDate() {
         DisclosureId id = x.sealed();
-        SignSessionService.IssueOutcome o = x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.REMOTE_LINK);
+        SignSessionService.IssueOutcome o = x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.REMOTE_LINK);
         assertThat(o.token()).as("the agent never holds a remote link token").isEmpty();
         assertThat(o.sent()).isTrue();
         assertThat(x.notify.sent).hasSize(1);
@@ -151,10 +151,15 @@ class SignSessionIT {
     @Test
     void anotherAgentCannotIssueOrConfirmFaceToFace() {
         DisclosureId id = x.sealed();
-        assertThat(x.sessionService.issue(x.w.tenant, SignSetup.STRANGER, id, SignatureChannel.TOUCH_PAD).rejections())
+        // 6A: 다른 설계사는 범위(OWN) 밖 — 인가 거부(404). 담당 검사(AGENT_NOT_ASSIGNED)는 같은 주체의 CLI 대리 실행에서 드러난다
+        assertThatThrownBy(() -> x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.STRANGER), id, SignatureChannel.TOUCH_PAD))
+                .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);
+        assertThat(x.sessionService.issue(Callers.cli(x.w.tenant, SignSetup.STRANGER), id, SignatureChannel.TOUCH_PAD).rejections())
                 .containsExactly(SignRejection.AGENT_NOT_ASSIGNED);
         String token = x.issue(id, SignatureChannel.TOUCH_PAD);
-        assertThat(x.sessionService.confirmFaceToFace(token, SignSetup.STRANGER).rejections()).containsExactly(SignRejection.AGENT_NOT_ASSIGNED);
+        assertThatThrownBy(() -> x.sessionService.confirmFaceToFace(Callers.of(x.w.tenant, SignSetup.STRANGER), token))
+                .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);
+        assertThat(x.sessionService.confirmFaceToFace(Callers.cli(x.w.tenant, SignSetup.STRANGER), token).rejections()).containsExactly(SignRejection.AGENT_NOT_ASSIGNED);
         x.sessionService.recordView(token, true, 10);
         assertThat(x.signService.capture(token, SignSetup.capture("tablet-1", null)).rejections()).containsExactly(SignRejection.IDENTITY_INCOMPLETE);
     }

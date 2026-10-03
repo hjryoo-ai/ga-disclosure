@@ -1,5 +1,6 @@
 package com.ga.disclosure.app.cli;
 
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.DisclosureService;
 import com.ga.disclosure.workflow.disclosure.LifecycleReason;
@@ -73,8 +74,9 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * 운영자 CLI(프로파일 {@code cli}, 웹 서버 없이 실행 후 종료). 인가는 Phase 6이므로 지금은 운영자 CLI만 있고, 모든 행위는
- * {@code audit_log}에 {@code actor_role=OPERATOR}로 남는다. 실패(인자 오류·거부)는 예외로 전파되어 종료 코드가 0이 아니다.
+ * 운영자 CLI(프로파일 {@code cli}, 웹 서버 없이 실행 후 종료). 호출자는 {@code Caller.cli(테넌트, --operator)} — 감사 역할은 언제나
+ * OPERATOR이고 범위 검사가 없다(6A 승인 Q9, {@code --role}은 거부). 업무 역할을 요구하는 명령(정정·스캔 검토·설계사 서명 등)은
+ * {@code --operator}가 그 역할로 {@code identity_link}에 연결된 주체여야 한다. 실패(인자 오류·거부)는 예외로 전파되어 종료 코드가 0이 아니다.
  *
  * <pre>
  * rules distribute --bundle &lt;path&gt; --tenants all|T1,T2 --operator &lt;id&gt; [--bundles-dir contracts/rules/bundles]
@@ -87,11 +89,11 @@ import java.util.stream.Stream;
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
  * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
- * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]       (거부면 종료 코드 2와 거부 코드 목록)
- * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
- * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
- * disclosure rebase     --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]
- * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out &lt;path&gt; --operator &lt;id&gt; [--role COMPLIANCE]
+ * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; (거부면 종료 코드 2와 거부 코드 목록)
+ * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
+ * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
+ * disclosure rebase     --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt;
+ * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out &lt;path&gt; --operator &lt;id&gt;
  * artifacts gc          --tenants all|T1,T2 [--grace PT24H] --operator &lt;id&gt;
  * artifacts reconcile   --tenants all|T1,T2 [--limit 500] --operator &lt;id&gt;
  * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
@@ -283,12 +285,11 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void importCatalog(CliArguments args) {
-        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
         TenantId tenant = TenantId.of(args.required("tenant"));
         Path file = Path.of(args.required("file"));
         CatalogImportOutcome o;
         try {
-            o = catalog.importFile(tenant, actor, file.getFileName().toString(), Files.readAllBytes(file));
+            o = catalog.importFile(caller(args, tenant), file.getFileName().toString(), Files.readAllBytes(file));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InvalidCatalogFileException | CatalogImportRejectedException e) {
@@ -300,17 +301,15 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void rekey(CliArguments args) {
-        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
         TenantId tenant = TenantId.of(args.required("tenant"));
         int batch = Integer.parseInt(args.optional("batch").orElse("500"));
-        RekeyReport r = rekey.rekey(tenant, actor, batch);
+        RekeyReport r = rekey.rekey(caller(args, tenant), batch);
         out.println("REKEY " + tenant + " retired=" + r.retiredKeyId().orElse("-") + " active=" + r.activeKeyId() + " reencrypted="
                 + r.reencrypted() + " destroyed=" + r.destroyedKeyIds());
     }
 
     /** 고객 파일 등록(등록 멱등 키 — 두 번 돌려도 한 명). 개인정보는 파일에서만 읽고 출력하지 않는다. */
     private void importCustomers(CliArguments args) {
-        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
         TenantId tenant = TenantId.of(args.required("tenant"));
         Path file = Path.of(args.required("file"));
         List<CustomerFileParser.Row> rows;
@@ -322,7 +321,7 @@ public class OperatorCli implements ApplicationRunner {
             throw new CliFailure(e.getMessage());
         }
         for (CustomerFileParser.Row row : rows) {
-            RegisterCustomer.Registration r = registerCustomer.execute(tenant, actor, row.key(), row.customer());
+            RegisterCustomer.Registration r = registerCustomer.execute(caller(args, tenant), row.key(), row.customer());
             out.println("CUSTOMER_IMPORT " + tenant + " " + row.id() + " " + (r.created() ? "CREATED" : "NOOP") + " ref=" + r.ref());
         }
     }
@@ -357,8 +356,9 @@ public class OperatorCli implements ApplicationRunner {
 
     // ------------------------------------------------------------------ 3B: 봉인·정정·무효·재기준·산출물
 
-    private static Actor actor(CliArguments args, String defaultRole) {
-        return new Actor(args.required("operator"), args.optional("role").orElse(defaultRole));
+    /** 운영자 CLI 호출자(감사 역할 OPERATOR, 6A 승인 Q9 — {@code --role} 폐기). */
+    private static Caller caller(CliArguments args, TenantId tenant) {
+        return Caller.cli(tenant, args.required("operator"));
     }
 
     private static DisclosureId disclosureId(CliArguments args) {
@@ -376,7 +376,7 @@ public class OperatorCli implements ApplicationRunner {
 
     private void sealDisclosure(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        SealService.Outcome o = seal.seal(tenant, actor(args, "AGENT"), disclosureId(args));
+        SealService.Outcome o = seal.seal(caller(args, tenant), disclosureId(args));
         if (!o.sealed()) {
             out.println("SEAL " + tenant + " " + o.id() + " REJECTED " + o.rejections());
             throw new CliRejection("seal rejected: " + o.rejections());
@@ -387,21 +387,19 @@ public class OperatorCli implements ApplicationRunner {
 
     private void voidDisclosure(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        LifecycleService.Outcome o = lifecycle.voidDisclosure(tenant, new Actor(args.required("operator"), args.required("role")),
-                disclosureId(args), reason(args));
+        LifecycleService.Outcome o = lifecycle.voidDisclosure(caller(args, tenant), disclosureId(args), reason(args));
         lifecycleResult("VOID", tenant, o);
     }
 
     private void supersede(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        LifecycleService.Outcome o = lifecycle.supersede(tenant, new Actor(args.required("operator"), args.required("role")), disclosureId(args),
-                reason(args));
+        LifecycleService.Outcome o = lifecycle.supersede(caller(args, tenant), disclosureId(args), reason(args));
         lifecycleResult("SUPERSEDE", tenant, o);
     }
 
     private void rebase(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        lifecycleResult("REBASE", tenant, lifecycle.rebase(tenant, actor(args, "AGENT"), disclosureId(args)));
+        lifecycleResult("REBASE", tenant, lifecycle.rebase(caller(args, tenant), disclosureId(args)));
     }
 
     private void lifecycleResult(String command, TenantId tenant, LifecycleService.Outcome o) {
@@ -415,7 +413,7 @@ public class OperatorCli implements ApplicationRunner {
     private void artifactGet(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         ArtifactKind kind = ArtifactKind.valueOf(args.required("kind"));
-        ArtifactService.View view = artifacts.view(tenant, actor(args, "COMPLIANCE"), disclosureId(args), kind);
+        ArtifactService.View view = artifacts.view(caller(args, tenant), disclosureId(args), kind);
         switch (view) {
             case ArtifactService.View.Granted g -> {
                 Path target = Path.of(args.required("out"));
@@ -435,12 +433,11 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void artifactGc(CliArguments args) {
-        Actor actor = actor(args, "OPERATOR");
         java.time.Duration grace = java.time.Duration.parse(args.optional("grace").orElse("PT24H"));
         for (TenantId tenant : tenants(args.optional("tenants").orElse("all"))) {
             ArtifactService.GcReport r;
             try {
-                r = artifacts.gc(tenant, actor, grace);
+                r = artifacts.gc(caller(args, tenant), grace);
             } catch (IllegalArgumentException e) {
                 throw new CliFailure(e.getMessage());
             }
@@ -450,10 +447,9 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void artifactReconcile(CliArguments args) {
-        Actor actor = actor(args, "OPERATOR");
         int limit = Integer.parseInt(args.optional("limit").orElse("500"));
         for (TenantId tenant : tenants(args.optional("tenants").orElse("all"))) {
-            ArtifactService.ReconcileReport r = artifacts.reconcile(tenant, actor, limit);
+            ArtifactService.ReconcileReport r = artifacts.reconcile(caller(args, tenant), limit);
             out.println("ARTIFACT_RECONCILE " + tenant + " applied=" + r.applied() + " failed=" + r.failed());
         }
     }

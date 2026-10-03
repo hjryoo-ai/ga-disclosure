@@ -113,5 +113,9 @@ public enum AuditAction {
     /** 법적 보류 설정(대상 DISCLOSURE|CUSTOMER_REF): 보류 ID·사유 코드·텍스트 길이(텍스트 자체는 행에만)·룰 버전. 저장소 보류 결과는 보고서에. */
     LEGAL_HOLD_PLACED,
     /** 법적 보류 해제: 보류 ID·해제 사유 코드. 저장소 보류 해제 결과는 보고서에. */
-    LEGAL_HOLD_RELEASED
+    LEGAL_HOLD_RELEASED,
+
+    // ---------------------------------------------------------------- Phase 6A: 인가·작업·통지·피드
+    /** 인가 거부(대상 = 요청한 대상 종류·ID, 별도 트랜잭션): 행위·채널·사유(NO_LINK·CHANNEL·ROLE·SCOPE·NOT_FOUND). 응답은 404 하나다. */
+    AUTHZ_DENIED
 }

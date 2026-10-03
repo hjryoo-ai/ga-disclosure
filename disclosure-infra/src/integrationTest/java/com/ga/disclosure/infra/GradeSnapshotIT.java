@@ -86,7 +86,7 @@ class GradeSnapshotIT {
     void invalidEngineResponsesNeverBecomeSnapshots(Fault fault) {
         DisclosureId id = s.compared();
         s.engine.fault(fault);
-        CommandResult r = s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+        CommandResult r = s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertThat(r.rejectionOrNull()).isEqualTo(CommandResult.Rejection.GRADE_REJECTED);
         assertThat(r.status()).isEqualTo(DisclosureStatus.COMPARED);
         String expected = switch (fault) {
@@ -105,7 +105,7 @@ class GradeSnapshotIT {
         assertThat(s.engine.selfCheckFailures()).isEmpty();
 
         // 같은 확인서의 두 번째 거부는 열린 플래그를 재사용한다(행이 늘지 않는다)
-        s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+        s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertNoSnapshotAndFlagged(id);
     }
 
@@ -142,7 +142,7 @@ class GradeSnapshotIT {
         DisclosureId id = s.compared();
         s.engine.fault(Fault.STATUS_422);
         EngineUnavailableException e = catchThrowableOfType(EngineUnavailableException.class,
-                () -> s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id));
+                () -> s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id));
         assertThat(e.code()).isEqualTo("ENGINE_422_NO_POLICY");
         assertThat(one(id, "SELECT status FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?")).isEqualTo("COMPARED");
         assertThat(one(id, "SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND disclosure_id = ?")).isEqualTo("0");
@@ -157,7 +157,7 @@ class GradeSnapshotIT {
             DisclosureId id = slow.compared();
             slow.engine.fault(Fault.DELAY).delay(Duration.ofSeconds(2));
             EngineUnavailableException e = catchThrowableOfType(EngineUnavailableException.class,
-                    () -> slow.service.requestGrades(slow.tenant, WorkflowSetup.AGENT, id));
+                    () -> slow.service.requestGrades(Callers.of(slow.tenant, WorkflowSetup.AGENT), id));
             assertThat(e.code()).isEqualTo("ENGINE_TIMEOUT");
             assertThat(slow.engine.requests()).as("요청을 보낸 뒤의 타임아웃은 재시도하지 않는다").isEqualTo(1);
         }
@@ -203,7 +203,7 @@ class GradeSnapshotIT {
             public Fetch request(TenantId tenant, EngineRequest request, Allowance allowance) {
                 Fetch f = real.request(tenant, request, allowance);
                 // 엔진 호출 중(트랜잭션 밖) 다른 설계사 명령이 항목을 바꾼다
-                s.service.replaceItems(tenant, WorkflowSetup.AGENT, id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
+                s.service.replaceItems(Callers.of(tenant, WorkflowSetup.AGENT), id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
                         WorkflowSetup.catalogItem("INS-B:PRD-2044", false), WorkflowSetup.catalogItem("INS-E:PRD-5001", true)));
                 return f;
             }
@@ -217,8 +217,8 @@ class GradeSnapshotIT {
         var service = new com.ga.disclosure.workflow.disclosure.DisclosureService(s.disclosures, s.reviews, s.flags,
                 new com.ga.disclosure.infra.persistence.TenantRepository(s.gateway), racing, s.catalog, s.catalog, s.vault,
                 new com.ga.disclosure.rules.resolve.RuleResolver(s.rules), new com.ga.disclosure.rules.template.TemplateResolver(s.templates),
-                com.ga.disclosure.rules.validation.standard.StandardValidations.registry(), s.audit, s.tx, s.clock, s.agents, s.outbox);
-        CommandResult r = service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+                com.ga.disclosure.rules.validation.standard.StandardValidations.registry(), s.audit, s.tx, s.clock, s.agents, s.outbox, Callers.authz(s.clock));
+        CommandResult r = service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertThat(r.rejectionOrNull()).isEqualTo(CommandResult.Rejection.GRADE_STALE);
         assertThat(one(id, "SELECT status || '/' || coalesce(grade_snapshot_id, '-') FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?"))
                 .isEqualTo("COMPARED/-");

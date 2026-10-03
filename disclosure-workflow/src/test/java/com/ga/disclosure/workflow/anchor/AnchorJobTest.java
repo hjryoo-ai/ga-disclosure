@@ -46,7 +46,7 @@ class AnchorJobTest {
 
     static final LocalDate DAY = LocalDate.parse("2026-09-23");
     static final Clock CLOCK = Clock.fixed(Instant.parse("2026-09-23T01:00:00Z"), ZoneOffset.UTC);
-    static final Actor SYSTEM = new Actor("system:anchor", "SYSTEM");
+    static final String SYSTEM = "system:anchor";
     static final TenantId A = TenantId.of("ANC_A");
     static final TenantId B = TenantId.of("ANC_B");
     static final TenantId C = TenantId.of("ANC_C");
@@ -68,7 +68,8 @@ class AnchorJobTest {
                 return Optional.empty();
             }
         };
-        return new AnchorJob(anchors, audit, tx, new RuleResolver(rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), CLOCK);
+        return new AnchorJob(anchors, audit, tx, new RuleResolver(rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), CLOCK,
+                (caller, action, target) -> new Actor(caller.subject(), "OPERATOR"));
     }
 
     static RuleVersion withDepth(int depth) {
@@ -151,6 +152,11 @@ class AnchorJobTest {
 
         @Override
         public <T> T inTenantRepeatableRead(TenantId tenant, Supplier<T> work) {
+            return inTenant(tenant, work);
+        }
+
+        @Override
+        public <T> T inNewTenantTransaction(TenantId tenant, Supplier<T> work) {
             return inTenant(tenant, work);
         }
     }

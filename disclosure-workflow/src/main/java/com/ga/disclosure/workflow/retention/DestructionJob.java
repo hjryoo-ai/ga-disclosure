@@ -13,6 +13,11 @@ import com.ga.disclosure.rules.resolve.EffectiveRule;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.sign.retention.RetentionDecision;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
@@ -131,9 +136,11 @@ public final class DestructionJob {
     private final OutboxPort outbox;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
     public DestructionJob(RetentionStore store, ErasureReader erasure, DestroyerPort destroyer, DocumentRecordStore records, ArtifactStore storage,
-                          RuleResolver rules, AuditPort audit, OutboxPort outbox, WorkflowTransactions transactions, Clock clock) {
+                          RuleResolver rules, AuditPort audit, OutboxPort outbox, WorkflowTransactions transactions, Clock clock,
+                          AuthorizationPort authz) {
         this.store = Objects.requireNonNull(store, "store");
         this.erasure = Objects.requireNonNull(erasure, "erasure");
         this.destroyer = Objects.requireNonNull(destroyer, "destroyer");
@@ -144,10 +151,15 @@ public final class DestructionJob {
         this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public Report run(TenantId tenant, Instant asOf, boolean dryRun, Actor actor, int limit) {
+    /** 파기 배치는 사람 역할에 없다 — 스케줄러·운영자만(5 수용심사 결정 1). dry-run은 별도 행위다(준법은 보고서 열람만). */
+    @UseCaseEntry({Action.DESTROY, Action.DESTROY_DRY_RUN})
+    public Report run(Caller caller, Instant asOf, boolean dryRun, int limit) {
         Objects.requireNonNull(asOf, "asOf");
+        TenantId tenant = caller.tenant();
+        Actor actor = transactions.inTenant(tenant, () -> authz.require(caller, dryRun ? Action.DESTROY_DRY_RUN : Action.DESTROY, Target.none()));
         LocalDate today = LocalDate.ofInstant(asOf, SEOUL);
         EffectiveRule active = transactions.inTenant(tenant, () -> rules.resolve(tenant, today));
         List<DisclosureId> candidates = transactions.inTenant(tenant, () -> store.candidates(today, limit));

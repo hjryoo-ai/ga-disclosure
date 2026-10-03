@@ -160,12 +160,12 @@ class DestructionOrderIT {
             }
         };
 
-        DestructionJob.Report first = RetentionSetup.conforming(r.job(flaky).run(r.x.w.tenant, RetentionSetup.AFTER, false, RetentionSetup.SYSTEM, 100));
+        DestructionJob.Report first = RetentionSetup.conforming(r.job(flaky).run(Callers.of(r.x.w.tenant, RetentionSetup.SYSTEM), RetentionSetup.AFTER, false, 100));
         assertThat(first.failed()).singleElement().satisfies(f -> assertThat(f.stage()).isEqualTo("DESTROY"));
         assertThat(actions(id, AuditAction.DISCLOSURE_DESTROYED)).as("거부된 트랜잭션의 감사는 롤백").isZero();
         assertThat(keys(id)).allSatisfy(k -> assertThat(r.x.s.bucket.versionCount(k).isEmpty()).isTrue());
 
-        DestructionJob.Report second = RetentionSetup.conforming(r.job(flaky).run(r.x.w.tenant, RetentionSetup.AFTER, false, RetentionSetup.SYSTEM, 100));
+        DestructionJob.Report second = RetentionSetup.conforming(r.job(flaky).run(Callers.of(r.x.w.tenant, RetentionSetup.SYSTEM), RetentionSetup.AFTER, false, 100));
         assertThat(second.destroyed()).extracting(DestructionJob.Destroyed::id).containsExactly(id);
         assertThat(actions(id, AuditAction.DOCUMENT_KEY_SHREDDED)).isEqualTo(1);
         assertThat(actions(id, AuditAction.DISCLOSURE_DESTROYED)).isEqualTo(1);
@@ -191,7 +191,7 @@ class DestructionOrderIT {
         r.reconcileAfterRetention();
         int auditBefore = r.x.s.audit().size();
 
-        DestructionJob.Report report = RetentionSetup.conforming(r.job().run(r.x.w.tenant, RetentionSetup.AFTER, true, RetentionSetup.SYSTEM, 100));
+        DestructionJob.Report report = RetentionSetup.conforming(r.job().run(Callers.of(r.x.w.tenant, RetentionSetup.SYSTEM), RetentionSetup.AFTER, true, 100));
 
         assertThat(report.wouldDestroy()).extracting(DestructionJob.Destroyed::id).containsExactly(id);
         assertThat(report.destroyed()).isEmpty();

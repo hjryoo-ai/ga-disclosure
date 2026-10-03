@@ -42,6 +42,11 @@ public final class SeedData {
                 tenant, subject, agentId, role);
     }
 
+    /** 설계사·조직 없는 연결(준법·서비스 주체 — V12 {@code ck_identity_link_service_alone}·{@code _org}). */
+    public static void roleLink(Connection c, String tenant, String subject, String role) throws SQLException {
+        exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, ?, NULL, ARRAY[?], NULL)", tenant, subject, role);
+    }
+
     public static void tenant(Connection c, String tenant) throws SQLException {
         exec(c, "INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga) VALUES (?, ?, ?, 'ACTIVE', true)",
                 tenant, "GA " + tenant, "http://engine.invalid/" + tenant);

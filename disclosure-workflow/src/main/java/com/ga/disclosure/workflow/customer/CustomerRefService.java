@@ -7,6 +7,12 @@ import com.ga.disclosure.domain.pii.PhoneNumber;
 import com.ga.disclosure.domain.pii.Sensitive;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.NotAnEntry;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
@@ -30,17 +36,21 @@ public final class CustomerRefService {
     private final AuditPort audit;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
-    public CustomerRefService(CustomerVault vault, AuditPort audit, WorkflowTransactions transactions, Clock clock) {
+    public CustomerRefService(CustomerVault vault, AuditPort audit, WorkflowTransactions transactions, Clock clock, AuthorizationPort authz) {
         this.vault = Objects.requireNonNull(vault, "vault");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public CustomerRef register(TenantId tenant, Actor actor, NewCustomer customer) {
+    @UseCaseEntry(Action.CUSTOMER_REGISTER)
+    public CustomerRef register(Caller caller, NewCustomer customer) {
         Objects.requireNonNull(customer, "customer");
-        return transactions.inTenant(tenant, () -> {
+        return transactions.inTenant(caller.tenant(), () -> {
+            Actor actor = authz.require(caller, Action.CUSTOMER_REGISTER, Target.none());
             CustomerRef ref = CustomerRef.of("CR-" + UUID.randomUUID().toString().replace("-", ""));
             String keyId = vault.insert(ref, customer, clock.instant());
             ObjectNode detail = JSON.createObjectNode().put("keyId", keyId).put("hasPhone", customer.phone().isPresent())
@@ -50,6 +60,7 @@ public final class CustomerRefService {
         });
     }
 
+    @NotAnEntry("vault read with a CUSTOMER_VIEW audit row; no HTTP or CLI caller — customer APIs are a separate 6B plan (6A approval Q17)")
     public Customer lookup(TenantId tenant, Actor actor, CustomerRef ref) {
         return transactions.inTenant(tenant, () -> {
             Customer customer = find(tenant, ref);
@@ -62,6 +73,7 @@ public final class CustomerRefService {
      * 원격 서명 링크 발송 전용 연락처. 발송 번호는 여기서만 나온다(설계사가 임의 번호로 보낼 수 없다, 설계서 §6.5).
      * 목적과 호출자가 준 참조 ID(예: 서명 세션)를 감사에 남긴다.
      */
+    @NotAnEntry("internal step of the notification dispatcher, which has authorized NOTIFY_DISPATCH in the same transaction")
     public Sensitive<PhoneNumber> phoneForNotification(TenantId tenant, Actor actor, CustomerRef ref, NotificationPurpose purpose,
                                                        String reference) {
         Objects.requireNonNull(purpose, "purpose");

@@ -1,11 +1,11 @@
 package com.ga.disclosure.app.cli;
 
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.audit.verify.PackageVerifier;
 import com.ga.disclosure.audit.verify.VerifyInputException;
 import com.ga.disclosure.audit.verify.VerifyReport;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
-import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.anchor.AnchorJob;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.retention.LegalHoldRejectedException;
@@ -34,7 +34,7 @@ import java.util.function.Function;
  *
  * <pre>
  * anchor run            [--date YYYY-MM-DD(KST, 기본 오늘)] [--tenants all|T1,T2] --operator &lt;id&gt;          (실패가 있으면 종료 2)
- * anchor receipt export --tenant T --id &lt;uuid&gt; --out &lt;receipt.json&gt; --operator &lt;id&gt; [--role COMPLIANCE]  (아직 덮이지 않으면 종료 2)
+ * anchor receipt export --tenant T --id &lt;uuid&gt; --out &lt;receipt.json&gt; --operator &lt;id&gt;  (아직 덮이지 않으면 종료 2)
  * verify package        --package &lt;zip&gt; [--receipt &lt;json&gt;] [--tsa-trust &lt;pem&gt;] [--report &lt;path&gt;]   (0 일치, 2 불일치, 3 입력 오류)
  * verify tenant         [--tenants all|T1,T2] [--tsa-trust &lt;pem&gt;] [--report-dir &lt;dir&gt;] --operator &lt;id&gt;   (테넌트 중 최대 종료 코드)
  * retention destroy     [--tenants all|T1,T2] [--as-of &lt;instant&gt;] [--dry-run yes] [--limit 100] [--report-dir &lt;dir&gt;] --operator &lt;id&gt;
@@ -83,14 +83,16 @@ final class RetentionCommands {
         }
     }
 
-    private static Actor actor(CliArguments args, String defaultRole) {
-        return new Actor(args.required("operator"), args.optional("role").orElse(defaultRole));
+    /** 운영자 CLI 호출자(감사 역할 OPERATOR, 6A 승인 Q9 — {@code --role} 폐기). */
+    private static Caller caller(CliArguments args, TenantId tenant) {
+        return Caller.cli(tenant, args.required("operator"));
     }
 
     private void anchorRun(CliArguments args) {
         List<TenantId> targets = tenants.apply(args.optional("tenants").orElse("all"));
-        Actor actor = actor(args, "OPERATOR");
-        AnchorJob.Report r = args.optional("date").map(d -> anchors.run(targets, LocalDate.parse(d), actor)).orElseGet(() -> anchors.run(targets, actor));
+        String operator = args.required("operator");
+        AnchorJob.Report r = args.optional("date").map(d -> anchors.run(targets, LocalDate.parse(d), operator))
+                .orElseGet(() -> anchors.run(targets, operator));
         out.println("ANCHOR_RUN date=" + r.date() + " created=" + r.created() + " unchanged=" + r.unchanged() + " retries=" + r.retries()
                 + " batches=" + r.batches().size() + " second=" + r.secondBatches() + " receipts=" + r.receipts());
         r.batches().forEach(b -> out.println("  BATCH " + b.anchorDate() + " " + b.batchId() + " root=" + b.root() + " depth=" + b.depth() + " leaves="
@@ -105,7 +107,7 @@ final class RetentionCommands {
     private void receiptExport(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         DisclosureId id = DisclosureId.parse(args.required("id"));
-        switch (receipts.export(tenant, actor(args, "COMPLIANCE"), id)) {
+        switch (receipts.export(caller(args, tenant), id)) {
             case ReceiptExporter.Result.Exported e -> {
                 Path target = Path.of(args.required("out"));
                 write(target, e.bytes());
@@ -137,11 +139,10 @@ final class RetentionCommands {
     }
 
     private void verifyTenant(CliArguments args) {
-        Actor actor = actor(args, "COMPLIANCE");
         byte[] trust = args.optional("tsa-trust").map(RetentionCommands::read).orElse(null);
         int worst = VerifyReport.EXIT_MATCH;
         for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
-            VerifyReport report = verifier.run(tenant, actor, trust);
+            VerifyReport report = verifier.run(caller(args, tenant), trust);
             args.optional("report-dir").ifPresent(d -> write(Path.of(d).resolve("verify-" + tenant + ".json"), report.canonical()));
             print("VERIFY_TENANT " + tenant, report);
             worst = Math.max(worst, report.exitCode());
@@ -158,13 +159,12 @@ final class RetentionCommands {
     }
 
     private void destroy(CliArguments args) {
-        Actor actor = actor(args, "OPERATOR");
         Instant asOf = args.optional("as-of").map(Instant::parse).orElseGet(clock::instant);
         boolean dryRun = args.optional("dry-run").map(v -> v.equals("yes")).orElse(false);
         int limit = Integer.parseInt(args.optional("limit").orElse("100"));
         boolean failed = false;
         for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
-            DestructionJob.Report r = destruction.run(tenant, asOf, dryRun, actor, limit);
+            DestructionJob.Report r = destruction.run(caller(args, tenant), asOf, dryRun, limit);
             args.optional("report-dir").ifPresent(d -> write(Path.of(d).resolve("destruction-" + tenant + ".json"),
                     Canonicalizer.canonicalize(r.toJson())));
             out.println("RETENTION_DESTROY " + tenant + " asOf=" + asOf + (dryRun ? " DRY_RUN" : "") + " candidates=" + r.candidates() + " destroyed="
@@ -188,7 +188,7 @@ final class RetentionCommands {
                 .orElseGet(() -> new LegalHoldService.Target.Customer(new CustomerRef(args.required("customer"))));
         String text = args.optional("reason-file").map(f -> new String(read(f), StandardCharsets.UTF_8).strip()).orElse(null);
         try {
-            LegalHoldService.Outcome o = holds.place(tenant, actor(args, "COMPLIANCE"), target, args.required("reason-code"), text);
+            LegalHoldService.Outcome o = holds.place(caller(args, tenant), target, args.required("reason-code"), text);
             out.println("LEGAL_HOLD_PLACE " + tenant + " " + label(target) + " hold=" + o.holdId() + " " + storage(o.storage()));
         } catch (LegalHoldRejectedException e) {
             if (e.code().equals("ALREADY_HELD") && args.optional("if-absent").map(v -> v.equals("yes")).orElse(false)) {
@@ -204,7 +204,7 @@ final class RetentionCommands {
         TenantId tenant = TenantId.of(args.required("tenant"));
         UUID hold = UUID.fromString(args.required("hold"));
         try {
-            LegalHoldService.Outcome o = holds.release(tenant, actor(args, "COMPLIANCE"), hold, args.required("reason-code"));
+            LegalHoldService.Outcome o = holds.release(caller(args, tenant), hold, args.required("reason-code"));
             out.println("LEGAL_HOLD_RELEASE " + tenant + " hold=" + hold + " " + storage(o.storage()));
         } catch (LegalHoldRejectedException e) {
             out.println("LEGAL_HOLD_RELEASE " + tenant + " hold=" + hold + " REJECTED " + e.code());

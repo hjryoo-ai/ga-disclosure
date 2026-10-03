@@ -1,0 +1,53 @@
+package com.ga.disclosure.workflow.authz;
+
+/**
+ * 유스케이스 진입점과 1:1인 행위(6A 계획 §3.3). 누가 어떤 범위로 할 수 있는지는 {@link ScopePolicy}의 표(설계서 §9 {@code authz-matrix})다.
+ * 작업 종류는 그 작업이 부르는 행위로 인가한다(작업 제출 = 그 행위의 인가).
+ */
+public enum Action {
+    DISCLOSURE_CREATE,
+    DISCLOSURE_READ,
+    ITEMS_REPLACE,
+    COMPARE,
+    GRADES_REQUEST,
+    RECOMMENDATIONS_SET,
+    VALIDATE,
+    SEAL,
+    VOID,
+    SUPERSEDE,
+    REBASE,
+    EXCEPTION_APPROVE,
+    ARTIFACT_VIEW,
+    SIGN_SESSION_ISSUE,
+    FACE_TO_FACE_CONFIRM,
+    PAPER_SCAN_UPLOAD,
+    AGENT_SIGN,
+    MANAGER_CONFIRM,
+    PAPER_SCAN_REVIEW,
+    COMPLETE,
+    SIGN_OPEN,
+    SIGN_VIEW_RECORD,
+    SIGN_VERIFY_IDENTITY,
+    SIGN_CAPTURE,
+    SIGN_STATUS,
+    LEGAL_HOLD_PLACE,
+    LEGAL_HOLD_RELEASE,
+    LEGAL_HOLD_READ,
+    RECEIPT_EXPORT,
+    VERIFY_TENANT,
+    DESTROY_DRY_RUN,
+    DESTROY,
+    DISCLOSURE_EXPIRE,
+    ARTIFACT_RECONCILE,
+    NOTIFY_DISPATCH,
+    IDEMPOTENCY_PURGE,
+    ARTIFACT_GC,
+    ANCHOR_RUN,
+    CATALOG_IMPORT,
+    CUSTOMER_REGISTER,
+    CUSTOMER_REKEY,
+    JOB_READ,
+    REPORT_VIEW,
+    EVENT_FEED_READ,
+    EVENT_FEED_ACK
+}

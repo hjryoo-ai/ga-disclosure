@@ -35,7 +35,7 @@ class ReceiptExportIT {
     final SignSetup x = new SignSetup();
     final AnchorRepository anchors = new AnchorRepository(x.w.gateway);
     final LocalStubTsa tsa = LocalStubTsa.ephemeral(x.clock);
-    final ReceiptExporter exporter = new ReceiptExporter(new SealChainRepository(x.w.gateway), anchors, x.s.artifacts, x.w.audit, x.w.tx, x.clock);
+    final ReceiptExporter exporter = new ReceiptExporter(new SealChainRepository(x.w.gateway), anchors, x.s.artifacts, x.w.audit, x.w.tx, x.clock, Callers.authz(x.clock));
 
     @AfterEach
     void close() {
@@ -47,7 +47,7 @@ class ReceiptExportIT {
         LocalDate today = LocalDate.ofInstant(x.clock.instant(), java.time.ZoneId.of("Asia/Seoul"));
         java.time.Clock onThatDay = java.time.Clock.offset(x.clock, Duration.ofDays(java.time.temporal.ChronoUnit.DAYS.between(today, LocalDate.parse(day))));
         return new AnchorJob(anchors, x.w.audit, x.w.tx, new RuleResolver(x.w.rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()),
-                onThatDay).run(List.of(x.w.tenant), AnchorJobIT.SYSTEM);
+                onThatDay, Callers.authz(onThatDay)).run(List.of(x.w.tenant), AnchorJobIT.SYSTEM);
     }
 
     DisclosureId completed() {
@@ -61,18 +61,18 @@ class ReceiptExportIT {
     }
 
     byte[] evidenceZip(DisclosureId id) {
-        return ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, SealSetup.COMPLIANCE, id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
+        return ((ArtifactService.View.Granted) x.s.artifacts.view(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
     }
 
     @Test
     void aCompletedPackageAndItsReceiptProveExistenceBeforeTheTsaTime() {
         assertThat(anchor("2026-09-22").created()).hasSize(1);                     // 봉인 전 앵커 = 매니페스트가 가리킬 직전 앵커
         DisclosureId id = completed();
-        assertThat(exporter.export(x.w.tenant, SealSetup.COMPLIANCE, id)).isEqualTo(new ReceiptExporter.Result.NotAvailable("NOT_YET_COVERED"));
+        assertThat(exporter.export(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id)).isEqualTo(new ReceiptExporter.Result.NotAvailable("NOT_YET_COVERED"));
 
         AnchorJob.Report covering = anchor("2026-09-23");
         assertThat(covering.receipts()).isEqualTo(1);
-        ReceiptExporter.Result result = exporter.export(x.w.tenant, SealSetup.COMPLIANCE, id);
+        ReceiptExporter.Result result = exporter.export(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id);
         assertThat(result).isInstanceOf(ReceiptExporter.Result.Exported.class);
         byte[] receipt = ((ReceiptExporter.Result.Exported) result).bytes();
         assertThat(new String(receipt, StandardCharsets.UTF_8)).doesNotContain("가상서명고객", SignSetup.PHONE);
@@ -99,7 +99,7 @@ class ReceiptExportIT {
     void withoutAPreviousAnchorThereIsNoLowerBound() {
         DisclosureId id = completed();
         anchor("2026-09-23");
-        byte[] receipt = ((ReceiptExporter.Result.Exported) exporter.export(x.w.tenant, SealSetup.COMPLIANCE, id)).bytes();
+        byte[] receipt = ((ReceiptExporter.Result.Exported) exporter.export(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id)).bytes();
 
         VerifyReport report = PackageVerifier.verify(evidenceZip(id), receipt, tsa.trustAnchors().toPem().getBytes(StandardCharsets.US_ASCII),
                 Instant.parse("2026-10-03T00:00:00Z"));

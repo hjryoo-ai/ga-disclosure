@@ -42,7 +42,7 @@ class AnchorIsolationIT {
         a.sealReasoned();
         b.sealReasoned();
         new AnchorJob(anchors, a.w.audit, a.w.tx, new RuleResolver(a.w.rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()),
-                a.w.clock).run(List.of(a.w.tenant, b.w.tenant), AnchorJobIT.DAY, AnchorJobIT.SYSTEM);
+                a.w.clock, Callers.authz(a.w.clock)).run(List.of(a.w.tenant, b.w.tenant), AnchorJobIT.DAY, AnchorJobIT.SYSTEM);
 
         AnchorStore.StoredAnchor anchorB = b.w.tx.inTenant(b.w.tenant, () -> anchors.onDate(AnchorJobIT.DAY)).orElseThrow();
         String rowsOfA = rowsAsJson(a, "anchor") + rowsAsJson(a, "anchor_receipt");
@@ -56,7 +56,7 @@ class AnchorIsolationIT {
     @Test
     void rlsKeepsAnotherTenantsAnchorsAndReceiptsOutOfReach() {
         new AnchorJob(anchors, a.w.audit, a.w.tx, new RuleResolver(a.w.rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()),
-                a.w.clock).run(List.of(a.w.tenant), AnchorJobIT.DAY, AnchorJobIT.SYSTEM);
+                a.w.clock, Callers.authz(a.w.clock)).run(List.of(a.w.tenant), AnchorJobIT.DAY, AnchorJobIT.SYSTEM);
         String tenantA = a.w.tenant.value();
 
         long seen = b.w.db.asApp(b.w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.longValue(c,

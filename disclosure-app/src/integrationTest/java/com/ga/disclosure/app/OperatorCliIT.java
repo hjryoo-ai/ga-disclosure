@@ -192,13 +192,16 @@ class OperatorCliIT {
                         .extracting(t -> ((org.springframework.boot.ExitCodeGenerator) t).getExitCode()).isEqualTo(2));
         Path reason = java.nio.file.Files.createTempFile("void-reason", ".txt");
         java.nio.file.Files.writeString(reason, "(가상) 고객 상담 철회");
+        // 6A 승인 Q9: --role은 폐기 — 조용히 무시하지 않고 거부한다(감사 역할은 OPERATOR, 업무 역할은 identity_link)
+        assertThatThrownBy(() -> run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-code", "CUSTOMER_CANCELLED",
+                "--operator", "demo-manager", "--role", "MANAGER"))).hasStackTraceContaining("--role is no longer accepted");
         // V8: 사유 코드는 고정 룰의 닫힌 목록(voidReasons) — 모르는 코드는 거부(종료 코드 2), 텍스트는 파일로만
         assertThatThrownBy(() -> run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-code", "NOT_A_REASON",
-                "--operator", "manager-1", "--role", "MANAGER")))
+                "--operator", "demo-manager")))
                 .hasStackTraceContaining("REASON_CODE_UNKNOWN")
                 .satisfies(e -> assertThat(rootCause(e)).isInstanceOf(org.springframework.boot.ExitCodeGenerator.class));
         assertThat(run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-code", "CUSTOMER_CANCELLED",
-                "--reason-file", reason.toString(), "--operator", "manager-1", "--role", "MANAGER")))
+                "--reason-file", reason.toString(), "--operator", "demo-manager")))
                 .contains("VOID " + tenant + " " + sealedId + " VOID")
                 .doesNotContain("고객 상담 철회");
         assertThat(column(tenant, "SELECT status || ':' || coalesce(disclosure_no, '-') || ':' || void_reason_code FROM disclosure"

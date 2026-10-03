@@ -63,7 +63,7 @@ class DestructionRulesAsDataIT {
         DisclosureId expired = r.x.sealed();
         DisclosureId completed = r.completed();
         Instant afterDeadline = Instant.parse("2026-10-01T01:00:00Z");
-        new ExpireService(r.x.w.deps(r.x.clock), r.x.sessions).run(r.x.w.tenant, RetentionSetup.OPERATOR, afterDeadline, 100);
+        new ExpireService(r.x.w.deps(r.x.clock), r.x.sessions).run(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), afterDeadline, 100);
         Instant judged = afterDeadline.plus(Duration.ofDays(2));
         r.reconcileAt(judged);
 

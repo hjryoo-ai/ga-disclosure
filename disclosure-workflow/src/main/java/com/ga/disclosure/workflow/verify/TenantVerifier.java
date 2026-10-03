@@ -18,6 +18,11 @@ import com.ga.disclosure.audit.verify.VerifyReport;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.anchor.AnchorReceipt;
 import com.ga.disclosure.workflow.anchor.AnchorStore;
@@ -78,9 +83,11 @@ public final class TenantVerifier {
     private final DisclosureFlagPort flags;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
     public TenantVerifier(AuditPort audit, SealChainReader chain, AnchorStore anchors, DocumentRecordStore records, DocumentCryptoPort crypto,
-                          ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags, WorkflowTransactions transactions, Clock clock) {
+                          ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags, WorkflowTransactions transactions, Clock clock,
+                          AuthorizationPort authz) {
         this.audit = Objects.requireNonNull(audit, "audit");
         this.chain = Objects.requireNonNull(chain, "chain");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
@@ -91,12 +98,16 @@ public final class TenantVerifier {
         this.flags = Objects.requireNonNull(flags, "flags");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
     /**
      * @param trustPem TSA 신뢰 앵커 PEM(없으면 null — 영수증 토큰은 TSA_UNTRUSTED)
      */
-    public VerifyReport run(TenantId tenant, Actor actor, byte[] trustPem) {
+    @UseCaseEntry(Action.VERIFY_TENANT)
+    public VerifyReport run(Caller caller, byte[] trustPem) {
+        TenantId tenant = caller.tenant();
+        Actor actor = transactions.inTenant(tenant, () -> authz.require(caller, Action.VERIFY_TENANT, Target.none()));
         Instant asOf = clock.instant();
         TrustAnchors trust = trustPem == null ? TrustAnchors.none() : TrustAnchors.fromPem(trustPem);
         Read read = transactions.inTenantRepeatableRead(tenant, () -> read(tenant, trust, asOf));

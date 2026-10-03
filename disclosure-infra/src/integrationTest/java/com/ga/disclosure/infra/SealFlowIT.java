@@ -51,7 +51,7 @@ class SealFlowIT {
         assertThat(s.audit().stream().map(r -> r.entry().action()).toList())
                 .containsSubsequence(AuditAction.CUSTOMER_VIEW, AuditAction.DISCLOSURE_SEAL, AuditAction.ARTIFACT_RETAIN, AuditAction.ARTIFACT_RETAIN);
 
-        ArtifactService.View view = s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.CANONICAL_JSON);
+        ArtifactService.View view = s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.CANONICAL_JSON);
         assertThat(view).isInstanceOf(ArtifactService.View.Granted.class);
         CanonicalDocument canonical = CanonicalDocument.parse(((ArtifactService.View.Granted) view).plaintext());
         assertThat(canonical.sha256()).isEqualTo(s.text("SELECT canonical_hash FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?",

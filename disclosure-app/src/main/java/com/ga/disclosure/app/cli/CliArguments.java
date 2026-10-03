@@ -8,6 +8,7 @@ import java.util.Optional;
 
 /**
  * 운영자 CLI 인자: {@code <group> <verb> --name value ...}. {@code --spring.*} 등 {@code =}가 있는 인자는 Spring 속성이므로 무시한다.
+ * {@code --role}은 폐기됐다(6A 승인 Q9 — CLI의 감사 역할은 언제나 OPERATOR, 업무 역할은 {@code identity_link}) — 조용히 무시하지 않고 거부한다.
  */
 record CliArguments(List<String> words, Map<String, String> options) {
 
@@ -18,6 +19,9 @@ record CliArguments(List<String> words, Map<String, String> options) {
             String a = args[i];
             if (a.startsWith("--") && a.contains("=")) {
                 continue;
+            }
+            if (a.equals("--role")) {
+                throw new CliFailure("--role is no longer accepted: the CLI audit role is OPERATOR and business roles come from identity_link");
             }
             if (a.startsWith("--")) {
                 if (i + 1 >= args.length || args[i + 1].startsWith("--")) {

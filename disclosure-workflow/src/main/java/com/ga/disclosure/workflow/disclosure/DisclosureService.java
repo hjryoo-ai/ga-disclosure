@@ -30,6 +30,11 @@ import com.ga.disclosure.rules.validation.ValidationRegistry;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.catalog.CatalogProduct;
 import com.ga.disclosure.workflow.catalog.InsurerPanelPort;
 import com.ga.disclosure.workflow.catalog.ProductCatalogPort;
@@ -85,11 +90,13 @@ public final class DisclosureService {
     private final OutboxPort outbox;
     private final CommandRunner runner;
     private final DisclosureLoader loader;
+    private final AuthorizationPort authz;
 
     public DisclosureService(DisclosureStore store, ReviewStore reviews, DisclosureFlagPort flags, TenantProfilePort tenants,
                              GradeSnapshotPort engine, ProductCatalogPort catalog, InsurerPanelPort panel, CustomerVault customers,
                              RuleResolver rules, TemplateResolver templates, ValidationRegistry registry, AuditPort audit,
-                             WorkflowTransactions transactions, Clock clock, AgentDirectory agents, OutboxPort outbox) {
+                             WorkflowTransactions transactions, Clock clock, AgentDirectory agents, OutboxPort outbox,
+                             AuthorizationPort authz) {
         this.store = Objects.requireNonNull(store, "store");
         this.reviews = Objects.requireNonNull(reviews, "reviews");
         this.flags = Objects.requireNonNull(flags, "flags");
@@ -107,6 +114,7 @@ public final class DisclosureService {
         this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.runner = new CommandRunner(transactions, audit, clock);
         this.loader = new DisclosureLoader(store, tenants, catalog, panel, rules, templates, registry);
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
     // ------------------------------------------------------------------ 초안
@@ -117,9 +125,12 @@ public final class DisclosureService {
      * {@code agent_id}다(절대 규칙 5, Phase 4 — 연결이 없거나 AGENT 역할이 아니면 {@code AGENT_NOT_LINKED}). 같은 트랜잭션에서 아웃박스
      * {@code DisclosureCreated}를 적재한다(승인 Q13).
      */
-    public DisclosureId createDraft(TenantId tenant, Actor agent, CustomerRef customerRef, GroupCode group, LocalDate consultDate,
+    @UseCaseEntry(Action.DISCLOSURE_CREATE)
+    public DisclosureId createDraft(Caller caller, CustomerRef customerRef, GroupCode group, LocalDate consultDate,
                                     TemplateType templateType) {
-        return runner.inTransaction(tenant, agent, "CREATE_DRAFT", null, () -> {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "CREATE_DRAFT", null, attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.DISCLOSURE_CREATE, Target.none()));
             AgentDirectory.LinkedIdentity link = agents.find(agent.subject()).filter(l -> l.hasRole("AGENT"))
                     .orElseThrow(() -> new CommandRejectedException("AGENT_NOT_LINKED", "the actor is not linked to an agent in this tenant"));
             AgentId agentId = link.agentId().orElseThrow();      // AGENT ⇒ agent_id·조직 경로(V12 CHECK)
@@ -162,8 +173,11 @@ public final class DisclosureService {
     // ------------------------------------------------------------------ 항목·비교·사유
 
     /** 비교 항목 교체(카탈로그 상품은 상담일 기준 카탈로그에서 상품명·기본값을 채운다). */
-    public CommandResult replaceItems(TenantId tenant, Actor agent, DisclosureId id, List<ItemInput> inputs) {
-        return runner.inTransaction(tenant, agent, DisclosureCommand.REPLACE_ITEMS.name(), id.toString(), () -> {
+    @UseCaseEntry(Action.ITEMS_REPLACE)
+    public CommandResult replaceItems(Caller caller, DisclosureId id, List<ItemInput> inputs) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, DisclosureCommand.REPLACE_ITEMS.name(), id.toString(), attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.ITEMS_REPLACE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             List<ItemDraft> drafts = new ArrayList<>();
             for (ItemInput input : inputs) {
@@ -174,16 +188,22 @@ public final class DisclosureService {
     }
 
     /** DRAFT → COMPARED. */
-    public CommandResult compare(TenantId tenant, Actor agent, DisclosureId id) {
-        return runner.inTransaction(tenant, agent, DisclosureCommand.COMPARE.name(), id.toString(), () -> {
+    @UseCaseEntry(Action.COMPARE)
+    public CommandResult compare(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, DisclosureCommand.COMPARE.name(), id.toString(), attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.COMPARE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             return apply(agent, l, l.disclosure().compare(l.check()), JSON.createObjectNode());
         });
     }
 
     /** 추천사유 입력(설계사 입력만). 고객 요청 항목에는 룰의 자동 부가 코드가 붙는다. */
-    public CommandResult setRecommendations(TenantId tenant, Actor agent, DisclosureId id, List<AgentReason> reasons) {
-        return runner.inTransaction(tenant, agent, DisclosureCommand.SET_RECOMMENDATIONS.name(), id.toString(), () -> {
+    @UseCaseEntry(Action.RECOMMENDATIONS_SET)
+    public CommandResult setRecommendations(Caller caller, DisclosureId id, List<AgentReason> reasons) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, DisclosureCommand.SET_RECOMMENDATIONS.name(), id.toString(), attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.RECOMMENDATIONS_SET, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             return apply(agent, l, l.disclosure().setRecommendations(reasons, l.rule().autoReasonCodes(), l.check()),
                     JSON.createObjectNode().put("reasons", reasons.size()));
@@ -198,22 +218,27 @@ public final class DisclosureService {
      * 스키마·정합성에서 거부됐으면 {@code GRADE_INCONSISTENT} 플래그 + 업무 거부(상태 유지), 수락이면 애그리게이트에 적용. 엔진 호출 결과는
      * 셋 다 {@code GRADE_FETCH} 감사로 남는다.
      */
-    public CommandResult requestGrades(TenantId tenant, Actor agent, DisclosureId id) {
+    @UseCaseEntry(Action.GRADES_REQUEST)
+    public CommandResult requestGrades(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
         String command = DisclosureCommand.APPLY_SNAPSHOT.name();
-        Prepared prepared = runner.inTransaction(tenant, agent, command, id.toString(), () -> {
+        Prepared prepared = runner.inTransaction(caller, command, id.toString(), attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.GRADES_REQUEST, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             DisclosureStateTable.require(l.disclosure().status(), DisclosureCommand.APPLY_SNAPSHOT);
             EngineRequest request = l.disclosure().engineRequest();
-            return new Prepared(request, request.fingerprint(), allowance(l.rule()));
+            return new Prepared(request, request.fingerprint(), allowance(l.rule()), agent);
         });
         GradeSnapshotPort.Fetch fetch;
         try {
             fetch = engine.request(tenant, prepared.request(), prepared.allowance());
         } catch (RuntimeException e) {
             // 엔진이 스냅샷을 주지 않았다(업무 트랜잭션은 열리지 않았다) — 실패 사실만 남기고 다시 던진다
-            throw runner.failed(tenant, agent, command, id.toString(), e);
+            throw runner.failed(tenant, prepared.actor(), command, id.toString(), e);
         }
-        return runner.inTransaction(tenant, agent, command, id.toString(), () -> {
+        // 쓰기 트랜잭션에서 다시 인가한다 — 엔진을 기다리는 사이 연결·조직이 바뀌었을 수 있다
+        return runner.inTransaction(caller, command, id.toString(), attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.GRADES_REQUEST, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             DisclosureStateTable.require(l.disclosure().status(), DisclosureCommand.APPLY_SNAPSHOT);
             ObjectNode fetchDetail = JSON.createObjectNode().put("requestFingerprint", prepared.fingerprint())
@@ -255,8 +280,11 @@ public final class DisclosureService {
     // ------------------------------------------------------------------ 검증·예외 승인
 
     /** 단계 검증 드라이런: 상태를 바꾸지 않고 결과만 돌려주며 감사에 남긴다. */
-    public List<ValidationResult> validate(TenantId tenant, Actor actor, DisclosureId id, ValidationStage stage) {
-        return runner.inTransaction(tenant, actor, "VALIDATE_" + stage.name(), id.toString(), () -> {
+    @UseCaseEntry(Action.VALIDATE)
+    public List<ValidationResult> validate(Caller caller, DisclosureId id, ValidationStage stage) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "VALIDATE_" + stage.name(), id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.VALIDATE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             List<ValidationResult> results = l.check().run(stage, l.disclosure());
             recordValidation(actor, l, stage, results, true);
@@ -265,11 +293,15 @@ public final class DisclosureService {
     }
 
     /**
-     * 관리자 예외 승인 기록(인가는 Phase 6). 승인할 대상은 지금 확인서의 오버라이드 가능 실패(SEAL 단계 기준) 중 규칙·대상 해시가 같은 것이어야
+     * 관리자 예외 승인 기록. 인가는 MANAGER(조직 범위, 6A)이고, 승인자가 룰의 예외 승인 역할을 {@code identity_link}에 가져야 한다 — 기록하는
+     * 역할은 그 룰 역할이다(CLI 감사 역할 OPERATOR와 무관). 승인할 대상은 지금 확인서의 오버라이드 가능 실패(SEAL 단계 기준) 중 규칙·대상 해시가 같은 것이어야
      * 한다 — 호출자가 본 대상과 지금 대상이 다르면 명령 오류다(본 적 없는 대상을 승인하지 않는다).
      */
-    public Review approveException(TenantId tenant, Actor manager, DisclosureId id, String ruleId, String subjectHash, String reason) {
-        return runner.inTransaction(tenant, manager, "APPROVE_EXCEPTION", id.toString(), () -> {
+    @UseCaseEntry(Action.EXCEPTION_APPROVE)
+    public Review approveException(Caller caller, DisclosureId id, String ruleId, String subjectHash, String reason) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "APPROVE_EXCEPTION", id.toString(), attempt -> {
+            Actor manager = attempt.granted(authz.require(caller, Action.EXCEPTION_APPROVE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             if (!l.disclosure().status().isMutable()) {
                 throw new CommandRejectedException("SEALED", "exception approvals are recorded only before sealing");
@@ -280,9 +312,14 @@ public final class DisclosureService {
                 throw new CommandRejectedException("APPROVAL_SUBJECT_MISMATCH",
                         "no current overridable failure of " + ruleId + " with the given subject hash");
             }
+            // 승인자는 룰의 예외 승인 역할을 identity_link에 가진다(6A — 역할은 토큰·CLI 인자가 아니라 연결에서, 절대 규칙 5)
+            String approvalRole = l.rule().exceptionApprovalRole().name();
+            if (!BusinessRoles.holds(agents, manager, approvalRole)) {
+                throw new CommandRejectedException("APPROVAL_ROLE_REQUIRED", "the approver does not hold the exception approval role");
+            }
             Disclosure d = l.disclosure();
             Review review = new Review(UUID.randomUUID(), id, ruleId, subjectHash, d.ruleVersionId(), d.tenantRuleVersionId().orElse(null),
-                    manager.subject(), manager.role(), clock.instant(), reason);
+                    manager.subject(), approvalRole, clock.instant(), reason);
             reviews.append(review);
             ObjectNode detail = JSON.createObjectNode().put("reviewId", review.reviewId().toString()).put("ruleId", ruleId)
                     .put("subjectHash", subjectHash).put("ruleVersionId", d.ruleVersionId().value());
@@ -294,8 +331,11 @@ public final class DisclosureService {
     }
 
     /** 3B 봉인 조건의 판정 재료(3A W5): SEAL 단계 결과 중 승인 없이 봉인을 막는 것. 상태를 바꾸지 않는다. */
-    public List<ValidationResult> sealBlockers(TenantId tenant, Actor actor, DisclosureId id) {
-        return runner.inTransaction(tenant, actor, "SEAL_GATE", id.toString(), () -> {
+    @UseCaseEntry(Action.VALIDATE)
+    public List<ValidationResult> sealBlockers(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "SEAL_GATE", id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.VALIDATE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             List<ValidationResult> results = l.check().run(ValidationStage.SEAL, l.disclosure());
             recordValidation(actor, l, ValidationStage.SEAL, results, true);
@@ -305,7 +345,7 @@ public final class DisclosureService {
 
     // ------------------------------------------------------------------ 내부
 
-    private record Prepared(EngineRequest request, String fingerprint, GradeSnapshotPort.Allowance allowance) {
+    private record Prepared(EngineRequest request, String fingerprint, GradeSnapshotPort.Allowance allowance, Actor actor) {
     }
 
     private Loaded load(TenantId tenant, DisclosureId id) {

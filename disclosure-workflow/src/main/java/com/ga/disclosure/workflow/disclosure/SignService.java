@@ -29,6 +29,13 @@ import com.ga.disclosure.sign.proxy.ProxySignatureDetector;
 import com.ga.disclosure.sign.proxy.ProxyThresholds;
 import com.ga.disclosure.sign.token.SignToken;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Channel;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
@@ -102,9 +109,13 @@ public final class SignService {
                          Map<SignatureEvidenceKind, byte[]> evidence) {
     }
 
-    private record Committed(Outcome outcome, List<LockedObject> toLock, LocalDate retentionUntil) {
-        static Committed rejected(Outcome o) {
-            return new Committed(o, List.of(), null);
+    private record Committed(Outcome outcome, List<LockedObject> toLock, LocalDate retentionUntil, Actor actorOrNull) {
+        static Committed rejected(Outcome o, Actor actor) {
+            return new Committed(o, List.of(), null, actor);
+        }
+
+        Actor actorOr(Caller caller) {
+            return actorOrNull != null ? actorOrNull : new Actor(caller.subject(), "OPERATOR");
         }
     }
 
@@ -125,6 +136,8 @@ public final class SignService {
     private final Completion completion;
     private final RetentionLocks locks;
     private final Duration transactionTimeout;
+    private final AuthorizationPort authz;
+    private final AgentDirectory agents;
 
     public SignService(DisclosureServiceDeps deps, SignSessionStore sessions, SignatureStore signatures, DocumentRecordStore records,
                        DocumentCryptoPort crypto, ArtifactStore storage, SignedPdfAppender appender, Duration transactionTimeout, AnchorStore anchors) {
@@ -148,15 +161,19 @@ public final class SignService {
         TemplateResolver templates = deps.templates();
         this.completion = new Completion(stored, records, crypto, storage, audit, rules, templates, appender, anchors);
         this.locks = new RetentionLocks(records, storage, audit, transactions, clock);
+        this.authz = deps.authz();
+        this.agents = deps.agents();
     }
 
     // ------------------------------------------------------------------ 고객: 터치·원격 서명
 
     /** 고객 서명(TOUCH_PAD·REMOTE_LINK, DRAWN). 토큰 경로 — 세션을 열 수 없으면 {@code SignTokenRejected}. */
+    @UseCaseEntry(Action.SIGN_CAPTURE)
     public Outcome capture(String rawToken, SignatureCapture capture) {
         Objects.requireNonNull(capture, "capture");
         SignToken token = SignSupport.parse(rawToken);
-        return customerPath(token, "SIGN", null, (g, now) -> {
+        return customerPath(SignSupport.anonymous(token), token, "SIGN",
+                s -> authz.require(SignSupport.customerCaller(token, s), Action.SIGN_CAPTURE, new Target.Session(s.sessionId())), (g, now) -> {
             SignSession s = g.session();
             if (s.channel() == SignatureChannel.PAPER_SCAN) {
                 throw new IllegalArgumentException("a PAPER_SCAN session takes an uploaded scan, not a drawn signature");
@@ -174,11 +191,14 @@ public final class SignService {
      * 업무 거부 {@code SCAN_MISMATCH} — 감사에는 일치 여부만). 룰이 관리자 검토를 요구하면 플래그 {@code PAPER_SCAN_REVIEW}가 열리고 해소 전에는
      * 완료되지 않는다.
      */
-    public Outcome uploadPaperScan(String rawToken, Actor agent, PaperScan scan) {
-        Objects.requireNonNull(agent, "agent");
+    @UseCaseEntry(Action.PAPER_SCAN_UPLOAD)
+    public Outcome uploadPaperScan(Caller caller, String rawToken, PaperScan scan) {
+        Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(scan, "scan");
         SignToken token = SignSupport.parse(rawToken);
-        return customerPath(token, "SIGN", agent, (g, now) -> {
+        SignSupport.sameTenant(caller, token);
+        return customerPath(caller, token, "SIGN", s -> authz.require(caller, Action.PAPER_SCAN_UPLOAD, new Target.Session(s.sessionId())),
+                (g, now) -> {
             SignSession s = g.session();
             if (s.channel() != SignatureChannel.PAPER_SCAN) {
                 throw new IllegalArgumentException("a " + s.channel() + " session does not take a paper scan");
@@ -197,19 +217,24 @@ public final class SignService {
         Draft draft(Access.Granted granted, Instant now);
     }
 
-    private Outcome customerPath(SignToken token, String command, Actor agentOrNull, CustomerDraft drafting) {
+    /**
+     * 고객 토큰 경로(고객 터치·원격 서명, 설계사의 종이 스캔 업로드). 토큰 대조로 세션을 연 뒤 {@code authorize}(진입점의 람다 — 인가 호출은
+     * 진입점에 있다)로 행위자를 받는다. 설계사 업로드({@code caller}가 CLI·API)는 담당 설계사여야 한다.
+     */
+    private Outcome customerPath(Caller caller, SignToken token, String command, java.util.function.Function<SignSession, Actor> authorize,
+                                 CustomerDraft drafting) {
         TenantId tenant = token.tenant();
-        Actor runAs = agentOrNull == null ? SignSupport.ANONYMOUS : agentOrNull;
-        Object result = runner.inTransaction(tenant, runAs, command, null, transactionTimeout, () -> {
+        boolean byAgent = caller.channel() != Channel.SIGN_TOKEN;
+        Object result = runner.inTransaction(caller, command, null, transactionTimeout, attempt -> {
             Access a = support.access(tenant, token, clock.instant());
             if (!(a instanceof Access.Granted g)) {
                 return a;
             }
+            Actor actor = attempt.granted(authorize.apply(g.session()));
             Instant now = SignSupport.signingTime(g.loaded().disclosure(), clock.instant());
             Draft draft = drafting.draft(g, now);
-            Actor actor = agentOrNull == null ? SignSupport.customer(g.session()) : agentOrNull;
             List<SignRejection> rejections = customerChecks(g, draft, now);
-            if (agentOrNull != null && !support.assigned(agentOrNull, g.loaded().disclosure())) {
+            if (byAgent && !support.assigned(actor, g.loaded().disclosure())) {
                 rejections.add(SignRejection.AGENT_NOT_ASSIGNED);
             }
             if (draft.scanOrNull() != null && !draft.scanOrNull().matched()) {
@@ -233,7 +258,8 @@ public final class SignService {
         if (result instanceof Access.Denied denied) {
             throw support.deny(tenant, command, denied);
         }
-        return afterCommit(tenant, runAs, (Committed) result);
+        Committed committed = (Committed) result;
+        return afterCommit(tenant, committed.actorOr(caller), committed);
     }
 
     /** 고객 서명 검사(4 계획 §7.1 3항, 단락 없음). 세션 OPEN·TTL은 접근이 이미 확인했다. */
@@ -278,8 +304,9 @@ public final class SignService {
      * 설계사 서명(채널 SSO): 행위자 → {@code identity_link} → agent_id = 확인서 agent_id. 방법은 룰 {@code agentSignMethod} — DRAWN이면 스트로크·이미지가
      * 필요하고, SSO_APPROVAL이면 받지 않는다.
      */
-    public Outcome agentSign(TenantId tenant, Actor agent, DisclosureId id, SignatureCapture drawnOrNull) {
-        return ssoPath(tenant, agent, id, (l, now, rejections) -> {
+    @UseCaseEntry(Action.AGENT_SIGN)
+    public Outcome agentSign(Caller caller, DisclosureId id, SignatureCapture drawnOrNull) {
+        return ssoPath(caller, id, () -> authz.require(caller, Action.AGENT_SIGN, Target.disclosure(id)), (l, now, rejections, agent) -> {
             Disclosure d = l.disclosure();
             if (!support.assigned(agent, d)) {
                 rejections.add(SignRejection.AGENT_NOT_ASSIGNED);
@@ -297,18 +324,19 @@ public final class SignService {
             return new Draft(SignerRole.AGENT, agent.subject(), null, SignatureChannel.SSO, method, List.of(),
                     drawnOrNull == null ? null : drawnOrNull.deviceOrNull(), drawnOrNull == null ? null : drawnOrNull.ipOrNull(), List.of(), null,
                     evidence);
-        }, () -> {
+        }, agent -> {
         });
     }
 
     /**
      * 관리자 확인(채널 SSO, SSO_APPROVAL, D-9): {@code managerConfirmMode = OFF}면 거부. 확인서에 걸린 플래그 전부(열림·닫힘)를 사유 확인 목록에 담아야
-     * 한다(승인 Q9) — 확인한 ID를 서명 레코드에 남긴다. 열린 종이 스캔 검토는 이 확인이 해소한다(승인 Q10). 역할·조직 범위 인가는 Phase 6.
+     * 한다(승인 Q9) — 확인한 ID를 서명 레코드에 남긴다. 열린 종이 스캔 검토는 이 확인이 해소한다(승인 Q10). 역할·조직 범위는 {@code MANAGER_CONFIRM} 인가(관리자 ORG).
      */
-    public Outcome managerConfirm(TenantId tenant, Actor manager, DisclosureId id, Set<UUID> acknowledgedFlags) {
+    @UseCaseEntry(Action.MANAGER_CONFIRM)
+    public Outcome managerConfirm(Caller caller, DisclosureId id, Set<UUID> acknowledgedFlags) {
         Objects.requireNonNull(acknowledgedFlags, "acknowledgedFlags");
         List<UUID> acknowledged = new ArrayList<>();
-        return ssoPath(tenant, manager, id, (l, now, rejections) -> {
+        return ssoPath(caller, id, () -> authz.require(caller, Action.MANAGER_CONFIRM, Target.disclosure(id)), (l, now, rejections, manager) -> {
             Disclosure d = l.disclosure();
             if (l.rule().managerConfirmMode() == ManagerConfirmMode.OFF) {
                 rejections.add(SignRejection.MANAGER_CONFIRM_DISABLED);
@@ -322,28 +350,32 @@ public final class SignService {
             all.stream().map(DisclosureFlagPort.FlagSummary::flagId).filter(acknowledgedFlags::contains).forEach(acknowledged::add);
             return new Draft(SignerRole.MANAGER, manager.subject(), null, SignatureChannel.SSO, SignatureMethod.SSO_APPROVAL, List.of(), null, null,
                     List.copyOf(acknowledged), null, Map.of());
-        }, () -> resolveScanReviews(manager, id));
+        }, manager -> resolveScanReviews(manager, id));
     }
 
     @FunctionalInterface
     private interface SsoDraft {
-        Draft draft(Loaded loaded, Instant now, List<SignRejection> rejections);
+        Draft draft(Loaded loaded, Instant now, List<SignRejection> rejections, Actor actor);
     }
 
-    private Outcome ssoPath(TenantId tenant, Actor actor, DisclosureId id, SsoDraft drafting, Runnable beforeCompletion) {
-        Committed committed = runner.inTransaction(tenant, actor, DisclosureCommand.SIGN.name(), id.toString(), transactionTimeout, () -> {
+    /** 설계사·관리자 서명 경로. {@code authorize}는 진입점의 람다(인가 호출은 진입점에 있다)이고 트랜잭션 안에서 먼저 부른다. */
+    private Outcome ssoPath(Caller caller, DisclosureId id, java.util.function.Supplier<Actor> authorize, SsoDraft drafting,
+                            java.util.function.Consumer<Actor> beforeCompletion) {
+        TenantId tenant = caller.tenant();
+        Committed committed = runner.inTransaction(caller, DisclosureCommand.SIGN.name(), id.toString(), transactionTimeout, attempt -> {
+            Actor actor = attempt.granted(authorize.get());
             Loaded l = loader.load(tenant, id);
             DisclosureStateTable.require(l.disclosure().status(), DisclosureCommand.SIGN);
             Instant now = SignSupport.signingTime(l.disclosure(), clock.instant());
             List<SignRejection> rejections = new ArrayList<>();
-            Draft draft = drafting.draft(l, now, rejections);
+            Draft draft = drafting.draft(l, now, rejections, actor);
             if (!rejections.isEmpty()) {
                 return reject(actor, l.disclosure(), DisclosureCommand.SIGN.name(), rejections,
                         SignSupport.JSON.createObjectNode().put("signerRole", draft.role().name()));
             }
-            return record(tenant, actor, l, draft, now, beforeCompletion);
+            return record(tenant, actor, l, draft, now, () -> beforeCompletion.accept(actor));
         });
-        return afterCommit(tenant, actor, committed);
+        return afterCommit(tenant, committed.actorOr(caller), committed);
     }
 
     // ------------------------------------------------------------------ 종이 스캔 검토·완료 명령
@@ -352,12 +384,16 @@ public final class SignService {
      * 종이 스캔 검토(승인 Q10): 관리자가 서명자 집합에 없을 때(OFF·OPTIONAL) {@code exceptionApproval.role}이 열린 {@code PAPER_SCAN_REVIEW}를 해소한다.
      * 완료는 이 뒤의 {@link #complete} 명령이 시도한다.
      */
-    public Outcome reviewPaperScan(TenantId tenant, Actor reviewer, DisclosureId id) {
-        return runner.inTransaction(tenant, reviewer, "PAPER_SCAN_REVIEW", id.toString(), () -> {
+    @UseCaseEntry(Action.PAPER_SCAN_REVIEW)
+    public Outcome reviewPaperScan(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "PAPER_SCAN_REVIEW", id.toString(), attempt -> {
+            Actor reviewer = attempt.granted(authz.require(caller, Action.PAPER_SCAN_REVIEW, Target.disclosure(id)));
             Loaded l = loader.load(tenant, id);
             Disclosure d = l.disclosure();
             List<SignRejection> rejections = new ArrayList<>();
-            if (!reviewer.role().equals(l.rule().exceptionApprovalRole().name())) {
+            // 검토 역할은 룰의 예외 승인 역할 — identity_link로 본다(6A, 절대 규칙 5)
+            if (!BusinessRoles.holds(agents, reviewer, l.rule().exceptionApprovalRole().name())) {
                 rejections.add(SignRejection.REVIEW_ROLE_REQUIRED);
             }
             if (l.rule().signerSet().contains(SignerRole.MANAGER)) {
@@ -378,8 +414,11 @@ public final class SignService {
      * 완료 명령(PARTIALLY_SIGNED → COMPLETED, 상태표 {@code PARTIALLY_SIGNED,COMPLETE}): 서명을 더하지 않고 완료 조건을 다시 본다 — 종이 스캔 검토가
      * 해소된 뒤의 경로다. 조건이 안 되면 업무 거부({@code SIGNER_SET_INCOMPLETE}·{@code PAPER_SCAN_REVIEW_OPEN}, 승인 Q10).
      */
-    public Outcome complete(TenantId tenant, Actor actor, DisclosureId id) {
-        Committed committed = runner.inTransaction(tenant, actor, DisclosureCommand.COMPLETE.name(), id.toString(), transactionTimeout, () -> {
+    @UseCaseEntry(Action.COMPLETE)
+    public Outcome complete(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        Committed committed = runner.inTransaction(caller, DisclosureCommand.COMPLETE.name(), id.toString(), transactionTimeout, attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.COMPLETE, Target.disclosure(id)));
             Loaded l = loader.load(tenant, id);
             Disclosure d = l.disclosure();
             DisclosureStateTable.require(d.status(), DisclosureCommand.COMPLETE);
@@ -397,7 +436,7 @@ public final class SignService {
                 ArrayNode failed = extra.putArray("failedRules");
                 results.stream().filter(r -> !r.passed()).forEach(r -> failed.add(r.ruleId()));
                 support.reject(actor, d, DisclosureCommand.COMPLETE.name(), rejections, extra);
-                return Committed.rejected(new Outcome(id, d.status(), rejections, Optional.empty(), false, results, false));
+                return Committed.rejected(new Outcome(id, d.status(), rejections, Optional.empty(), false, results, false), actor);
             }
             Completion.Built built = completion.build(tenant, l, signatures.signatures(id), Map.of(), now);
             TransitionOutcome o = d.complete(built.stamp(), l.check());
@@ -407,9 +446,9 @@ public final class SignService {
             store.save(d);
             completed(actor, d, built);
             return new Committed(new Outcome(id, d.status(), List.of(), Optional.empty(), true, o.results(), false), allLocked(id),
-                    built.stamp().retentionUntil());
+                    built.stamp().retentionUntil(), actor);
         });
-        return afterCommit(tenant, actor, committed);
+        return afterCommit(tenant, committed.actorOr(caller), committed);
     }
 
     // ------------------------------------------------------------------ 공통 기록 경로
@@ -494,9 +533,9 @@ public final class SignService {
         Outcome outcome = new Outcome(id, d.status(), List.of(), Optional.of(signatureId), completes, results, false);
         if (completes) {
             completed(actor, d, built);
-            return new Committed(outcome, allLocked(id), built.stamp().retentionUntil());
+            return new Committed(outcome, allLocked(id), built.stamp().retentionUntil(), actor);
         }
-        return new Committed(outcome, List.copyOf(evidence), seal.retentionUntil());
+        return new Committed(outcome, List.copyOf(evidence), seal.retentionUntil(), actor);
     }
 
     /** 완료 감사·이벤트(감사 발췌의 경계 다음 행). */
@@ -565,7 +604,7 @@ public final class SignService {
 
     private Committed reject(Actor actor, Disclosure d, String command, List<SignRejection> rejections, ObjectNode extra) {
         support.reject(actor, d, command, rejections, extra);
-        return Committed.rejected(new Outcome(d.id(), d.status(), rejections, Optional.empty(), false, List.of(), false));
+        return Committed.rejected(new Outcome(d.id(), d.status(), rejections, Optional.empty(), false, List.of(), false), actor);
     }
 
     private Outcome afterCommit(TenantId tenant, Actor actor, Committed c) {

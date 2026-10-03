@@ -61,7 +61,7 @@ class LegalHoldIT {
         String until = retentionUntil(id);
         List<String> keys = keys(id);
 
-        LegalHoldService.Outcome placed = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new Target.Disclosure(id), "LITIGATION", null);
+        LegalHoldService.Outcome placed = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(id), "LITIGATION", null);
 
         assertThat(placed.storage()).isEqualTo(new LegalHoldService.StorageHold(keys.size(), 0, false));
         assertThat(keys).isNotEmpty().allSatisfy(k -> assertThat(r.x.s.bucket.legalHold(k)).as(k).isTrue());
@@ -70,7 +70,7 @@ class LegalHoldIT {
         assertThat(held.destroyed()).isEmpty();
         assertThat(retentionUntil(id)).isEqualTo(until);
 
-        LegalHoldService.Outcome released = holds.release(r.x.w.tenant, RetentionSetup.RELEASER, placed.holdId(), "CASE_CLOSED");
+        LegalHoldService.Outcome released = holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), placed.holdId(), "CASE_CLOSED");
 
         assertThat(released.storage()).isEqualTo(new LegalHoldService.StorageHold(keys.size(), 0, false));
         assertThat(keys).allSatisfy(k -> assertThat(r.x.s.bucket.legalHold(k)).as(k).isFalse());
@@ -84,12 +84,12 @@ class LegalHoldIT {
     void oneActiveHoldPerTargetAndAReleaseHappensOnce() {
         DisclosureId id = r.completed();
         Target target = new Target.Disclosure(id);
-        LegalHoldService.Outcome first = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "LITIGATION", null);
+        LegalHoldService.Outcome first = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "LITIGATION", null);
 
-        assertThat(rejection(() -> holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "REGULATOR_INQUIRY", null))).isEqualTo("ALREADY_HELD");
-        holds.release(r.x.w.tenant, RetentionSetup.RELEASER, first.holdId(), "CASE_CLOSED");
-        assertThat(rejection(() -> holds.release(r.x.w.tenant, RetentionSetup.RELEASER, first.holdId(), "CASE_CLOSED"))).isEqualTo("ALREADY_RELEASED");
-        holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "REGULATOR_INQUIRY", null);
+        assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "REGULATOR_INQUIRY", null))).isEqualTo("ALREADY_HELD");
+        holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), first.holdId(), "CASE_CLOSED");
+        assertThat(rejection(() -> holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), first.holdId(), "CASE_CLOSED"))).isEqualTo("ALREADY_RELEASED");
+        holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "REGULATOR_INQUIRY", null);
 
         assertThat(r.count("SELECT count(*) FROM legal_hold WHERE tenant_id = ? AND disclosure_id = ? AND released_at IS NULL",
                 r.x.w.tenant.value(), id.value())).isEqualTo(1);
@@ -102,18 +102,18 @@ class LegalHoldIT {
         DisclosureId a = r.completed();
         DisclosureId b = r.completed();
         r.reconcileAfterRetention();
-        LegalHoldService.Outcome customer = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new Target.Customer(r.x.signer), "CUSTOMER_COMPLAINT", null);
-        LegalHoldService.Outcome onA = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new Target.Disclosure(a), "LITIGATION", null);
+        LegalHoldService.Outcome customer = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Customer(r.x.signer), "CUSTOMER_COMPLAINT", null);
+        LegalHoldService.Outcome onA = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(a), "LITIGATION", null);
 
         assertThat(customer.storage().applied()).isEqualTo(keys(a).size() + keys(b).size());
         assertThat(r.destroy().skipped()).extracting(DestructionJob.Skipped::reason).containsExactly("HOLD", "HOLD");
 
-        LegalHoldService.Outcome releasedA = holds.release(r.x.w.tenant, RetentionSetup.RELEASER, onA.holdId(), "CASE_CLOSED");
+        LegalHoldService.Outcome releasedA = holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), onA.holdId(), "CASE_CLOSED");
         assertThat(releasedA.storage().applied()).as("고객 보류가 덮는 객체는 끄지 않는다").isZero();
         assertThat(keys(a)).allSatisfy(k -> assertThat(r.x.s.bucket.legalHold(k)).isTrue());
         assertThat(r.destroy().destroyed()).isEmpty();
 
-        holds.release(r.x.w.tenant, RetentionSetup.RELEASER, customer.holdId(), "CASE_CLOSED");
+        holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), customer.holdId(), "CASE_CLOSED");
         assertThat(r.destroy().destroyed()).extracting(DestructionJob.Destroyed::id).containsExactlyInAnyOrder(a, b);
     }
 
@@ -122,11 +122,11 @@ class LegalHoldIT {
         DisclosureId id = r.completed();
         Target target = new Target.Disclosure(id);
 
-        assertThat(rejection(() -> holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "SUBPOENA", null))).isEqualTo("UNKNOWN_REASON");
-        assertThat(rejection(() -> holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "OTHER", " "))).isEqualTo("TEXT_REQUIRED");
-        assertThat(rejection(() -> holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "OTHER", "가".repeat(501)))).isEqualTo("TEXT_TOO_LONG");
-        LegalHoldService.Outcome ok = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, target, "OTHER", "가".repeat(500));
-        assertThat(rejection(() -> holds.release(r.x.w.tenant, RetentionSetup.RELEASER, ok.holdId(), "closed"))).isEqualTo("BAD_RELEASE_REASON");
+        assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "SUBPOENA", null))).isEqualTo("UNKNOWN_REASON");
+        assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "OTHER", " "))).isEqualTo("TEXT_REQUIRED");
+        assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "OTHER", "가".repeat(501)))).isEqualTo("TEXT_TOO_LONG");
+        LegalHoldService.Outcome ok = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), target, "OTHER", "가".repeat(500));
+        assertThat(rejection(() -> holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), ok.holdId(), "closed"))).isEqualTo("BAD_RELEASE_REASON");
 
         assertThat(audits(AuditAction.LEGAL_HOLD_PLACED, id.toString())).isEqualTo(1);
         assertThat(r.x.s.audit()).filteredOn(a -> a.entry().action() == AuditAction.LEGAL_HOLD_PLACED).singleElement()
@@ -141,18 +141,18 @@ class LegalHoldIT {
     @Test
     void releaseReasonsAreTheRuleListAndTheReleaserIsNotThePlacer() {
         DisclosureId id = r.completed();
-        LegalHoldService.Outcome placed = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new Target.Disclosure(id), "LITIGATION", null);
+        LegalHoldService.Outcome placed = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(id), "LITIGATION", null);
 
-        assertThat(rejection(() -> holds.release(r.x.w.tenant, RetentionSetup.RELEASER, placed.holdId(), "SUBPOENA_ENDED")))
+        assertThat(rejection(() -> holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), placed.holdId(), "SUBPOENA_ENDED")))
                 .as("형식은 맞지만 목록 밖").isEqualTo("BAD_RELEASE_REASON");
-        assertThat(rejection(() -> holds.release(r.x.w.tenant, RetentionSetup.OPERATOR, placed.holdId(), "CASE_CLOSED")))
+        assertThat(rejection(() -> holds.release(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), placed.holdId(), "CASE_CLOSED")))
                 .isEqualTo("FOUR_EYES_REQUIRED");
         assertThat(audits(AuditAction.LEGAL_HOLD_RELEASED, id.toString())).isZero();
         TriggerAssertions.assertRejected(r.x.w.db, r.x.w.tenant.value(), "23514", """
                 UPDATE legal_hold SET released_by = placed_by, released_at = now(), release_reason_code = 'CASE_CLOSED'
                  WHERE tenant_id = ? AND hold_id = ?""", r.x.w.tenant.value(), placed.holdId());
 
-        holds.release(r.x.w.tenant, RetentionSetup.RELEASER, placed.holdId(), "PLACED_IN_ERROR");
+        holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), placed.holdId(), "PLACED_IN_ERROR");
         assertThat(r.count("SELECT count(*) FROM legal_hold WHERE tenant_id = ? AND hold_id = ? AND released_by = ? AND release_reason_code = ?",
                 r.x.w.tenant.value(), placed.holdId(), RetentionSetup.RELEASER.subject(), "PLACED_IN_ERROR")).isEqualTo(1);
     }
@@ -163,7 +163,7 @@ class LegalHoldIT {
         r.reconcileAfterRetention();
         r.x.s.store.legalHoldUnsupported.set(true);
 
-        LegalHoldService.Outcome placed = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new Target.Disclosure(id), "LITIGATION", null);
+        LegalHoldService.Outcome placed = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(id), "LITIGATION", null);
 
         assertThat(placed.storage()).isEqualTo(new LegalHoldService.StorageHold(0, 0, true));
         assertThat(keys(id)).allSatisfy(k -> assertThat(r.x.s.bucket.legalHold(k)).isFalse());

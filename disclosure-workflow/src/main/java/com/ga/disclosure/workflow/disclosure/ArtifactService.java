@@ -7,6 +7,11 @@ import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.enums.SignatureEvidenceKind;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactMissingException;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
@@ -86,9 +91,10 @@ public final class ArtifactService {
     private final Clock clock;
     private final CommandRunner runner;
     private final Duration sealTransactionTimeout;
+    private final AuthorizationPort authz;
 
     public ArtifactService(DocumentRecordStore records, DocumentCryptoPort crypto, ArtifactStore storage, AuditPort audit,
-                           WorkflowTransactions transactions, Clock clock, Duration sealTransactionTimeout) {
+                           WorkflowTransactions transactions, Clock clock, Duration sealTransactionTimeout, AuthorizationPort authz) {
         this.records = Objects.requireNonNull(records, "records");
         this.crypto = Objects.requireNonNull(crypto, "crypto");
         this.storage = Objects.requireNonNull(storage, "storage");
@@ -97,13 +103,17 @@ public final class ArtifactService {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.runner = new CommandRunner(transactions, audit, clock);
         this.sealTransactionTimeout = Objects.requireNonNull(sealTransactionTimeout, "sealTransactionTimeout");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
     // ------------------------------------------------------------------ 열람
 
     /** 복호화 후 평문 SHA-256이 기록과 같을 때만 내준다(감사 {@code ARTIFACT_VIEW}). 거부도 감사한다({@code ARTIFACT_VIEW_DENIED}). */
-    public View view(TenantId tenant, Actor actor, DisclosureId id, ArtifactKind kind) {
-        return runner.inTransaction(tenant, actor, "ARTIFACT_VIEW", id.toString(), () -> {
+    @UseCaseEntry(Action.ARTIFACT_VIEW)
+    public View view(Caller caller, DisclosureId id, ArtifactKind kind) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "ARTIFACT_VIEW", id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.ARTIFACT_VIEW, Target.disclosure(id)));
             Optional<ArtifactRecord> record = records.artifacts(id).stream().filter(a -> a.kind() == kind).findFirst();
             if (record.isEmpty()) {
                 return deny(actor, id, kind, null, View.Reason.NO_ARTIFACT);
@@ -138,8 +148,11 @@ public final class ArtifactService {
      * 서명 증거 객체 열람(준법·분쟁 대응): 산출물 열람과 같은 순서 — 기록 → 살아 있는 문서 키 → 객체 → 복호화(AAD = 서명·종류) → 평문 해시 대조,
      * 허용·거부 모두 감사. 감사 상세에는 서명 ID·종류·해시만 남는다.
      */
-    public View viewEvidence(TenantId tenant, Actor actor, DisclosureId id, UUID signatureId, SignatureEvidenceKind kind) {
-        return runner.inTransaction(tenant, actor, "ARTIFACT_VIEW", id.toString(), () -> {
+    @UseCaseEntry(Action.ARTIFACT_VIEW)
+    public View viewEvidence(Caller caller, DisclosureId id, UUID signatureId, SignatureEvidenceKind kind) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "ARTIFACT_VIEW", id.toString(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.ARTIFACT_VIEW, Target.disclosure(id)));
             Optional<SignatureEvidenceRecord> record = records.evidence(id).stream()
                     .filter(e -> e.signatureId().equals(signatureId) && e.kind() == kind).findFirst();
             if (record.isEmpty()) {
@@ -190,11 +203,14 @@ public final class ArtifactService {
      * {@code grace}는 봉인 트랜잭션 제한보다 커야 한다 — 진행 중인 봉인이 올렸지만 아직 커밋하지 않은 객체를 지우지 않기 위해서다(그 객체는 언제나 제한보다
      * 젊다). 잠긴 객체는 저장소가 거부한다(세어 두고 넘어간다).
      */
-    public GcReport gc(TenantId tenant, Actor actor, Duration grace) {
+    @UseCaseEntry(Action.ARTIFACT_GC)
+    public GcReport gc(Caller caller, Duration grace) {
+        TenantId tenant = caller.tenant();
         if (grace.compareTo(sealTransactionTimeout) <= 0) {
             throw new IllegalArgumentException("gc grace " + grace + " must exceed the seal transaction timeout " + sealTransactionTimeout);
         }
-        return runner.inTransaction(tenant, actor, "ARTIFACT_GC", tenant.value(), () -> {
+        return runner.inTransaction(caller, "ARTIFACT_GC", tenant.value(), attempt -> {
+            Actor actor = attempt.granted(authz.require(caller, Action.ARTIFACT_GC, Target.none()));
             Instant cutoff = clock.instant().minus(grace);
             List<ArtifactStore.StoredObject> objects = storage.list(tenant.value() + "/");
             List<String> deleted = new java.util.ArrayList<>();
@@ -231,9 +247,15 @@ public final class ArtifactService {
      * 커밋됐지만 지금 보존기한까지 Object Lock 적용이 기록되지 않은 객체(산출물·서명 증거 — 같은 코드 경로, 4 계획 승인 Q2)에 확인서의
      * {@code retention_until}로 다시 건다. 기한이 연장된 뒤(완료·계약 연결) 다시 거는 것도 이 경로다(적용 기한은 증가만).
      */
-    public ReconcileReport reconcile(TenantId tenant, Actor actor, int limit) {
-        List<DocumentRecordStore.Unretained> pending = runner.inTransaction(tenant, actor, "ARTIFACT_RECONCILE", tenant.value(),
-                () -> records.unretained(limit));
+    @UseCaseEntry(Action.ARTIFACT_RECONCILE)
+    public ReconcileReport reconcile(Caller caller, int limit) {
+        TenantId tenant = caller.tenant();
+        record Pending(Actor actor, List<DocumentRecordStore.Unretained> rows) {
+        }
+        Pending p = runner.inTransaction(caller, "ARTIFACT_RECONCILE", tenant.value(),
+                attempt -> new Pending(attempt.granted(authz.require(caller, Action.ARTIFACT_RECONCILE, Target.none())), records.unretained(limit)));
+        Actor actor = p.actor();
+        List<DocumentRecordStore.Unretained> pending = p.rows();
         int applied = 0;
         int failed = 0;
         for (DocumentRecordStore.Unretained u : pending) {

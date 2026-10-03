@@ -49,16 +49,16 @@ class VerifyTenantIT {
 
     TenantVerifier verifier(Clock clock) {
         return new TenantVerifier(x.w.audit, new SealChainRepository(x.w.gateway), anchors, x.s.records, x.s.cipher, x.s.bucket,
-                new RuleResolver(x.w.rules), x.w.flags, x.w.tx, clock);
+                new RuleResolver(x.w.rules), x.w.flags, x.w.tx, clock, Callers.authz(clock));
     }
 
     VerifyReport verify() {
-        return verifier(x.clock).run(x.w.tenant, SealSetup.COMPLIANCE, trust);
+        return verifier(x.clock).run(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), trust);
     }
 
     AnchorJob.Report anchor(String day, com.ga.disclosure.audit.tsa.TimestampAuthorityPort port) {
         return new AnchorJob(anchors, x.w.audit, x.w.tx, new RuleResolver(x.w.rules), new TimestampClient(port, NonceSource.secure(), tsa.trustAnchors()),
-                x.clock).run(List.of(x.w.tenant), LocalDate.parse(day), AnchorJobIT.SYSTEM);
+                x.clock, Callers.authz(x.clock)).run(List.of(x.w.tenant), LocalDate.parse(day), AnchorJobIT.SYSTEM);
     }
 
     DisclosureId completedAndAnchored() {
@@ -211,10 +211,10 @@ class VerifyTenantIT {
             x.clock.advance(Duration.ofDays(1));
         }
         Clock inTime = Clock.fixed(Instant.parse("2026-09-25T00:00:00Z"), ZoneOffset.UTC);      // KST 9-25: 23 + 2일 = 25 — 아직
-        assertThat(verifier(inTime).run(x.w.tenant, SealSetup.COMPLIANCE, trust).findings()).isEmpty();
+        assertThat(verifier(inTime).run(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), trust).findings()).isEmpty();
 
         Clock late = Clock.fixed(Instant.parse("2026-09-25T15:00:00Z"), ZoneOffset.UTC);        // KST 9-26
-        VerifyReport r = verifier(late).run(x.w.tenant, SealSetup.COMPLIANCE, trust);
+        VerifyReport r = verifier(late).run(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), trust);
 
         assertThat(codes(r)).containsExactly(FindingCode.ANCHOR_UNSTAMPED);
         assertThat(r.findings()).singleElement().satisfies(f -> assertThat(f.where()).containsEntry("anchorDate", "2026-09-23"));
@@ -232,7 +232,7 @@ class VerifyTenantIT {
         x.clock.advance(Duration.ofDays(3));
         anchor("2026-09-26", tsa);                                                                  // 24·25일 공백
 
-        VerifyReport sameDay = verifier(x.clock).run(x.w.tenant, SealSetup.COMPLIANCE, trust);      // KST 9-26: 오늘은 셈하지 않는다
+        VerifyReport sameDay = verifier(x.clock).run(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), trust);      // KST 9-26: 오늘은 셈하지 않는다
         assertThat(sameDay.findings()).singleElement().satisfies(f -> {
             assertThat(f.code()).isEqualTo(FindingCode.ANCHOR_MISSING_DAY);
             assertThat(f.where()).containsEntry("afterAnchorSeq", 1L).containsEntry("fromDate", "2026-09-24").containsEntry("toDate", "2026-09-25");
@@ -241,7 +241,7 @@ class VerifyTenantIT {
         assertThat(VerifySchemas.report(sameDay.toJson())).isEmpty();
 
         Clock later = Clock.fixed(Instant.parse("2026-09-29T01:00:00Z"), ZoneOffset.UTC);          // KST 9-29: 27·28일이 끝의 공백
-        VerifyReport r = verifier(later).run(x.w.tenant, SealSetup.COMPLIANCE, trust);
+        VerifyReport r = verifier(later).run(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), trust);
 
         // 시험용 스텁 TSA 인증서는 1일 유효라 26일 앵커는 영수증이 없다 — 그 ANCHOR_UNSTAMPED(26 + 2 < 29)는 이 테스트의 대상이 아니다
         List<VerifyReport.Finding> missing = r.findings().stream().filter(f -> f.code() == FindingCode.ANCHOR_MISSING_DAY).toList();

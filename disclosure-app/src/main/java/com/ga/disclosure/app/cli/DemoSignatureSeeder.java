@@ -1,5 +1,6 @@
 package com.ga.disclosure.app.cli;
 
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.enums.SignerRole;
@@ -110,18 +111,18 @@ final class DemoSignatureSeeder {
                 case "TOUCH_PAD" -> {
                     String token = issue(tenant, agent, id, SignatureChannel.TOUCH_PAD);
                     sessions.recordView(token, true, 60);
-                    sessions.confirmFaceToFace(token, agent);
+                    sessions.confirmFaceToFace(Caller.cli(tenant, agent.subject()), token);
                     accepted(name, "customer", signing.capture(token, new SignatureCapture(f.strokes(), f.image(), f.device(), null)));
                 }
                 case "PAPER_SCAN" -> {
                     String token = issue(tenant, agent, id, SignatureChannel.PAPER_SCAN);
-                    sessions.confirmFaceToFace(token, agent);
+                    sessions.confirmFaceToFace(Caller.cli(tenant, agent.subject()), token);
                     DisclosureLookup.Footnote footnote = transactions.inTenant(tenant, () -> lookup.footnote(id)).orElseThrow();
-                    accepted(name, "scan", signing.uploadPaperScan(token, agent, new PaperScan(f.scan(), footnote.disclosureNo(),
+                    accepted(name, "scan", signing.uploadPaperScan(Caller.cli(tenant, agent.subject()), token, new PaperScan(f.scan(), footnote.disclosureNo(),
                             footnote.canonicalHash().substring(0, PaperScan.HASH_PREFIX_LENGTH))));
                 }
                 case "REMOTE_LINK" -> {
-                    SignSessionService.IssueOutcome o = sessions.issue(tenant, agent, id, SignatureChannel.REMOTE_LINK);
+                    SignSessionService.IssueOutcome o = sessions.issue(Caller.cli(tenant, agent.subject()), id, SignatureChannel.REMOTE_LINK);
                     if (!o.issued()) {
                         throw new CliFailure("case " + name + " session rejected: " + o.rejections());
                     }
@@ -136,19 +137,19 @@ final class DemoSignatureSeeder {
             return;
         }
         if (!signed(tenant, id).contains(SignerRole.AGENT)) {
-            accepted(name, "agent", signing.agentSign(tenant, agent, id, new SignatureCapture(f.strokes(), f.image(), null, null)));
+            accepted(name, "agent", signing.agentSign(Caller.cli(tenant, agent.subject()), id, new SignatureCapture(f.strokes(), f.image(), null, null)));
         }
         SignService.Outcome last = null;
         if (!signed(tenant, id).contains(SignerRole.MANAGER)) {
             Set<UUID> all = transactions.inTenant(tenant, () -> flags.allFor(id)).stream().map(DisclosureFlagPort.FlagSummary::flagId)
                     .collect(Collectors.toSet());
-            last = accepted(name, "manager", signing.managerConfirm(tenant, manager, id, all));
+            last = accepted(name, "manager", signing.managerConfirm(Caller.cli(tenant, manager.subject()), id, all));
         }
         out.println(head + " " + flow + " -> " + (last == null ? "PARTIALLY_SIGNED" : last.status()));
     }
 
     private String issue(TenantId tenant, Actor agent, DisclosureId id, SignatureChannel channel) {
-        SignSessionService.IssueOutcome o = sessions.issue(tenant, agent, id, channel);
+        SignSessionService.IssueOutcome o = sessions.issue(Caller.cli(tenant, agent.subject()), id, channel);
         if (!o.issued()) {
             throw new CliFailure("session for " + id + " rejected: " + o.rejections());
         }

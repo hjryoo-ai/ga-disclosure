@@ -22,6 +22,11 @@ import com.ga.disclosure.sign.session.SignSessionState;
 import com.ga.disclosure.sign.token.SignToken;
 import com.ga.disclosure.sign.token.TokenSource;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
@@ -103,6 +108,7 @@ public final class SignSessionService {
     private final SignSupport support;
     private final StoredArtifacts stored;
     private final SessionClosing closing;
+    private final AuthorizationPort authz;
 
     public SignSessionService(DisclosureServiceDeps deps, SignSessionStore sessions, DocumentRecordStore records, DocumentCryptoPort crypto,
                               ArtifactStore storage, TokenSource tokens, NotifyPort notify) {
@@ -118,18 +124,22 @@ public final class SignSessionService {
         this.support = new SignSupport(sessions, loader, deps.agents(), audit, deps.transactions(), clock, deps.tenants());
         this.stored = new StoredArtifacts(records, crypto, storage);
         this.closing = new SessionClosing(sessions, audit, clock);
+        this.authz = deps.authz();
     }
 
     // ------------------------------------------------------------------ 발급
 
-    public IssueOutcome issue(TenantId tenant, Actor agent, DisclosureId id, SignatureChannel channel) {
+    @UseCaseEntry(Action.SIGN_SESSION_ISSUE)
+    public IssueOutcome issue(Caller caller, DisclosureId id, SignatureChannel channel) {
+        TenantId tenant = caller.tenant();
         Objects.requireNonNull(channel, "channel");
         if (channel != SignatureChannel.TOUCH_PAD && channel != SignatureChannel.REMOTE_LINK && channel != SignatureChannel.PAPER_SCAN) {
             throw new IllegalArgumentException("customer sessions are TOUCH_PAD, REMOTE_LINK or PAPER_SCAN, not " + channel);
         }
-        record Issued(IssueOutcome outcome, SignToken tokenOrNull) {
+        record Issued(IssueOutcome outcome, SignToken tokenOrNull, Actor agent) {
         }
-        Issued issued = runner.inTransaction(tenant, agent, "SIGN_SESSION_ISSUE", id.toString(), () -> {
+        Issued issued = runner.inTransaction(caller, "SIGN_SESSION_ISSUE", id.toString(), attempt -> {
+            Actor agent = attempt.granted(authz.require(caller, Action.SIGN_SESSION_ISSUE, Target.disclosure(id)));
             Loaded l = loader.load(tenant, id);
             Disclosure d = l.disclosure();
             DisclosureStateTable.require(d.status(), DisclosureCommand.SIGN);
@@ -156,7 +166,7 @@ public final class SignSessionService {
             }
             if (!rejections.isEmpty()) {
                 support.reject(agent, d, "SIGN_SESSION_ISSUE", rejections, SignSupport.JSON.createObjectNode().put("channel", channel.name()));
-                return new Issued(new IssueOutcome(id, rejections, Optional.empty(), Optional.empty(), Optional.empty(), false), null);
+                return new Issued(new IssueOutcome(id, rejections, Optional.empty(), Optional.empty(), Optional.empty(), false), null, agent);
             }
             List<String> closed = closing.closeOpen(agent, id, SessionEvent.REISSUE, now).stream().map(UUID::toString).toList();
             SignToken token = SignToken.issue(tenant, tokens);
@@ -174,13 +184,13 @@ public final class SignSessionService {
             support.record(agent, AuditAction.SIGN_SESSION_ISSUE, id, detail);
             boolean remote = channel == SignatureChannel.REMOTE_LINK;
             return new Issued(new IssueOutcome(id, List.of(), Optional.of(s.sessionId()), remote ? Optional.empty() : Optional.of(token),
-                    Optional.of(expires), false), token);
+                    Optional.of(expires), false), token, agent);
         });
         IssueOutcome o = issued.outcome();
         if (!o.issued() || channel != SignatureChannel.REMOTE_LINK) {
             return o;
         }
-        boolean sent = send(tenant, agent, id, o.sessionId().orElseThrow(), issued.tokenOrNull());
+        boolean sent = send(caller, issued.agent(), id, o.sessionId().orElseThrow(), issued.tokenOrNull());
         return new IssueOutcome(id, List.of(), o.sessionId(), Optional.empty(), o.expiresAt(), sent);
     }
 
@@ -188,8 +198,10 @@ public final class SignSessionService {
      * 커밋 뒤 원격 링크 발송: 번호는 {@code customer_ref.phone_enc}에서만(감사 {@code CUSTOMER_PHONE_READ}, 목적 REMOTE_LINK, 참조 = 세션 ID). 발송 시각을
      * 세션에 1회 기록한다(대리 서명 탐지의 발송→서명 지표). 번호가 없으면 보내지 않고 사실만 남긴다(대면 서명 전용 고객).
      */
-    private boolean send(TenantId tenant, Actor agent, DisclosureId id, UUID sessionId, SignToken token) {
-        return runner.inTransaction(tenant, agent, "SIGN_SESSION_SEND", id.toString(), () -> {
+    private boolean send(Caller caller, Actor agent, DisclosureId id, UUID sessionId, SignToken token) {
+        TenantId tenant = caller.tenant();
+        return runner.inTransaction(caller, "SIGN_SESSION_SEND", id.toString(), attempt -> {
+            attempt.granted(agent);                                         // 발급에서 인가된 행위자(같은 호출)
             Disclosure d = loader.load(tenant, id).disclosure();
             SignSession s = sessions.lock(sessionId).orElseThrow();
             if (s.state().status() != SessionStatus.OPEN || s.sentAt().isPresent()) {
@@ -216,16 +228,18 @@ public final class SignSessionService {
     // ------------------------------------------------------------------ 토큰 경로
 
     /** 서명 대상 봉인 PDF(복호화·해시 대조, 감사 {@code ARTIFACT_VIEW} 사유 SIGN). */
+    @UseCaseEntry(Action.SIGN_OPEN)
     public byte[] open(String rawToken) {
         SignToken token = SignSupport.parse(rawToken);
         TenantId tenant = token.tenant();
-        Object result = runner.inTransaction(tenant, SignSupport.ANONYMOUS, "SIGN_SESSION_OPEN", null, () -> {
+        Object result = runner.inTransaction(SignSupport.anonymous(token), "SIGN_SESSION_OPEN", null, attempt -> {
             Access a = support.access(tenant, token, clock.instant());
             if (!(a instanceof Access.Granted g)) {
                 return a;
             }
+            Actor customer = attempt.granted(authz.require(SignSupport.customerCaller(token, g.session()), Action.SIGN_OPEN,
+                    new Target.Session(g.session().sessionId())));
             StoredArtifacts.Read<ArtifactRecord> pdf = stored.artifact(tenant, g.session().disclosureId(), ArtifactKind.PDF);
-            Actor customer = SignSupport.customer(g.session());
             audit.append(new AuditEntry(clock.instant(), customer.subject(), customer.role(), AuditAction.ARTIFACT_VIEW, SealService.ARTIFACT_TARGET,
                     pdf.record().storageKey(), SignSupport.JSON.createObjectNode().put("disclosureId", g.session().disclosureId().toString())
                     .put("kind", ArtifactKind.PDF.name()).put("sha256", pdf.record().sha256().hex()).put("reason", "SIGN")
@@ -239,13 +253,19 @@ public final class SignSessionService {
     }
 
     /** 열람 증거 1회 기록(서버 시각). 끝까지 스크롤했으면 SCROLL_COMPLETE 통과. 이미 기록됐으면 그대로 둔다. */
+    @UseCaseEntry(Action.SIGN_VIEW_RECORD)
     public void recordView(String rawToken, boolean scrollComplete, int viewSeconds) {
         SignToken token = SignSupport.parse(rawToken);
         TenantId tenant = token.tenant();
-        Access result = runner.inTransaction(tenant, SignSupport.ANONYMOUS, "SIGN_SESSION_VIEW", null, () -> {
+        Access result = runner.inTransaction(SignSupport.anonymous(token), "SIGN_SESSION_VIEW", null, attempt -> {
             Instant now = clock.instant();
             Access a = support.access(tenant, token, now);
-            if (!(a instanceof Access.Granted g) || g.session().view().isPresent()) {
+            if (!(a instanceof Access.Granted g)) {
+                return a;
+            }
+            attempt.granted(authz.require(SignSupport.customerCaller(token, g.session()), Action.SIGN_VIEW_RECORD,
+                    new Target.Session(g.session().sessionId())));
+            if (g.session().view().isPresent()) {
                 return a;
             }
             SignSession s = g.session().viewed(new ViewEvidence(now, scrollComplete, viewSeconds));
@@ -266,16 +286,19 @@ public final class SignSessionService {
      * 고객 본인확인: 토큰 제시(LINK_POSSESSION)와 입력값 수단(BIRTH_DATE)을 룰이 요구할 때만 확인한다. 생년월일 불일치는 실패 1회이고 한도에 닿으면 세션
      * 취소 + 플래그. 입력값은 이 메서드 밖으로 나가지 않는다.
      */
+    @UseCaseEntry(Action.SIGN_VERIFY_IDENTITY)
     public IdentityOutcome verify(String rawToken, IdentityInputs inputs) {
         Objects.requireNonNull(inputs, "inputs");
         SignToken token = SignSupport.parse(rawToken);
         TenantId tenant = token.tenant();
-        Object result = runner.inTransaction(tenant, SignSupport.ANONYMOUS, "SIGN_IDENTITY_CHECK", null, () -> {
+        Object result = runner.inTransaction(SignSupport.anonymous(token), "SIGN_IDENTITY_CHECK", null, attempt -> {
             Instant now = clock.instant();
             Access a = support.access(tenant, token, now);
             if (!(a instanceof Access.Granted g)) {
                 return a;
             }
+            attempt.granted(authz.require(SignSupport.customerCaller(token, g.session()), Action.SIGN_VERIFY_IDENTITY,
+                    new Target.Session(g.session().sessionId())));
             SignSession s = g.session();
             Disclosure d = g.loaded().disclosure();
             EffectiveRule rule = g.loaded().rule();
@@ -310,16 +333,19 @@ public final class SignSessionService {
     }
 
     /** 설계사 대면 확인(AGENT_FACE_TO_FACE): 담당 설계사가 자기 계정으로 기록한다. 담당이 아니면 업무 거부(고객 실패 횟수가 아니다). */
-    public IdentityOutcome confirmFaceToFace(String rawToken, Actor agent) {
-        Objects.requireNonNull(agent, "agent");
+    @UseCaseEntry(Action.FACE_TO_FACE_CONFIRM)
+    public IdentityOutcome confirmFaceToFace(Caller caller, String rawToken) {
+        Objects.requireNonNull(caller, "caller");
         SignToken token = SignSupport.parse(rawToken);
+        SignSupport.sameTenant(caller, token);
         TenantId tenant = token.tenant();
-        Object result = runner.inTransaction(tenant, agent, "SIGN_IDENTITY_CHECK", null, () -> {
+        Object result = runner.inTransaction(caller, "SIGN_IDENTITY_CHECK", null, attempt -> {
             Instant now = clock.instant();
             Access a = support.access(tenant, token, now);
             if (!(a instanceof Access.Granted g)) {
                 return a;
             }
+            Actor agent = attempt.granted(authz.require(caller, Action.FACE_TO_FACE_CONFIRM, new Target.Session(g.session().sessionId())));
             SignSession s = g.session();
             Disclosure d = g.loaded().disclosure();
             List<IdentityMethod> required = g.loaded().rule().identityMethods(s.channel());

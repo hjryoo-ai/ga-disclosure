@@ -82,7 +82,7 @@ final class SignSetup implements AutoCloseable {
         this.sessionService = new SignSessionService(w.deps(clock), sessions, s.recordPort, s.cipher, s.store, tokens, notify);
         this.signService = signServiceWith(s.recordPort, s.store);
         this.lifecycle = new com.ga.disclosure.workflow.disclosure.LifecycleService(w.deps(clock), sessions);
-        this.signer = new CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant, CatalogCustomerSetup.OPERATOR,
+        this.signer = new CustomerRefService(w.vault, w.audit, w.tx, w.clock, Callers.authz(w.clock)).register(Callers.of(w.tenant, CatalogCustomerSetup.OPERATOR),
                 new NewCustomer(CustomerName.of("가상서명고객"), PhoneNumber.of(PHONE), BirthDate.of(java.time.LocalDate.parse(BIRTH))));
         w.db.seed(w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.identityLink(c, w.tenant.value(), STRANGER.subject(), "AGENT-2",
                 "AGENT"));
@@ -95,7 +95,7 @@ final class SignSetup implements AutoCloseable {
 
     /** 연락처·생년월일(같은 센티널)이 있는 고객을 하나 더 등록한다(대리 서명 탐지 — 서로 다른 고객). */
     CustomerRef newSigner(String name) {
-        return new CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant, CatalogCustomerSetup.OPERATOR,
+        return new CustomerRefService(w.vault, w.audit, w.tx, w.clock, Callers.authz(w.clock)).register(Callers.of(w.tenant, CatalogCustomerSetup.OPERATOR),
                 new NewCustomer(CustomerName.of(name), PhoneNumber.of(PHONE), BirthDate.of(java.time.LocalDate.parse(BIRTH))));
     }
 
@@ -106,7 +106,7 @@ final class SignSetup implements AutoCloseable {
 
     DisclosureId sealedFor(CustomerRef who) {
         DisclosureId id = w.reasoned(who);
-        SealService.Outcome o = s.seal.seal(w.tenant, AGENT, id);
+        SealService.Outcome o = s.seal.seal(Callers.of(w.tenant, AGENT), id);
         if (!o.sealed()) {
             throw new IllegalStateException("seal rejected: " + o.rejections());
         }
@@ -115,7 +115,7 @@ final class SignSetup implements AutoCloseable {
 
     /** 담당 설계사가 세션을 발급한다(TOUCH_PAD·PAPER_SCAN은 토큰 원문, REMOTE_LINK는 통지가 받은 토큰). */
     String issue(DisclosureId id, SignatureChannel channel) {
-        SignSessionService.IssueOutcome o = sessionService.issue(w.tenant, AGENT, id, channel);
+        SignSessionService.IssueOutcome o = sessionService.issue(Callers.of(w.tenant, AGENT), id, channel);
         if (!o.issued()) {
             throw new IllegalStateException("session rejected: " + o.rejections());
         }
@@ -125,7 +125,7 @@ final class SignSetup implements AutoCloseable {
     /** TOUCH_PAD 본인확인 준비: 끝까지 열람 + 설계사 대면 확인. */
     void readyTouchPad(String token) {
         sessionService.recordView(token, true, 42);
-        sessionService.confirmFaceToFace(token, AGENT);
+        sessionService.confirmFaceToFace(Callers.of(w.tenant, AGENT), token);
     }
 
     /** 닫힌 세션에도 준비 동작을 시도해 본다(거부는 삼킨다 — 거부 자체는 다른 단언이 본다). */
@@ -144,11 +144,11 @@ final class SignSetup implements AutoCloseable {
     }
 
     SignService.Outcome agentSigns(DisclosureId id) {
-        return signService.agentSign(w.tenant, AGENT, id, capture("agent-device", null));
+        return signService.agentSign(Callers.of(w.tenant, AGENT), id, capture("agent-device", null));
     }
 
     SignService.Outcome managerConfirms(DisclosureId id) {
-        return signService.managerConfirm(w.tenant, MANAGER, id, allFlags(id));
+        return signService.managerConfirm(Callers.of(w.tenant, MANAGER), id, allFlags(id));
     }
 
     /** 확인서에 걸린 플래그 전부(관리자 사유 확인 대상). */

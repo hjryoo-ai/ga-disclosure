@@ -51,7 +51,7 @@ class CustomerEncryptionIT {
     }
 
     private CustomerRef register(TenantId t, String name, String phone, String birth) {
-        return s.customers.register(t, CatalogCustomerSetup.OPERATOR, customer(name, phone, birth));
+        return s.customers.register(Callers.of(t, CatalogCustomerSetup.OPERATOR), customer(name, phone, birth));
     }
 
     private Customer lookup(TenantId t, CustomerRef ref) {
@@ -225,10 +225,10 @@ class CustomerEncryptionIT {
     void sameRegistrationKeyConcurrentlyYieldsOneCustomer() throws InterruptedException {
         TenantId t = s.freshTenant("ENC_KEYED");
         com.ga.disclosure.workflow.customer.RegisterCustomer register =
-                new com.ga.disclosure.workflow.customer.RegisterCustomer(s.vault, s.audit, s.tx, s.clock);
+                new com.ga.disclosure.workflow.customer.RegisterCustomer(s.vault, s.audit, s.tx, s.clock, Callers.authz(s.clock));
         com.ga.disclosure.workflow.customer.RegistrationKey key = new com.ga.disclosure.workflow.customer.RegistrationKey("demo:customers.json#C01");
         List<CustomerRef> refs = java.util.Collections.synchronizedList(new ArrayList<>());
-        List<Throwable> failures = concurrently(20, i -> refs.add(register.execute(t, CatalogCustomerSetup.OPERATOR, key,
+        List<Throwable> failures = concurrently(20, i -> refs.add(register.execute(Callers.of(t, CatalogCustomerSetup.OPERATOR), key,
                 customer("가상고객" + i, null, null)).ref()));
         assertThat(failures.stream().map(e -> e.getClass().getSimpleName()).toList()).isEmpty();
         assertThat(refs).hasSize(20);
@@ -282,7 +282,7 @@ class CustomerEncryptionIT {
                 .satisfies(e -> assertThat(((PostgresHarness.UncheckedSqlException) e).sqlState()).isEqualTo("GD061"));
 
         // 서비스로 순환 완료: 다시 순환(K3)하고 전 행 재암호화 → K1·K2 파기
-        RekeyReport report = s.rekey.rekey(t, CatalogCustomerSetup.OPERATOR, 2);
+        RekeyReport report = s.rekey.rekey(Callers.of(t, CatalogCustomerSetup.OPERATOR), 2);
         assertThat(report.retiredKeyId()).contains(k2);
         assertThat(report.reencrypted()).isEqualTo(3);
         assertThat(report.destroyedKeyIds()).containsExactlyInAnyOrder(k1, k2);

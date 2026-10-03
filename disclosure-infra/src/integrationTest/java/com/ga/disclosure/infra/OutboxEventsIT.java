@@ -74,9 +74,9 @@ class OutboxEventsIT {
     @Test
     void lifecycleEventsAreGaplessContractValidAndFreeOfPersonalData() {
         DisclosureId id = s.sealReasoned().id();
-        LifecycleService.Outcome superseded = s.lifecycle.supersede(s.w.tenant, SealSetup.MANAGER, id, new LifecycleReason("CONTENT_ERROR", "(가상) 오기"));
+        LifecycleService.Outcome superseded = s.lifecycle.supersede(Callers.of(s.w.tenant, SealSetup.MANAGER), id, new LifecycleReason("CONTENT_ERROR", "(가상) 오기"));
         DisclosureId next = superseded.newVersion().orElseThrow();
-        s.lifecycle.voidDisclosure(s.w.tenant, WorkflowSetup.AGENT, next, new LifecycleReason("OTHER", "(가상) 상담 철회 메모"));
+        s.lifecycle.voidDisclosure(Callers.of(s.w.tenant, WorkflowSetup.AGENT), next, new LifecycleReason("OTHER", "(가상) 상담 철회 메모"));
 
         List<ObjectNode> events = envelopes();
         assertThat(types(events)).containsExactly("DisclosureCreated", "DisclosureSealed", "DisclosureSuperseded", "DisclosureCreated",
@@ -171,13 +171,13 @@ class OutboxEventsIT {
     @Test
     void createDraftNeedsAnAgentLinkedInIdentityLink() {
         int before = envelopes().size();
-        assertThatThrownBy(() -> s.w.service.createDraft(s.w.tenant, new com.ga.disclosure.workflow.Actor("stranger@test", "AGENT"), s.w.customer,
+        assertThatThrownBy(() -> s.w.service.createDraft(com.ga.disclosure.workflow.authz.Caller.api(s.w.tenant, "stranger@test"), s.w.customer,
                 WorkflowSetup.GROUP, WorkflowSetup.CONSULT, com.ga.disclosure.domain.enums.TemplateType.STANDARD))
-                .isInstanceOf(com.ga.disclosure.workflow.disclosure.CommandRejectedException.class)
+                .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class)      // 6A: 연결 없음 = NO_LINK
                 .hasMessageNotContaining("stranger");
-        assertThatThrownBy(() -> s.w.service.createDraft(s.w.tenant, WorkflowSetup.MANAGER, s.w.customer, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
+        assertThatThrownBy(() -> s.w.service.createDraft(Callers.of(s.w.tenant, WorkflowSetup.MANAGER), s.w.customer, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
                 com.ga.disclosure.domain.enums.TemplateType.STANDARD)).as("linked, but not as an agent")
-                .isInstanceOf(com.ga.disclosure.workflow.disclosure.CommandRejectedException.class);
+                .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);                // 관리자에게 초안 작성 칸이 없다 = ROLE
         assertThat(envelopes()).hasSize(before);
         DisclosureId id = s.w.draft();
         assertThat(s.text("SELECT agent_id FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", s.w.tenant.value(), id.value()))

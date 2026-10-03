@@ -1,5 +1,6 @@
 package com.ga.disclosure.app.cli;
 
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.domain.disclosure.AgentReason;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.domain.vo.CustomerRef;
@@ -86,19 +87,19 @@ final class DemoDisclosureSeeder {
             voidIfAsked(tenant, manager, id, c, existing.getFirst().id(), existing);
             return;
         }
-        DisclosureId d = disclosures.createDraft(tenant, agent, customer, group, consult, TemplateType.STANDARD);
+        DisclosureId d = disclosures.createDraft(Caller.cli(tenant, agent.subject()), customer, group, consult, TemplateType.STANDARD);
         List<ItemInput> items = new ArrayList<>();
         c.get("items").forEach(i -> items.add(item(i)));
-        step(id, "replace", disclosures.replaceItems(tenant, agent, d, items));
-        step(id, "compare", disclosures.compare(tenant, agent, d));
-        step(id, "grade", disclosures.requestGrades(tenant, agent, d));
-        CommandResult last = step(id, "reason", disclosures.setRecommendations(tenant, agent, d, reasons(c.get("reasons"))));
+        step(id, "replace", disclosures.replaceItems(Caller.cli(tenant, agent.subject()), d, items));
+        step(id, "compare", disclosures.compare(Caller.cli(tenant, agent.subject()), d));
+        step(id, "grade", disclosures.requestGrades(Caller.cli(tenant, agent.subject()), d));
+        CommandResult last = step(id, "reason", disclosures.setRecommendations(Caller.cli(tenant, agent.subject()), d, reasons(c.get("reasons"))));
         JsonNode request = c.get("customerRequest");
         if (request != null) {
             items.add(item(request.get("add")));
-            step(id, "customer-request", disclosures.replaceItems(tenant, agent, d, items));
-            step(id, "regrade", disclosures.requestGrades(tenant, agent, d));
-            last = step(id, "reason", disclosures.setRecommendations(tenant, agent, d, reasons(request.get("reasons"))));
+            step(id, "customer-request", disclosures.replaceItems(Caller.cli(tenant, agent.subject()), d, items));
+            step(id, "regrade", disclosures.requestGrades(Caller.cli(tenant, agent.subject()), d));
+            last = step(id, "reason", disclosures.setRecommendations(Caller.cli(tenant, agent.subject()), d, reasons(request.get("reasons"))));
         }
         out.println("DEMO_DISCLOSURE " + tenant + " " + id + " CREATED id=" + d + " status=" + last.status());
         sealAndSupersede(tenant, agent, manager, id, c, d, List.of());
@@ -116,7 +117,7 @@ final class DemoDisclosureSeeder {
             return;
         }
         JsonNode text = spec.get("reasonText");
-        LifecycleService.Outcome o = lifecycle.voidDisclosure(tenant, manager, d, new LifecycleReason(spec.get("reasonCode").asString(),
+        LifecycleService.Outcome o = lifecycle.voidDisclosure(Caller.cli(tenant, manager.subject()), d, new LifecycleReason(spec.get("reasonCode").asString(),
                 text == null ? null : text.asString()));
         if (!o.applied()) {
             throw new CliFailure("case " + id + " could not be voided: " + o.rejection().orElseThrow());
@@ -133,14 +134,14 @@ final class DemoDisclosureSeeder {
                 out.println("  " + id + " seal NOOP (already sealed)");
             } else {
                 if (sealSpec.path("approve").isString()) {
-                    for (ValidationResult r : disclosures.sealBlockers(tenant, manager, d)) {
+                    for (ValidationResult r : disclosures.sealBlockers(Caller.cli(tenant, manager.subject()), d)) {
                         if (r.overridable()) {
-                            disclosures.approveException(tenant, manager, d, r.ruleId(), r.subjectHash().orElseThrow(), sealSpec.get("approve").asString());
+                            disclosures.approveException(Caller.cli(tenant, manager.subject()), d, r.ruleId(), r.subjectHash().orElseThrow(), sealSpec.get("approve").asString());
                             out.println("  " + id + " approve " + r.ruleId() + " by " + manager.subject());
                         }
                     }
                 }
-                SealService.Outcome o = seal.seal(tenant, agent, d);
+                SealService.Outcome o = seal.seal(Caller.cli(tenant, agent.subject()), d);
                 if (!o.sealed()) {
                     throw new CliFailure("case " + id + " could not be sealed: " + o.rejections());
                 }
@@ -154,16 +155,16 @@ final class DemoDisclosureSeeder {
                 return;
             }
             JsonNode text = supersedeSpec.get("reasonText");
-            LifecycleService.Outcome o = lifecycle.supersede(tenant, manager, d, new LifecycleReason(supersedeSpec.get("reasonCode").asString(),
+            LifecycleService.Outcome o = lifecycle.supersede(Caller.cli(tenant, manager.subject()), d, new LifecycleReason(supersedeSpec.get("reasonCode").asString(),
                     text == null ? null : text.asString()));
             if (!o.applied()) {
                 throw new CliFailure("case " + id + " could not be superseded: " + o.rejection().orElseThrow());
             }
             DisclosureId next = o.newVersion().orElseThrow();
             out.println("  " + id + " supersede -> " + o.status() + " next=" + next);
-            step(id, "next compare", disclosures.compare(tenant, agent, next));
-            step(id, "next grade", disclosures.requestGrades(tenant, agent, next));
-            CommandResult last = step(id, "next reason", disclosures.setRecommendations(tenant, agent, next, reasons(supersedeSpec.get("reasons"))));
+            step(id, "next compare", disclosures.compare(Caller.cli(tenant, agent.subject()), next));
+            step(id, "next grade", disclosures.requestGrades(Caller.cli(tenant, agent.subject()), next));
+            CommandResult last = step(id, "next reason", disclosures.setRecommendations(Caller.cli(tenant, agent.subject()), next, reasons(supersedeSpec.get("reasons"))));
             out.println("DEMO_DISCLOSURE " + tenant + " " + id + " CORRECTED id=" + next + " version=2 status=" + last.status());
         }
     }
