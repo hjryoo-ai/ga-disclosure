@@ -63,6 +63,21 @@ class DestructionOrderIT {
         }
     }
 
+    /**
+     * 승인 Q6(b): 최소 보존(0년 1일)으로 봉인·완료한 직후에는 보존이 끝났다는 사유가 나올 수 없다(합계 ≥ 1일). 같은 확인서를 보존이 끝난 뒤 재적용하면
+     * 객체마다 {@code RETENTION_ALREADY_ELAPSED}로 기록된다(저장소 호출 없음).
+     */
+    @Test
+    void theMinimumRetentionNeverElapsesAtSealOrCompletionButDoesAfterwards() {
+        String elapsed = "SELECT count(*) FROM audit_log WHERE tenant_id = ? AND action = 'ARTIFACT_RETAIN' AND detail ->> 'reason' = 'RETENTION_ALREADY_ELAPSED'";
+        DisclosureId id = r.completed();
+        assertThat(r.count(elapsed, r.x.w.tenant.value())).isZero();
+
+        r.reconcileAfterRetention();
+
+        assertThat(r.count(elapsed, r.x.w.tenant.value())).isEqualTo(keys(id).size());
+    }
+
     @Test
     void locksNotYetRecordedAsExpiredChangeNothing() {
         DisclosureId id = r.completed();                    // 잠금 적용이 기록되지 않았다(과거 기한 — 저장소 거부)

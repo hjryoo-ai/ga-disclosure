@@ -21,7 +21,7 @@
         "tenantId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}$" },
         "from": { "type": ["integer", "null"], "minimum": 1 },
         "to": { "type": ["integer", "null"], "minimum": 1 },
-        "asOf": { "type": "string", "format": "date-time" }
+        "asOf": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" }
       }
     },
     "result": { "enum": ["MATCH", "MISMATCH"] },
@@ -57,7 +57,7 @@
       "additionalProperties": false,
       "required": ["existedBefore", "sealedAfter", "tsaTrusted"],
       "properties": {
-        "existedBefore": { "type": ["string", "null"], "format": "date-time", "description": "외부(TSA)로 증명되는 상한: covering 토큰의 genTime" },
+        "existedBefore": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$", "description": "외부(TSA)로 증명되는 상한: covering 토큰의 genTime" },
         "sealedAfter": {
           "description": "자체 기록인 하한(승인 Q13 대안): 매니페스트가 가리키는 직전 앵커의 날짜·봉인 체인 seq·기록 시각. 외부 증명이 아니다",
           "oneOf": [
@@ -67,9 +67,9 @@
               "additionalProperties": false,
               "required": ["anchorDate", "sealChainSeq", "recordedAt"],
               "properties": {
-                "anchorDate": { "type": "string", "format": "date" },
+                "anchorDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
                 "sealChainSeq": { "type": "integer", "minimum": 0 },
-                "recordedAt": { "type": "string", "format": "date-time" }
+                "recordedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" }
               }
             }
           ]

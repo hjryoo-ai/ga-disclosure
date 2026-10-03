@@ -252,6 +252,28 @@ class VerifyPackageTest {
         assertThat(ReceiptExport.parse(r.canonical()).canonical()).isEqualTo(r.canonical());
     }
 
+    /** 형식은 pattern으로 강제한다(검증기는 format을 단언하지 않는다) — 보고서의 시각·날짜, 영수증의 UUID·시각이 형식 밖이면 스키마 위반. */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "report|/inputs|asOf|\"2026-09-26\"",
+            "report|/conclusion|existedBefore|\"yesterday\"",
+            "report|/conclusion/sealedAfter|anchorDate|\"2026-9-23\"",
+            "report|/conclusion/sealedAfter|recordedAt|\"2026-09-22 15:00:05\"",
+            "receipt||disclosureId|\"not-a-uuid\"",
+            "receipt|/covering/anchor|createdAt|\"2026-09-23\"",
+            "receipt|/covering/receipt|batchId|\"x\"",
+            "receipt|/covering/receipt|tsaGenTime|\"soon\""})
+    void formatsAreEnforcedByPatterns(String spec) {
+        String[] p = spec.split("\\|", 4);
+        JsonNode node = p[0].equals("report")
+                ? Canonicalizer.parseStrict(new String(verify(f.zip, f.receipt()).canonical(), StandardCharsets.UTF_8))
+                : Canonicalizer.parseStrict(new String(f.receipt().canonical(), StandardCharsets.UTF_8));
+        assertThat(p[0].equals("report") ? VerifySchemas.report(node) : VerifySchemas.receiptExport(node)).as("baseline").isEmpty();
+        ((tools.jackson.databind.node.ObjectNode) (p[1].isEmpty() ? node : node.at(p[1]))).set(p[2], Canonicalizer.parseStrict(p[3]));
+        List<String> errors = p[0].equals("report") ? VerifySchemas.report(node) : VerifySchemas.receiptExport(node);
+        assertThat(errors).as(spec).isNotEmpty();
+    }
+
     @Test
     void theFindingCodesAreTheSchemasList() {
         JsonNode schema = Canonicalizer.parseStrict(resource("/ga-contracts/verify/v1/verify-report.schema.json"));
