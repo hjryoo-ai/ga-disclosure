@@ -1,4 +1,14 @@
-# Phase 6A 계획 — 인가·REST·고객 공개 서명·이벤트 피드·작업 엔드포인트·통지 아웃박스 (승인 대기)
+# Phase 6A 계획 — 인가·REST·고객 공개 서명·이벤트 피드·작업 엔드포인트·통지 아웃박스 (승인됨)
+
+> **승인 반영(2026-10-03, `docs/phase-06A-계획승인.md`)**. 지시문 문언이 틀렸던 곳(Q6·Q15)은 지시문이 아니라 승인이 정본이다. 아래 본문은 승인 결정대로 고쳐 썼고, 바뀐 곳에 `[승인 Qn]`·`[B n]`을 붙였다.
+> - Q1 채택 + 정정·재기준 새 버전은 **그 행위자의 현재 `identity_link.org_path`를 다시 읽는다**(복사 안 함).
+> - Q5 **대안**: 피드는 정수 `afterSeq`·`nextSeq`·`headSeq` 유지. 서명 커서는 확인서·보류·작업 목록에만. 지시문 §5 `after={cursor}`는 오기.
+> - Q6 **수정**: 패딩 하한은 배포 설정 `ga.public-sign.min-response-millis`(필수, 기본값 없음, 없으면 기동 실패). 분당 한도 `publicSign.tenantRatePerMinute`만 룰 데이터.
+> - Q7 **대안**: HTTP 작업에서 `ANCHOR` 제외. 앵커는 플랫폼 배치 — CLI `anchor run --tenants all`만.
+> - Q10 `ANCHOR_MISSING_DAY` → MISMATCH(종료 2). Q11 `QUEUED→FAILED` 허용. Q12·Q13·Q14·Q16 권장안.
+> - Q15 **수정**: 접두 셋 — `/api/v1`(AGENT·MANAGER·COMPLIANCE), `/internal/v1`(SCHEDULER·FEED_CONSUMER, 6B 게이트), `/public/v1`(고객). JWT 체인은 하나, 사람 역할 ↛ `/internal`, 서비스 역할 ↛ `/api`를 라우트 테스트로 단언.
+> - Q17 고객 등록 API는 6B 끝에 별도 계획·별도 심사 항목.
+> - B1 잠금 상실 감지(`FAILED(LOCK_LOST)`, 보고서 미저장). B2 한도 거부와 없는 테넌트 거부의 패딩 요청값이 같은 식임을 단언. B3 설계서 v1.13.
 
 기준: `docs/phase-06A-지시문.md` v1.0, `docs/phase-05-수용심사.md` §2(R1~R3)·§3(D9·D12)·§4(결정 1·2·3·7·8), 설계서 v1.12 §3·§4·§7·§9·§12. 브랜치 `work/phase-6A`(main `8a59cae` = PR #8 병합에서 분기).
 
@@ -79,12 +89,12 @@
 | `legalHoldReleaseReasons` | `[{code,label}]` | 위 4개 | 보류 해제 |
 | `api.idempotencyTtlHours` | 정수 ≥ 1 | 24 | `idempotency_key.expires_at` |
 | `api.idempotencyLeaseSeconds` | 정수 ≥ 1 | 120 | 진행 중 키의 인수 시점(§4.2) |
-| `publicSign.minResponseMillis` | 정수 ≥ 1 | 400 | 공개 응답 패딩 하한 |
 | `publicSign.tenantRatePerMinute` | 정수 ≥ 1 | 600 | 공개 경로 테넌트 분당 한도 |
 | `notify.retry` | `{maxAttempts ≥1, initialDelaySeconds ≥1, multiplier ≥1(정수), maxDelaySeconds ≥ initialDelaySeconds}` | `{5, 60, 2, 3600}` | 통지 백오프·소진 |
 
 - 정수만 쓴다(double 금지). `multiplier`가 정수이므로 백오프는 정수 산술이다(§7).
 - `EffectiveRule` 접근자는 키가 없으면 `MissingRuleKeyException`이다(기본값 없음, `missingKeysFailWithoutDefaults`에 추가).
+- **[승인 Q6] 패딩 하한은 룰 키가 아니다.** 없는 테넌트에도 같아야 하는 값이라 배포 설정 `ga.public-sign.min-response-millis`(정수 ≥ 1, 기본값 없음 — 어느 프로파일이든 없으면 기동 실패, 데모·테스트 프로파일은 yml에 둔다)다. 지시문 §5의 "룰 데이터" 문언은 정정된다.
 
 ---
 
@@ -127,6 +137,7 @@ ALTER TABLE disclosure ADD CONSTRAINT ck_disclosure_org_path CHECK (org_path IS 
   - UPDATE에서 바꾸면 **GD124**(작성 시 1회 고정).
   - 기존 행은 NULL로 남는다. 백필하지 않는다(Q1). NULL 행은 MANAGER 범위에 들지 않는다. 소유 AGENT와 COMPLIANCE만 닿는다.
 - 작성 유스케이스가 `identity_link`에서 해석한 `org_path`를 기록한다(`agent_id`와 같은 경로).
+- **[승인 Q1] 정정(SUPERSEDE)·재기준(REBASE)의 새 버전은 이전 버전 값을 복사하지 않는다.** 그 행위자의 **현재** `identity_link.org_path`를 다시 읽는다(새 작성 행위). 설계서 §5 주석.
 - 접두는 **경로 세그먼트 단위**다: `d.org_path = p OR d.org_path LIKE p || '/%'`. `p`의 `%`·`_`는 패턴 CHECK로 배제되지만 `_`는 허용 문자이므로 `LIKE … ESCAPE`로 이스케이프한다. `/HQ`는 `/HQX`에 맞지 않는다.
 
 ### 2.4 `sign_session` — 발송 시 토큰 (Q3)
@@ -256,7 +267,7 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 
 | 타입 | 내용 |
 |---|---|
-| `Caller(TenantId tenant, String subject, Channel channel)` | 토큰에서 오는 **전부**. `Channel ∈ {HTTP, CLI, SIGN_TOKEN}`. 역할 없음 |
+| `Caller(TenantId tenant, String subject, Channel channel)` | 토큰에서 오는 **전부**. `Channel ∈ {API, INTERNAL, CLI, SIGN_TOKEN}`([승인 Q15] — HTTP 접두가 채널을 정한다). 역할 없음 |
 | `Action` (닫힌 enum) | 유스케이스 이름과 1:1(§3.3) |
 | `Target` (sealed) | `None` · `Disclosure(id)` · `Session(id)` · `Hold(id)` · `Job(id)` · `JobKind(kind)` · `Feed` |
 | `Principal(subject, Set<Role> roles, Optional<AgentId>, Optional<OrgPath>)` | `identity_link` 해석 결과. **포트 안에서만** 만들어진다 |
@@ -272,7 +283,8 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 
 | 채널 | 해석 |
 |---|---|
-| HTTP | `identity_link(tenant, subject)` 행이 없으면 거부(`NO_LINK`). 역할은 행의 `roles`. **JWT 클레임은 `sub`·테넌트 클레임 외 읽지 않는다** |
+| API (`/api/v1`) | `identity_link(tenant, subject)` 행이 없으면 거부(`NO_LINK`). 역할은 행의 `roles`. **JWT 클레임은 `sub`·테넌트 클레임 외 읽지 않는다**. 행의 역할이 사람 역할(AGENT·MANAGER·COMPLIANCE)이 아니면 거부(`CHANNEL` → 404) |
+| INTERNAL (`/internal/v1`) | 같은 해석. 역할이 서비스 역할(SCHEDULER·FEED_CONSUMER)이 아니면 거부(`CHANNEL` → 404). [승인 Q15] `/internal`은 클러스터 밖에 열지 않는다(Phase 8) |
 | CLI | 역할 `OPERATOR`, 범위 검사 통과(지시문). 감사 역할 = `OPERATOR`(Q9). `OPERATOR`는 HTTP에서 생길 수 없다 |
 | SIGN_TOKEN | 공개 서명. 토큰이 곧 자격이고 대상은 토큰이 가리키는 세션 하나다. 포트는 `Target.Session`이 토큰의 세션과 같은지만 본다 |
 
@@ -304,13 +316,15 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 | `LEGAL_HOLD_READ` | — | — | TENANT | — | — | `LEGAL_HOLD_VIEW` |
 | `RECEIPT_EXPORT` | — | — | TENANT | — | — | `ANCHOR_RECEIPT_EXPORTED` |
 | `JOB_SUBMIT:VERIFY_TENANT` | — | — | TENANT | TENANT | — | `JOB_QUEUED` |
-| `JOB_SUBMIT:{ANCHOR,EXPIRE,RECONCILE,DESTROY,DESTROY_DRY_RUN,NOTIFY,IDEMPOTENCY_PURGE}` | — | — | — | TENANT | — | `JOB_QUEUED` |
+| `JOB_SUBMIT:{EXPIRE,RECONCILE,DESTROY,DESTROY_DRY_RUN,NOTIFY,IDEMPOTENCY_PURGE}` | — | — | — | TENANT | — | `JOB_QUEUED` |
+| `JOB_SUBMIT:ANCHOR` | — | — | — | — | — | CLI(OPERATOR)만 [승인 Q7] |
 | `JOB_READ` | — | — | TENANT | TENANT | — | — |
 | `REPORT_VIEW` (VERIFY_TENANT·DESTROY_DRY_RUN·DESTROY 보고서) | — | — | TENANT | — | — | `REPORT_VIEW` |
 | `EVENT_FEED_READ`·`EVENT_FEED_ACK` | — | — | — | — | TENANT | ACK만 `EVENT_FEED_ACK` |
 | `SIGN_OPEN`·`SIGN_VIEW_RECORD`·`SIGN_VERIFY_IDENTITY`·`SIGN_CAPTURE`·`SIGN_STATUS` | SIGN_TOKEN 채널만(자기 세션) | | | | | 기존·`SIGN_SESSION_STATUS` 없음(읽기) |
 
-- **파기 실행·앵커 실행은 사람 역할에 없다.** COMPLIANCE는 dry-run·파기 보고서를 **열람만** 한다.
+- **파기 실행·앵커 실행은 사람 역할에 없다.** COMPLIANCE는 dry-run·파기 보고서를 **열람만** 한다. 앵커는 서비스 역할에도 없다 — 테넌트 토큰으로 테넌트 하나짜리 트리를 만들면 "루트 하나" 설계가 깨지고 TSA 호출이 테넌트 수만큼 는다(플랫폼 배치, CLI만).
+- 채널 열: AGENT·MANAGER·COMPLIANCE 열은 `API`에서만, SCHEDULER·FEED_CONSUMER 열은 `INTERNAL`에서만 성립한다. `authz-matrix` 블록에 열마다 채널을 적고 대조 테스트가 본다.
 - `VOID`의 MANAGER는 설계서 §1.3의 "무효 승인"을 따른다. `COMPLETE`(`SignService.complete` — 서명자 집합 충족·스캔 검토 종결을 확인하는 명시적 명령)는 마지막 서명자가 관리자인 경우가 많아 MANAGER(ORG)에도 연다. 판정은 유스케이스가 하므로 누가 눌러도 조건은 같다.
 - 서비스 주체(SCHEDULER·FEED_CONSUMER)는 테넌트마다 클라이언트 자격(`sub` = 클라이언트 ID, 테넌트 클레임 = 테넌트)과 `identity_link` 행 하나를 가진다.
 - 거부 감사 `AUTHZ_DENIED`
@@ -330,7 +344,15 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 
 ## 4. 내부 REST와 OpenAPI 변경 (③)
 
-### 4.1 경로 (`contracts/api/v1/disclosure-internal.openapi.yaml`, 전부 `/internal/v1`, Q15)
+### 4.1 경로 [승인 Q15 — 접두 셋]
+
+- `/api/v1` — 사람 역할(AGENT·MANAGER·COMPLIANCE). 계약 `contracts/api/v1/disclosure-api.openapi.yaml`(기존 파일을 고쳐 쓴다).
+- `/internal/v1` — 서비스 주체(SCHEDULER·FEED_CONSUMER)와 6B 게이트. 계약 `contracts/api/v1/disclosure-internal.openapi.yaml`.
+- `/public/v1` — 고객 공개 서명(§5). 계약 `contracts/api/v1/disclosure-public.openapi.yaml`.
+- JWT 체인은 `/api/**`·`/internal/**`에 하나다. 채널(§3.2)이 역할 계열을 가르고, `ChannelSeparationIT`가 사람 역할 → `/internal` 404, 서비스 역할 → `/api` 404를 바이트 동일로 단언한다.
+
+아래 표의 경로는 접두 없이 적었다. 작업 경로는 두 접두에 모두 있다(COMPLIANCE는 `/api/v1/jobs/VERIFY_TENANT`·조회·보고서, SCHEDULER는 `/internal/v1/jobs/{kind}`·조회).
+
 
 | 메서드·경로 | Action | 응답 |
 |---|---|---|
@@ -345,10 +367,10 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 | `POST /disclosures/{id}/agent-signature`·`/manager-confirmation`·`/paper-scan-review`·`/complete` | 각 Action | 200 영수증/422 |
 | `POST /legal-holds`·`POST /legal-holds/{holdId}/release`·`GET /legal-holds?after&limit` | LEGAL_HOLD_* | 201/200 |
 | `GET /disclosures/{id}/anchor-receipt` | RECEIPT_EXPORT | 200 `anchor-receipt-export` 스키마 바이트 그대로 |
-| `POST /jobs/{kind}` | JOB_SUBMIT | **202** `Job` + `Location` |
+| `POST /jobs/{kind}` | JOB_SUBMIT | **202** `Job` + `Location`. `ANCHOR`는 없다(라우트 없음 → 404, [승인 Q7]) |
 | `GET /jobs/{jobId}`·`GET /jobs?kind&after&limit` | JOB_READ | 200 `Job` |
 | `GET /jobs/{jobId}/report` | REPORT_VIEW | 200 보고서 바이트 그대로(verify-report·destruction-report 스키마) |
-| `GET /events?after&limit`·`POST /events/ack?upTo=` | EVENT_FEED_* | §5 |
+| `GET /internal/v1/events?afterSeq&limit`·`POST /internal/v1/events/ack` | EVENT_FEED_* | 기존 계약 그대로(`afterSeq`·`nextSeq`·`headSeq`, [승인 Q5]) |
 | (기존) `GET /disclosures/gate`·`POST /disclosures/{no}/policy-link` | — | **6B**. 계약에 `x-ga-phase: 6B`로 표시하고 구현하지 않는다 |
 
 ### 4.2 규약
@@ -359,7 +381,7 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
   - 상태 결정은 HTTP가 아니라 **도메인이 붙인 범주**로 한다. `CommandRejectedException`·Outcome 거부에 `Category {CONFLICT, INVALID}`를 workflow가 붙인다. HTTP는 `CONFLICT→409`, `INVALID→422`, `AuthorizationDenied`·`NotFound→404`로 기계 변환만 한다.
   - `AuthorizationDenied`와 진짜 404는 같은 본문 `{code:"NOT_FOUND", message:"Resource not found.", details:{}}`이고 같은 헤더다.
   - 형식이 틀린 요청은 400 `MALFORMED_REQUEST`(`details.field`)다. 409에는 `ConcurrentWriteConflict`, `JOB_ALREADY_RUNNING`, `IDEMPOTENCY_IN_PROGRESS`가 해당한다.
-- **멱등**: 쓰기 POST(내부)는 `Idempotency-Key` 필수이고 없으면 428 `IDEMPOTENCY_KEY_REQUIRED`다. 처리는 `api` 인터셉터 → workflow `IdempotencyService`(포트)다.
+- **멱등**: 쓰기 POST(`/api`·`/internal`)는 `Idempotency-Key` 필수이고 없으면 428 `IDEMPOTENCY_KEY_REQUIRED`다. 처리는 `api` 인터셉터 → workflow `IdempotencyService`(포트)다.
   1. 요청 해시 = SHA-256(JCS `{method, routeTemplate, pathVariables, body}`). 원문 본문은 저장하지 않는다.
   2. 인터셉터가 **청구**한다(별도 트랜잭션 INSERT).
      - 같은 키·같은 해시의 완료 행이 있으면 **재생**이다. 저장된 `response_ref`로 응답 바이트를 다시 만들고, 그 해시가 `response_hash`와 같음을 확인한 뒤 보낸다. 다르면 500 + 로그이고, 다른 본문을 내지 않는다(Q4).
@@ -369,20 +391,20 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
   4. 완료를 기록한다(별도 트랜잭션). 2xx·409·422를 저장하고, 5xx·401·404·428은 저장하지 않는다. 404를 저장하지 않는 것은 존재 누설 방지를 위해서다 — 키 재사용으로 "예전엔 404였다"를 알 수 없게.
   - TTL은 `api.idempotencyTtlHours`이고, 만료 행 삭제는 작업 `IDEMPOTENCY_PURGE`다.
 - **영수증**: 쓰기 응답은 닫힌 영수증 스키마다(ID·번호·상태·해시·코드만, 자유 텍스트 0). `response_ref`가 곧 그 튜플이다.
-- **커서**
+- **커서**(확인서·보류·작업 목록만. 이벤트 피드는 정수 `afterSeq` 그대로 — [승인 Q5])
   - 형식은 `base64url(JCS{v:1, s:stream, q:seq}) "." base64url(HMAC-SHA256(key, tenant ‖ 0x00 ‖ 앞부분)[0..16])`이다. 테넌트를 MAC에 묶어 다른 테넌트의 커서는 400이다.
   - 키는 `ga.api.cursor-key-file`(저장소 밖, 권한 600이 아니면 기동 실패, 개발·데모는 첫 기동에 생성 — 로컬 KEK와 같은 규약)이다. HMAC은 `infra.crypto`의 `CursorCodec`(javax.crypto 허용 패키지)이다.
   - `limit`는 1~100이고 기본 50이다. 피드는 1~1000(기존 계약)이다.
 - **스키마 형식은 `pattern`**: 내부·공개 계약의 `format:` 0(기존 3곳 교체). G11의 `format` 0 범위는 이 시스템이 제공하는 두 계약이다. 엔진 계약은 엔진 저장소와 공유하는 소비 계약이라 E4에서 다룬다(Q15).
 - **계약 ↔ 라우트 양방향**: `OpenApiContractIT`
-  - `RequestMappingHandlerMapping`의 `/internal/**`·`/public/**` 라우트 집합과 계약 경로(6B 표시 제외)가 같음을 단언한다.
+  - `RequestMappingHandlerMapping`의 `/api/**`·`/internal/**`·`/public/**` 라우트 집합과 계약 경로(6B 표시 제외)가 같음을 단언한다.
   - 모든 IT 응답을 해당 상태의 스키마로 검증한다(응답 캡처 필터, IT 전용).
   - 계약의 요청 예시를 요청 스키마로 검증한다.
 
 ### 4.3 OpenAPI diff 요약(보고서 ④에 실제 diff를 둔다)
 - 추가: 위 경로 전부, `components.schemas`의 `DisclosureSummary`·`DisclosureDetail`·영수증 9종·`Job`·`JobKind`·`LegalHold`·`Cursor`·`Problem.details` 닫힌 모양, 공통 헤더 `Idempotency-Key`.
 - 보안 스킴: 기존 `serviceToken`(bearer)을 `bearerJwt` 하나로 바꾼다. 사용자·서비스 주체 모두 JWT이고 역할은 `identity_link`에서 온다.
-- 변경: 피드 파라미터 `afterSeq`→`after`, `nextSeq`→`next`(Q5). gate의 `asOf`·`completedAt`, policy-link의 `contractDate`에서 `format`을 `pattern`으로 바꾼다.
+- 변경 없음: 피드 파라미터(`afterSeq`·`nextSeq`·`headSeq`, [승인 Q5]). 변경: gate의 `asOf`·`completedAt`, policy-link의 `contractDate`에서 `format`을 `pattern`으로 바꾼다.
 - 신설: `contracts/api/v1/disclosure-public.openapi.yaml`(§5).
 - `CHECKSUMS` 갱신.
 
@@ -393,7 +415,7 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 ### 5.1 보안 체인
 - `SecurityFilterChain` 둘
   - `@Order(1) securityMatcher("/public/**")`: 인증 없음, `STATELESS`, `requestCache`·`securityContext` 저장 끔, CSRF 끔(쿠키가 없다), 익명 끔.
-  - `@Order(2) securityMatcher("/internal/**")`: OAuth2 리소스 서버(JWT).
+  - `@Order(2) securityMatcher("/api/**", "/internal/**")`: OAuth2 리소스 서버(JWT). 체인은 하나이고 채널은 접두로 정한다([승인 Q15]).
   - 그 밖은 `/actuator/health`만 허용하고 나머지는 `denyAll`이다.
 - 의존성(BOM 관리): `disclosure-api`에 `spring-boot-starter-security`·`spring-boot-starter-oauth2-resource-server`·`spring-boot-starter-webmvc`를 둔다. 카탈로그에 스타터 두 줄을 버전 없이 추가하고, `platform-spring`의 `compileOnly` 골격 설정은 지운다. 6A가 `api.security`에 실제 체인을 두므로 플랫폼의 `@Profile("oidc")` 골격은 쓰이지 않는다. 폐기를 보고한다.
 - JWT 변환기는 **권한을 하나도 만들지 않는다**(`JwtGrantedAuthoritiesConverter` 대신 빈 컬렉션). 그래서 `scope`·`roles` 클레임이 권한이 될 길이 없다.
@@ -434,14 +456,12 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 - 토큰 비교는 Phase 4 그대로다(SHA-256 해시로 조회, `MessageDigest.isEqual`).
 - 거부 감사는 Phase 4 D3 그대로 **테넌트 행이 있을 때만** `SIGN_SESSION_DENIED`이다. 토큰 원문·해시를 감사에 넣지 않고 사유 코드만 남긴다.
 
-### 5.3 패딩 하한의 출처 (Q6)
-- `publicSign.minResponseMillis`는 GLOBAL 전용이지만 테넌트마다 복제되어 있다. 없는 테넌트 요청에는 읽을 룰이 없다.
-- 권장안: 프로세스 전역 스냅샷 `PublicSignPolicy`
-  - 기동 시와 주기마다(배포 설정 `ga.public-sign.policy-refresh`, 기본 PT1M) 테넌트 목록(`TenantDirectoryReader`, 운영자 롤)의 각 테넌트를 바인딩해 오늘(KST) 유효 룰을 읽는다.
-  - **하한 = 전 테넌트 값의 최댓값**이다. 모든 공개 응답(있는 테넌트·없는 테넌트·성공)이 같은 하한을 쓰므로 하한 자체가 존재를 누설하지 않는다.
-  - 테넌트 분당 한도는 그 테넌트의 값이다(없는 테넌트는 어차피 거부).
-  - 첫 적재 실패는 기동 실패다. 테넌트 0개면 공개 경로는 전부 거부(패딩 0)이다.
+### 5.3 패딩 하한의 출처 [승인 Q6 — 수정]
+- 하한은 배포 설정 `ga.public-sign.min-response-millis`다(§1.5). 기본값 없음, 없거나 1 미만이면 기동 실패.
+  - 모든 공개 응답(있는 테넌트·없는 테넌트·성공)이 같은 하한을 쓰므로 하한 자체가 존재를 누설하지 않는다.
+- 분당 한도 `publicSign.tenantRatePerMinute`는 **그 테넌트의 룰**이다. 알려진 테넌트 요청만 그 테넌트를 바인딩해 오늘(KST) 유효 룰에서 읽는다. 없는 테넌트는 어차피 거부라 한도를 읽지 않는다.
 - 결정론 테스트: `ResponsePadding`·`Sleeper`·Clock을 주입한다. IT는 기록형 `Sleeper`로 **모든 응답에서 훅이 1회 호출되고 요청된 대기 = 하한 − 경과**임을 단언한다. 통계 테스트는 하지 않는다.
+- **[B2]** 없는 테넌트 접두는 카운터를 거치지 않고 거부되고, 한도 초과는 카운터에서 거부된다. 거부 지점이 달라도 패딩이 전체 응답을 덮는다. `PublicSignUniformResponseIT`가 두 경로의 요청 대기가 **같은 식(하한 − 경과)**임을 단언한다.
 
 ### 5.4 한도
 - 테넌트·토큰 해시 단위 시도 한도는 Phase 4 `identityCheck.maxFailures` 그대로다.
@@ -479,14 +499,17 @@ GD120 `idempotency_key`, GD121 `async_job`, GD122 `notification_outbox`, GD123 `
 6. 실행
    - RUNNING 전이.
    - `TenantContext` 재바인딩(ScopedValue — 실행기 스레드에서 다시 묶는다).
-   - Phase 4·5 유스케이스를 그대로 호출한다: `ExpireService.run`, `ArtifactService.reconcile`, `AnchorJob.run([tenant])`(Q7), `DestructionJob.run`, `TenantVerifier.run`, `NotificationDispatcher.run`, `IdempotencyPurge.run`.
+   - Phase 4·5 유스케이스를 그대로 호출한다: `ExpireService.run`, `ArtifactService.reconcile`, `DestructionJob.run`, `TenantVerifier.run`, `NotificationDispatcher.run`, `IdempotencyPurge.run`. (앵커는 CLI 전용 — [승인 Q7])
+   - **[B1] 잠금 보유 확인**: 보고서 저장 직전과 종단 전이 직전에 잠금 커넥션에서 `pg_locks`(`locktype='advisory' ∧ pid = pg_backend_pid() ∧ granted`, 키의 상·하위 32비트)를 조회한다. 커넥션이 죽었거나 행이 없으면 **잠금 상실**이다.
+     - 상실이면 보고서를 저장하지 않고 `RUNNING→FAILED(LOCK_LOST)`(조건부 UPDATE `WHERE status='RUNNING'`), 감사 `JOB_FINISHED`(error `LOCK_LOST`).
+     - 그 사이 새 제출이 이 행을 이미 `FAILED(INTERRUPTED)`로 닫았으면 조건부 UPDATE가 0행이다. 옛 실행기는 아무것도 쓰지 않고 끝난다(로그 코드만).
    - 보고서를 암호화해 `reports/`에 저장한다.
    - SUCCEEDED(`result_ref`·`report_sha256`) 또는 FAILED(`error_code`), 감사 `JOB_FINISHED`.
 7. 잠금을 풀고 커넥션을 반납한다(`finally`). 커넥션이 끊기면 DB가 세션 잠금을 자동으로 푼다. 그래서 프로세스가 죽은 뒤 고아는 3의 경로로만 정리된다.
 
 - CLI 기존 명령(`anchor run`·`retention destroy`·`verify tenant`·`disclosure expire`·`artifacts reconcile`)도 `JobRunner`를 지난다. 출력은 기존 줄을 그대로 두고 `JOB <id> <status>` 줄을 더한다(기존 테스트의 `contains` 단언은 유지).
 - `--tenants all`은 테넌트마다 작업 1건이고, 잠금은 테넌트 ID 정렬 순서로 하나씩 잡는다. 잠긴 테넌트는 그 테넌트만 실패한다.
-- 앵커는 테넌트들을 한 트리로 묶어야 하므로, CLI `anchor run --tenants all`은 잡은 잠금들 아래에서 `AnchorJob.run(테넌트 목록)`을 한 번 부른다.
+- 앵커는 테넌트들을 한 트리로 묶어야 하므로, CLI `anchor run --tenants all`은 잡은 잠금들 아래에서 `AnchorJob.run(테넌트 목록)`을 한 번 부른다. `ANCHOR` 작업 행은 CLI만 만든다([승인 Q7]). 스케줄러 매니페스트는 Phase 8.
 
 ### 6.3 상태 전이표 (기계 판독 블록 `job-states` — 설계서 §6에 두고 `JobStateTableTest`가 V12 가드를 양방향 대조. 보고서 ③에 그대로)
 
@@ -495,7 +518,7 @@ from,to,trigger,sets
 -,QUEUED,submit (잠금 획득 후),requested_at
 QUEUED,RUNNING,실행기 시작,started_at
 RUNNING,SUCCEEDED,유스케이스 정상 종료 + 보고서 저장,finished_at·result_ref·report_sha256·report_key_wrapped·report_kek_id
-RUNNING,FAILED,유스케이스 예외·보고서 저장 실패·INTERRUPTED,finished_at·error_code
+RUNNING,FAILED,유스케이스 예외·보고서 저장 실패·INTERRUPTED·LOCK_LOST,finished_at·error_code
 QUEUED,FAILED,실행 전 고아(INTERRUPTED)·실행기 거부(REJECTED),finished_at·error_code
 ```
 - `QUEUED→FAILED`는 지시문 표(`QUEUED→RUNNING→{…}`)에 없다(Q11). 202를 받은 뒤 실행기가 시작하기 전에 프로세스가 죽은 작업을 닫는 데 필요하다.
@@ -571,14 +594,14 @@ QUEUED,FAILED,실행 전 고아(INTERRUPTED)·실행기 거부(REJECTED),finishe
 | 모듈 | 추가 |
 |---|---|
 | `disclosure-workflow` | `authz`(Caller·Action·Target·Principal·AuthorizationPort·AuthorizationDenied·ScopePolicy·@UseCaseEntry·@NotAnEntry), `jobs`(JobRunner·JobKind·JobStore·JobLockPort·ReportStore), `notify`(NotificationDispatcher·NotificationOutboxStore·NotifyPort 이동), `idempotency`(IdempotencyService·IdempotencyStore·영수증 렌더 포트), `feed`(EventFeed — 읽기·ack), `SignSessionService.status` |
-| `disclosure-api` | `api.security`(체인 둘·TenantBindingFilter·PublicSignGate·ResponsePadding·Sleeper·PublicSignPolicy·RateWindow·AccessLogFilter), `api.internal`·`api.publicsign`(컨트롤러), `api.dto`(record), `api.mapper`(기존 허용 패키지), `api.error`(advice 둘 — 내부·공개), `api.idempotency`(인터셉터) |
+| `disclosure-api` | `api.security`(체인 둘·TenantBindingFilter·PublicSignGate·ResponsePadding·Sleeper·PublicSignPolicy·RateWindow·AccessLogFilter), `api.rest`·`api.internal`·`api.publicsign`(컨트롤러), `api.dto`(record), `api.mapper`(기존 허용 패키지), `api.error`(advice 둘 — 내부·공개), `api.idempotency`(인터셉터) |
 | `disclosure-infra` | 새 세 테이블 저장소, `jobs.JobLockGateway`(허용 목록), `crypto.CursorCodec`·`crypto.ReportCipher`, `storage` 보고서 키, `persistence.AuthzFactsRepository`(대상 확인서의 `agent_id`·`org_path`, 보류·작업 존재), `IdentityLinkRepository` 확장 |
 | `disclosure-app` | 설정 배선, `authz.IdentityLinkAuthorization`(포트 어댑터), `demo.DemoOidc`(데모 프로파일 전용 발급기·공개키), CLI `jobs list/show`·`notify dispatch`·`demo token` |
 
 ### 9.2 ArchUnit (`disclosure-app/src/archTest`)
 - `AuthorizationCoverageTest` — §3.4의 세 규칙.
 - `ApiLayerRulesTest`
-  - (a) `@RestController`는 `api.internal..`·`api.publicsign..`에만 둔다.
+  - (a) `@RestController`는 `api.rest..`(`/api`)·`api.internal..`(`/internal`)·`api.publicsign..`(`/public`)에만 두고, 패키지와 접두가 일치한다.
   - (b) 컨트롤러가 접근할 수 있는 것: `@UseCaseEntry` 메서드, `api.dto..`, `api.mapper..`, `java..`, `org.springframework.web..`·`http..`. 저장소(`TenantScopedRepository` 하위)·`infra..`·`rules..`·`domain` 서비스·`audit..`·`seal..`·`sign..`의 **동작 클래스**는 금지한다. 값 타입(`domain.vo`·식별자)은 매퍼에서만 허용한다.
   - (c) 컨트롤러에 `if`/`switch`가 있는지를 바이트코드로 잡지는 않는다(ArchUnit 한계). 대신 컨트롤러 메서드가 호출하는 `workflow` 메서드가 정확히 1개임을 단언하고, 리뷰 규칙으로 보완한다.
   - (d) `Jwt` 접근은 `TenantBindingFilter`뿐이다.
@@ -634,13 +657,13 @@ QUEUED,FAILED,실행 전 고아(INTERRUPTED)·실행기 거부(REJECTED),finishe
 | G2 | `AuthzScopeIT` | AGENT 타인·MANAGER 다른 조직(`/HQX` 대 `/HQ` 포함)·COMPLIANCE 다른 테넌트 → 404. 존재하는 자원 거부와 없는 ID의 상태·헤더(− Date)·본문 바이트 동일. `AUTHZ_DENIED` 감사 1행, 응답에 대상 ID 없음 |
 | G3 | `TenantBindingOrderIT` | §8 |
 | G4 | `IdempotencyIT` | 같은 키·요청 → 같은 바이트, 감사·아웃박스·상태 변화 1회. 같은 키·다른 본문 → 422. 키 없음 → 428. 진행 중 → 409, 임차 경과 뒤 인수. TTL을 룰 데이터로 바꾸면 `expires_at` 변함(코드 diff 0). 404는 저장 안 됨 |
-| G5 | `PublicSignUniformResponseIT` | §5.2의 9가지 바이트 동일, 모든 응답(성공 포함)에서 패딩 훅 1회·대기 = 하한 − 경과, `Set-Cookie` 0 |
+| G5 | `PublicSignUniformResponseIT` | §5.2의 9가지 바이트 동일, 모든 응답(성공 포함)에서 패딩 훅 1회·대기 = 하한 − 경과, 한도 거부와 없는 테넌트 거부의 대기 식 동일([B2]), `Set-Cookie` 0, 하한 설정 누락 시 기동 실패 |
 | G6 | `PublicPlaintextLeakScanIT`(앱) + CLI IT 버퍼 단언 | §9.3 |
 | G7 | `PublicSignRateLimitIT` | 한도 N(룰 데이터) 초과 N+1번째가 거부 바이트, 다음 분 창에 회복, 다른 테넌트 무영향, 룰 값 변경 → 한도 변경 |
-| G8 | `EventFeedIT` | seq 오름차순, ack 전 재요청 재전달, ack 뒤 기본 시작점 이동, 모든 항목 envelope 스키마 통과, 다른 테넌트 이벤트 0, `DisclosureDestroyed` 포함, 다른 테넌트 커서 400 |
-| G9 | `JobRunnerIT` | 같은 테넌트·종류 동시 2건 → 둘째 409(행 미생성). 다른 테넌트 병행. CLI가 쥔 잠금에 HTTP가 409. 프로세스 사망 모사(잠금 커넥션 강제 종료) 뒤 다음 제출이 `FAILED(INTERRUPTED)`로 닫고 새로 연다. GD121 전이 전수(허용 5·불허 나머지). `ux_async_job_active` 벨트. DESTROY와 DRY_RUN 상호 배제 |
+| G8 | `EventFeedIT` | seq 오름차순, ack 전 재요청 재전달, ack 뒤 기본 시작점 이동, 모든 항목 envelope 스키마 통과, 다른 테넌트 이벤트 0, `DisclosureDestroyed` 포함, 정수 `afterSeq`·`nextSeq`·`headSeq` 규약 유지([승인 Q5]) |
+| G9 | `JobRunnerIT` | **[B1]** 실행 중 잠금 커넥션 강제 종료 → 옛 작업 `FAILED(LOCK_LOST)`·보고서 미저장, 새 작업 정상 SUCCEEDED. 새 제출이 먼저 고아를 닫은 경우 옛 실행기가 아무것도 쓰지 않음. HTTP `jobs/ANCHOR` 404([승인 Q7]). 같은 테넌트·종류 동시 2건 → 둘째 409(행 미생성). 다른 테넌트 병행. CLI가 쥔 잠금에 HTTP가 409. 프로세스 사망 모사(잠금 커넥션 강제 종료) 뒤 다음 제출이 `FAILED(INTERRUPTED)`로 닫고 새로 연다. GD121 전이 전수(허용 5·불허 나머지). `ux_async_job_active` 벨트. DESTROY와 DRY_RUN 상호 배제 |
 | G10 | `NotificationOutboxIT` | 세션 생성 롤백 → 세션·아웃박스 0행. 백오프 산식과 룰 데이터 변경. 소진 → DEAD + `NOTIFY_FAILED` 1건. 토큰 원문이 아웃박스·세션·감사·로그 0. 발송 실패 롤백 시 `token_hash` NULL 유지. GD123 |
-| G11 | `ApiLayerRulesTest`(arch), `OpenApiContractIT` | §9.2, 라우트 ↔ 계약 양방향, 전 응답 스키마 통과, 두 계약의 `format` 0 |
+| G11 | `ApiLayerRulesTest`(arch), `OpenApiContractIT`, `ChannelSeparationIT` | §9.2, 라우트 ↔ 계약 양방향(세 계약), 전 응답 스키마 통과, 세 계약의 `format` 0, 사람 역할 ↛ `/internal`·서비스 역할 ↛ `/api`(404 바이트 동일, [승인 Q15]), 목록 커서의 다른 테넌트 거부 400 |
 | G12 | `AnchorGuardIT`(CHECK 거부 추가), `AnchorJobTest`·`Phase5CliIT`(`DATE_NOT_TODAY`), `VerifyTenantIT`(`ANCHOR_MISSING_DAY` 중간·끝 공백, 오늘 미포함, `CHAIN_BROKEN` 없음), `DemoShortBundleTest`(차집합), R3 두 테스트 인용, `LegalHoldIT`(해제 사유 목록·4-eyes 유스케이스·DB CHECK 23514) | |
 | G13 | 전체 check(평문·jqwik·체크섬·B3 스캔), `TZ=UTC` 전체 check 1회 | 아래 주입 |
 
@@ -662,7 +685,9 @@ QUEUED,FAILED,실행 전 고아(INTERRUPTED)·실행기 거부(REJECTED),finishe
   - 데모 번들 보존 외 키 변경 → `DemoShortBundleTest`
   - 액세스 로그에 원 URI 기록 → G6
   - 멱등 404 저장 → `IdempotencyIT`
-  - 다른 테넌트 커서 수용(MAC에서 테넌트 제외) → `EventFeedIT`
+  - 다른 테넌트 커서 수용(MAC에서 테넌트 제외) → 목록 커서 테스트(G11)
+  - [B1] 잠금 보유 확인 제거 → `JobRunnerIT`(두 작업이 모두 SUCCEEDED가 되어 실패)
+  - [Q15] 채널 검사 제거 → `ChannelSeparationIT`
   - 디스패처가 토큰을 아웃박스 컬럼(테스트 전용 확장)에 기록 → G10 덤프 스캔
   - MANAGER 접두를 문자열 접두로 → `AuthzScopeIT`(`/HQX`)
 
@@ -672,11 +697,11 @@ QUEUED,FAILED,실행 전 고아(INTERRUPTED)·실행기 거부(REJECTED),finishe
 
 | 단계 | 내용 | 설계서 |
 |---|---|---|
-| 2 | V12 전체 + R1(AnchorJob·verify·데모 두 날) + R2 + `legalHoldReleaseReasons` + 6A 룰 키·번들 재해시 + `db-error-codes` + `pii-columns` 3행 | §5·§6.7·§9·§14 #15·부록 B·D, v1.12 이력 |
+| 2 | V12 전체 + R1(AnchorJob·verify·데모 두 날) + R2 + `legalHoldReleaseReasons` + 6A 룰 키·번들 재해시 + `db-error-codes` + `pii-columns` 2행 | §5·§6.7·§9·§14 #15·부록 B·D, **v1.13**(B3: Q1·Q5·Q6·Q7·Q15·지시문 오기 2건) |
 | 3 | 인가: `authz` 타입·포트·`ScopePolicy`·어댑터, 진입점 시그니처 리팩터(`Caller`), `AuthorizationCoverageTest`, `authz-matrix` 블록·대조 테스트, `org_path` 기록 | §3.3·§7·§9 |
 | 4 | 작업: `JobRunner`·`JobLockGateway`(롤·허용 목록)·보고서 저장·`job-states` 블록, CLI 경유 전환, `jobs list/show` | §6·§9 |
 | 5 | 통지 아웃박스: 발송 시 토큰, 디스패처, 백오프, `NOTIFY_FAILED`, `notify dispatch`, 링크 규약 `/s#` | §6.5·§9 |
-| 6 | 내부 REST: 보안 체인·바인딩 필터·오류 모델·멱등·커서·컨트롤러·내부 계약·`OpenApiContractIT`·`ApiLayerRulesTest` | §4·§7·§9 |
+| 6 | `/api`·`/internal` REST: 보안 체인·바인딩 필터·채널 분리·오류 모델·멱등·커서·컨트롤러·계약 둘·`OpenApiContractIT`·`ApiLayerRulesTest`·`ChannelSeparationIT` | §4·§7·§9 |
 | 7 | 공개 서명: 체인·`PublicSignGate`·패딩·한도·`status`·공개 계약·G5~G7 | §7·§9 |
 | 8 | 이벤트 피드·ack·`docs/event-feed.md`·푸시 어댑터 인터페이스 | §4.5 |
 | 9 | 데모 OIDC·`http-demo.sh`·README, opt-in 실 TSA 계약 테스트(별도 태스크 `tsaContractTest` — `check`에 걸지 않아 "스킵"이 생기지 않는다, 결정 8 보강) | 부록 B·§14 #4 |
@@ -686,7 +711,7 @@ QUEUED,FAILED,실행 전 고아(INTERRUPTED)·실행기 거부(REJECTED),finishe
 
 ---
 
-## 13. 질문 (권장안 먼저)
+## 13. 질문 (권장안 먼저) — 결정은 머리말과 `docs/phase-06A-계획승인.md` §2
 
 **Q1. MANAGER 범위의 `org_path` 출처**
 - 권장: V12 `disclosure.org_path`. 작성 시 설계사의 `identity_link.org_path` 스냅샷이고, INSERT 필수·불변(GD124)이다.
