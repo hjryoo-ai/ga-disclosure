@@ -1,6 +1,24 @@
-# Phase 5 계획 — 앵커·TSA·검증·파기 (승인 대기)
+# Phase 5 계획 — 앵커·TSA·검증·파기 (승인 2026-10-03)
 
 기준: `docs/phase-05-지시문.md` v1.0, `docs/phase-04-수용심사.md` §3(결정 1~8, 승인 ①②), 설계서 v1.10 §5·§6·§9·§12·§14 #4. 브랜치 `work/phase-5`(main `c4ea3c3` = Phase 4 PR #7 병합에서 분기).
+
+**승인 반영(`docs/phase-05-계획승인.md`, 2026-10-03)** — Q2·Q13은 대안, 나머지 권장안, 보강 B1~B4. 이 커밋에서 본문을 다음과 같이 고쳤다.
+- **Q1**: 순수 계산(머클·TSA 검증·체인 재계산·보고서 모델)과 **`verify package` 전체**를 `disclosure-audit`에 둔다. `verify package`는 seal·workflow·DB·키에 의존하지 않고, 증거 패키지를 자체 리더로 읽는다(생산자 코드와 독립). `workflow`에는 조정(`AnchorJob`·`DestructionJob`·`verify tenant` 러너)만 둔다(§7).
+- **Q2(대안)**: 파기는 **한 트랜잭션**에서 한다. 앱 롤이 일반 경로로 감사·아웃박스를 적재한 뒤 `SET LOCAL ROLE disclosure_destroyer` → 파기 함수 → `RESET ROLE`. 함수의 definer는 테이블 소유자가 아닌 전용 롤 `disclosure_destroy_definer`이다. 트리거는 이 롤 + 함수 표식을 본다(§1.5·§5.4). 두 커넥션 설계는 폐기.
+- **Q3**: 암호문 컬럼은 저장 바이트 해시, `signature.ip`·`signature.device`는 존재·유형만, 평문 자유 텍스트는 평문 해시(§5.5). 표에 "남기는 것" 열(§5.6).
+- **Q4**: 인벤토리의 추가 컬럼을 전부 표에 넣는다. 표가 권위이다(§5.6).
+- **Q5**: `retentionDays`(GLOBAL 전용). 산식 `앵커 + retentionYears + retentionDays`, 룰 스키마가 합계 ≥ 1일을 강제한다(§8.7).
+- **Q6**: (a) 시계 오프셋 키는 데모 프로파일에만 존재하고, 운영 프로파일에 넣으면 기동 실패한다. (b) 이미 끝난 보존은 잠금 호출 없이 적용 기록 + 감사 사유 `RETENTION_ALREADY_ELAPSED`. Q5의 ≥ 1일 때문에 봉인 직후에는 생길 수 없음을 테스트로 보인다(§8.9).
+- **Q7·Q8**: `anchor` 키 제거 → GLOBAL `anchoring.treeDepth`. `audit_anchor`는 V9가 **행 0을 단언한 뒤에만** DROP하고, 행이 있으면 마이그레이션이 실패한다(보존·보고).
+- **Q9**: 계획의 권장(`retention_until < date_KST(asOf)`)이 승인의 원칙(`asOf(KST 날짜) > retention_until`)과 같다.
+- **Q10**: 파기 감사에 적용한 룰 버전(판정 시점 ACTIVE 룰)을 적는다. 기존 문서의 보존기한 재계산(연장만)은 §14 미결정에 추가한다.
+- **Q11**: 데모 스텁 키는 저장소 밖 `~/.ga-disclosure/`(로컬 KEK와 같은 위치)에 처음 시작할 때 만든다. 저장소 안에 두지 않으므로 커밋될 수 없다.
+- **Q12**: 승인 문구대로 **REPEATABLE READ** + 테넌트 단위 재시도, 재시도 횟수 보고(§8.1).
+- **Q13(대안)**: "이후" 결론을 약한 문장으로 쓴다(§8.3).
+- **Q14**: 내보내기 워터마크는 Phase 6.
+- **B1**: 계약 항목에 "버전 ID 없는 삭제를 절대 보내지 않음(요청 캡처)", "없는 키의 버전별 삭제 뒤 마커 0", "보류 중 객체는 보존 만료 뒤에도 삭제 거부"(§6).
+- **B2·B3**: G14 주입과 감사 스캔 추가(§9).
+- **B4**: 설계서 v1.11(각 코드 커밋과 같은 커밋).
 
 - 지시문의 "시작 전 반영"은 첫 커밋 `0d8c172`로 끝냈다. 내용: 수용심사 원문 보관, 지시문 원문 보관, CLAUDE.md 규칙 2 문구 추가, 병합 게이트 규약 추가, 설계서 v1.10(파기 롤 `disclosure_destroyer`, 3B의 마이그레이터 파기 경로 예약 폐기, 파기 = 묘비).
 - 지시문이 요구한 ①~⑦은 §1~§7에 둔다.
@@ -116,46 +134,59 @@ GD112가 다음을 강제한다.
   - 파기된 행은 그 뒤 어떤 변경도 거부한다(GD063 확장 → GD113). 지금은 앱이 성명 등을 UPDATE할 수 있으므로, 파기 뒤 다시 채우는 것을 막아야 한다.
 - `document_key`: 3B의 `wrapped_dek` NULL·`shredded_at`·`shredded_by` 그대로다.
 
-### 1.5 파기 롤·함수·트리거 예외 (계획 ①에서 확정할 방식)
+### 1.5 파기 롤·함수·트리거 예외 (승인 Q2 — 한 트랜잭션, `SET LOCAL ROLE`)
 
-**롤**
-- `docker/postgres/init-roles.sql`과 테스트 하네스에 `disclosure_destroyer`(LOGIN, NOBYPASSRLS)를 둔다.
-- V9는 이 롤에 **세 함수의 EXECUTE만** 준다. 테이블·컬럼·시퀀스 GRANT는 0이다.
-- 테스트가 `information_schema.role_table_grants`·`role_column_grants`·`role_routine_grants`와 `has_table_privilege`로 이를 확인한다(G7).
+**롤**(클러스터 수준이라 `docker/postgres/init-roles.sql`과 테스트 하네스가 만든다. 마이그레이터는 NOCREATEROLE이다. V9는 둘의 존재와 멤버십을 단언하고, 없으면 실패한다.)
 
-**함수.** 셋 다 소유 롤의 `SECURITY DEFINER`이고 `search_path`를 고정한다. 이름은 저장소 규약의 `ga_` 접두를 붙였다.
+| 롤 | 속성 | 권한 |
+|---|---|---|
+| `disclosure_destroyer` | NOLOGIN, NOBYPASSRLS | **세 파기 함수의 EXECUTE만.** 테이블·컬럼·시퀀스 GRANT 0 |
+| `disclosure_destroy_definer` | NOLOGIN, NOBYPASSRLS, 테이블 소유자 아님 | 세 함수의 소유자(SECURITY DEFINER). 지정 컬럼 + `destroyed_at`·`destroyed_by`의 컬럼 UPDATE와, 판정에 필요한 컬럼 SELECT만. RLS 정책(`tenant_isolation`, 대상 PUBLIC)을 그대로 따른다 |
+
+- 멤버십: `GRANT disclosure_destroyer TO disclosure_app WITH INHERIT FALSE, SET TRUE`(PostgreSQL 16+ 문법).
+  - 앱 롤은 평소 파기자 권한이 없다.
+  - 트랜잭션 안에서 `SET LOCAL ROLE`로만 함수 EXECUTE를 얻는다.
+  - 파기자 롤 자체는 함수 EXECUTE뿐이므로, 그것으로 얻는 것은 함수 호출 권한뿐이다.
+- 함수 소유권 이전: V9가 함수를 만든 뒤 `ALTER FUNCTION … OWNER TO disclosure_destroy_definer`로 넘긴다. 이를 위해 init-roles가 마이그레이터에게 definer 멤버십(`SET TRUE, INHERIT FALSE`)을 준다. V9는 definer에게 스키마 CREATE를 잠시 주고, 이전한 뒤 거둔다.
+- 테스트가 카탈로그(`role_table_grants`·`role_column_grants`·`role_routine_grants`·`pg_auth_members`)와 `has_*_privilege`로 위 표를 그대로 확인한다(G7).
+
+**함수**: 셋 다 `SECURITY DEFINER`, `search_path` 고정, 소유자 = definer. 이름은 저장소 규약의 `ga_` 접두를 붙였다.
 
 | 함수 | 하는 일 |
 |---|---|
-| `ga_document_key_shred(p_tenant, p_disclosure, p_as_of, p_by, p_audit JSONB)` | ①. 3B의 `ga_shred_document_key`(EXECUTE 부여가 없어 쓰인 적 없음)를 대체하고 옛 함수는 DROP한다 |
-| `ga_disclosure_destroy(p_tenant, p_disclosure, p_as_of, p_by, p_audit JSONB, p_outbox JSONB)` | ③ |
-| `ga_customer_ref_destroy(p_tenant, p_customer_ref, p_as_of, p_by, p_audit JSONB)` | 고객 파기 |
+| `ga_document_key_shred(p_tenant, p_disclosure, p_as_of, p_by)` | ①. 3B의 `ga_shred_document_key`(EXECUTE 부여가 없어 쓰인 적 없음)는 DROP한다 |
+| `ga_disclosure_destroy(p_tenant, p_disclosure, p_as_of, p_by)` | ③. 지운 컬럼 이름 목록을 돌려준다 |
+| `ga_customer_ref_destroy(p_tenant, p_customer_ref, p_as_of, p_by)` | 고객 파기 |
 
-함수 안 검사(전부 하나의 문장 흐름, 실패는 GD114):
-- 테넌트 바인딩(3B와 같이 `set_config('app.tenant_id', …, true)` 후 복원).
+함수 안 검사(실패는 GD114):
+- `p_tenant = current_setting('app.tenant_id')`를 단언한다. 함수는 테넌트를 바꾸지 않는다. 앱 트랜잭션이 이미 바인딩해 두었다.
 - 대상 행 `FOR UPDATE`.
 - 봉인 이후 종료 상태(`COMPLETED|EXPIRED|VOID|SUPERSEDED` ∧ `disclosure_no IS NOT NULL`).
-- `retention_until < p_as_of`(§5.1의 날짜 의미).
+- `retention_until < p_as_of`(KST 날짜, §5.1).
 - 활성 보류 없음(확인서·그 고객 양쪽).
 - 미파기.
 - ③은 추가로 문서 키가 이미 파기됐을 것.
-- 감사·아웃박스 인자의 seq·prev 연결(§5.4).
 
-**트리거 예외 — 세션 표식 + 소유 롤.**
+감사·아웃박스는 함수가 쓰지 않는다. 같은 트랜잭션에서 앱 롤이 기존 경로(`AuditPort`·`OutboxPort`)로 먼저 적재한다(§5.4).
+
+**트리거 예외 — 롤 + 함수 표식**
 1. 함수는 시작할 때 `set_config('ga.destroy', 'disclosure:' || p_disclosure, true)`(또는 `customer_ref:…`)를 트랜잭션 로컬로 설정하고, 끝에서 `''`로 되돌린다.
 2. 불변 트리거(`ga_disclosure_guard_update`, `ga_child_guard`, `signature`·`review`·`sign_session`의 append-only/GD101, `ga_customer_ref_guard`, `ga_document_key_guard`)는 맨 앞에서 다음을 **모두** 만족할 때만 파기 분기로 간다.
+   - `current_user = 'disclosure_destroy_definer'`.
    - `current_setting('ga.destroy', true)`가 그 행의 확인서(또는 고객)를 가리킨다.
-   - `current_user`가 소유 롤이다(SECURITY DEFINER 안).
 3. 파기 분기는 "지정 컬럼만 값 → NULL, 나머지는 `to_jsonb(NEW) - 지정 컬럼 = to_jsonb(OLD) - 지정 컬럼`"을 확인한다.
 4. `disclosure` 행은 같은 문장에서 `destroyed_at`이 NULL → 값이어야 한다.
-5. 자식 테이블은 함수가 `disclosure`보다 **먼저** 소거하고, 같은 표식을 쓴다.
-6. 이 분기 밖의 모든 경로는 기존 규칙 그대로다. 앱 롤에는 표식을 세울 수단이 없다. `set_config`는 누구나 부를 수 있지만 `current_user` 검사가 앱 롤을 막는다.
-- **위협 모델 한계(설계서에 적는다).** 소유 롤(마이그레이터)은 표식을 직접 세울 수 있고, 그 이전에 `DISABLE TRIGGER`도 할 수 있다. 마이그레이터는 DDL 권한자로서 신뢰 경계 안에 있다. 이 장치가 막는 것은 앱 롤과 파기 롤의 직접 UPDATE이다(G7).
+5. 자식 테이블은 함수가 `disclosure`보다 먼저 소거한다.
+6. 이 분기 밖의 모든 경로는 기존 규칙 그대로다. 막히는 경로:
+   - 앱 롤: 표식을 세워도 `current_user`가 다르다.
+   - 파기자 롤의 직접 UPDATE: 테이블 권한이 없다.
+   - definer로 표식 없이 UPDATE: 표식 검사.
+- **위협 모델 한계(설계서에 적는다).** 마이그레이터는 definer 멤버십과 `DISABLE TRIGGER` 권한을 가진 DDL 권한자로서 신뢰 경계 안에 있다.
 
 ### 1.6 그 밖
 
 - **`disclosure.void_reason` 구 컬럼 DROP**(Phase 4가 미룬 2단계). `ck_disclosure_legacy_void_reason`도 함께 DROP하고, `ga_disclosure_guard_update`의 메타 목록에서 뺀다.
-- **`audit_anchor` DROP**(V1, 미사용 — Q8). 설계서 §5 블록과 §6.7 문구를 `anchor`·`anchor_receipt`로 바꾼다.
+- **`audit_anchor` DROP**(V1, 미사용 — Q8). V9는 먼저 `SELECT count(*)`가 0임을 단언하고(RLS를 잠시 해제한 창에서 — V8 백필과 같은 방식), 행이 있으면 `RAISE`로 실패한다(제거 대신 보존·보고). 설계서 §5 블록과 §6.7 문구를 `anchor`·`anchor_receipt`로 바꾼다.
 - **`compliance_flag`**: `disclosure_id`는 이미 NULL을 허용한다(V1). 감사 체인 단절처럼 확인서를 정할 수 없는 `CHAIN_BROKEN`은 `disclosure_id NULL` + `target_kind='AUDIT_LOG'`·`target_id=seq`로 둔다. DDL 변경은 없다.
 - `DisclosureDestroyed` 이벤트: 계약 `contracts/events/v1`에 추가한다(추가형). payload는 `{disclosureId, disclosureNo, destroyedAt}`이고 CHECKSUMS를 갱신한다.
 
@@ -337,65 +368,58 @@ waived(CONTRACT_DATE)      = date_KST(completed_at) + contractLinkWaitDays < tod
 - `ga_customer_ref_destroy`: `name_enc`·`phone_enc`·`birth_date_enc`·`crm_customer_id`(Q4) NULL, `destroyed_at`, 감사 `CUSTOMER_REF_DESTROYED`. 이벤트는 없다(계약에 고객 이벤트가 없다).
 - GD064(DELETE 거부)는 그대로다.
 
-### 5.4 파기 함수와 감사·아웃박스의 원자성 (Q2)
+### 5.4 파기 트랜잭션 (승인 Q2 — 한 트랜잭션)
 
-파기 롤 연결(함수)과 앱 롤 연결(감사 체인 계산·계약 검증)은 서로 다른 세션이다. 권장 방식은 **"앱이 계산하고, 함수가 대조해 같은 트랜잭션에서 쓴다"**이다.
+①·③과 고객 파기는 각각 앱 데이터소스의 **트랜잭션 하나**로 한다.
 
-1. 파기 롤 연결에서 `BEGIN`.
-2. `pg_advisory_xact_lock`으로 감사 체인 키(`audit_log:{tenant}`)와 아웃박스 키를 잡는다. 기존 `AuditLogRepository`·`OutboxRepository`와 같은 키·순서이고, advisory lock 함수는 PUBLIC 실행 가능이라 권한이 필요 없다.
-3. 앱 롤 연결(테넌트 바인딩)에서 다음을 읽는다.
-   - 감사 머리·아웃박스 머리: 잠금이 잡혀 있으니 그 사이 아무도 이어 쓰지 못한다.
-   - 지울 값.
-4. 앱이 기존 단일 구현으로 다음을 만든다.
-   - 지울 값의 해시(§5.5).
-   - 감사 행 `{seq, at, prevHash, entryHash, detail}`(`AuditChain`).
-   - 아웃박스 envelope(계약 검증 포함).
-5. 파기 롤 연결에서 함수 호출. 함수는 다음을 한 트랜잭션에서 수행한다.
-   - 대상 잠금, 조건 검사.
-   - **감사 seq = 머리 + 1, prevHash = 머리 해시, 아웃박스 seq = 머리 + 1 대조.**
-   - 지정 컬럼 NULL, 감사·아웃박스 INSERT(소유 롤), 머리 전진.
-6. `COMMIT`.
+1. 테넌트 바인딩(기존 `WorkflowTransactions`).
+2. 앱 롤로 지울 값을 읽어 §5.5의 표현으로 해시를 만든다.
+3. 기존 경로로 감사 `DOCUMENT_KEY_SHREDDED|DISCLOSURE_DESTROYED|CUSTOMER_REF_DESTROYED`를 적재한다. ③은 아웃박스 `DisclosureDestroyed`도 적재한다. 체인·계약 검증은 기존 코드 하나이다.
+4. `SET LOCAL ROLE disclosure_destroyer` → `SELECT ga_…(…)` → `RESET ROLE`.
+5. 커밋.
 
-- JCS·체인 식은 Java 한 곳에만 있다. DB는 연결(seq·prev)과 형식만 본다. `entryHash` 자체의 정확성은 `verify tenant`가 재계산으로 본다.
-- 함수가 감사·아웃박스 테이블에 쓰는 것은 새 쓰기 경로이다. 설계서 §5에 적고, `DisclosureWriteScanTest`의 "SQL 함수 쓰기 경로" 열거에 함수 이름으로 둔다.
-- 대안 B: 함수는 지정 컬럼 소거 + 내부 `destruction_log`(해시)만 쓰고, 앱이 따로 감사·아웃박스를 쓰며 재실행이 누락을 메운다. 상태 변경과 이벤트가 같은 트랜잭션이라는 아웃박스 원칙(4 승인 Q13)을 어기므로 권장하지 않는다.
+함수가 거부하면(GD114) 트랜잭션 전체가 롤백되므로, 감사·아웃박스도 남지 않는다.
 
-### 5.5 지운 값의 해시 표현 (Q3)
+- 연결 풀: `SET LOCAL`은 트랜잭션 끝에 풀린다. 호출부는 `DestroyerGateway` 한 클래스이고, `finally`에서 `RESET ROLE`도 부른다. 예외 뒤 같은 연결이 파기자 롤로 남지 않는지는 테스트가 본다(실패 주입 뒤 `current_user` 확인).
+- Spring 트랜잭션·Hikari와 충돌하는 구체적 사실이 나오면 보고하고 두 커넥션 설계로 돌아간다(승인 Q2 단서).
 
-| 종류 | 표현 | 이유 |
+### 5.5 지운 값의 해시 표현 (승인 Q3)
+
+| 종류 | 감사에 남기는 것 | 이유 |
 |---|---|---|
-| TEXT(사유 텍스트 등) | `SHA-256(UTF-8)` | 지시문 그대로 |
-| JSONB(`device`·`view_evidence`) | `SHA-256(JCS(값))` | DB 텍스트 표현이 아니라 정규화 바이트 |
-| 암호문 BYTEA(`*_enc`, `wrapped_dek`) | `SHA-256(저장된 바이트)` | **평문 해시는 쓰지 않는다**. 생년월일(약 3.6만 경우)·전화번호는 평문 해시가 사실상 평문이다. 암호문은 난수 nonce를 포함해 대입이 불가능하고, "지운 것이 그 값"임은 보관 백업과 대조해 증명된다 |
-| `signature.ip`(INET) | **해시 없이** `{"present": true, "family": 4\|6}`만 | IPv4 2^32는 평문 해시를 몇 초 만에 되돌린다. 지시문 문언("지운 평문의 해시")과 다르므로 Q3 승인 대상 |
+| 평문 자유 텍스트(추천·무효·정정 사유, `review.reason`) | `SHA-256(UTF-8)` | 사본을 가진 쪽이 나중에 대조하는 것이 목적 |
+| 평문 외부 식별자(`policy_no`, `crm_customer_id`) | `SHA-256(UTF-8)` | 같은 목적. 정의역이 작지 않다 |
+| JSONB 행동 기록(`view_evidence`) | `SHA-256(JCS(값))` | 정규화 바이트 |
+| 암호문 BYTEA(`*_enc`, `wrapped_dek`) | `SHA-256(저장된 바이트)` | 평문 해시는 쓰지 않는다. 생년월일·전화번호는 평문 해시가 사실상 평문이다 |
+| `signature.ip`(INET), `signature.device`(JSON) | 해시 없이 `{"present": true, "family": 4\|6}` / `{"present": true}` | 작은 정의역. 해시가 값 자체이다 |
 
 ### 5.6 개인정보 컬럼 전수 (설계서 §9 `pii-columns` 블록 후보, `PiiColumnTableTest`가 세 함수의 컬럼 집합·DB 카탈로그와 양방향 대조)
 
 ```pii-columns
-table,column,kind,erasedBy,auditRepr
-customer_ref,name_enc,ENCRYPTED,ga_customer_ref_destroy,sha256-stored
-customer_ref,phone_enc,ENCRYPTED,ga_customer_ref_destroy,sha256-stored
-customer_ref,birth_date_enc,ENCRYPTED,ga_customer_ref_destroy,sha256-stored
-customer_ref,crm_customer_id,EXTERNAL_ID,ga_customer_ref_destroy,sha256-utf8
-document_key,wrapped_dek,KEY,ga_document_key_shred,sha256-stored
-disclosure,void_reason_text,FREE_TEXT,ga_disclosure_destroy,sha256-utf8
-disclosure,supersede_reason_text,FREE_TEXT,ga_disclosure_destroy,sha256-utf8
-disclosure,policy_no,EXTERNAL_ID,ga_disclosure_destroy,sha256-utf8
-recommendation,reason_text,FREE_TEXT,ga_disclosure_destroy,sha256-utf8
-review,reason,FREE_TEXT,ga_disclosure_destroy,sha256-utf8
-signature,device,DEVICE,ga_disclosure_destroy,sha256-jcs
-signature,ip,NETWORK,ga_disclosure_destroy,presence
-signature,view_evidence,BEHAVIOR,ga_disclosure_destroy,sha256-jcs
-sign_session,view_evidence,BEHAVIOR,ga_disclosure_destroy,sha256-jcs
-compliance_flag,policy_no,EXTERNAL_ID,ga_disclosure_destroy,sha256-utf8
-customer_data_key,wrapped_key,KEY,RETAINED,tenant key lifecycle GD060-062 (not per customer)
-disclosure,customer_ref,PSEUDONYM,RETAINED,tombstone link; meaningless once customer_ref is destroyed
-audit_log,detail.customerRef,PSEUDONYM,RETAINED,hash chain; pseudonym only
-outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; pseudonym only
+table,column,kind,erasedBy,auditRepr,keeps
+customer_ref,name_enc,ENCRYPTED,ga_customer_ref_destroy,sha256-stored,customer_ref·enc_key_id·created_at·destroyed_at
+customer_ref,phone_enc,ENCRYPTED,ga_customer_ref_destroy,sha256-stored,same row
+customer_ref,birth_date_enc,ENCRYPTED,ga_customer_ref_destroy,sha256-stored,same row
+customer_ref,crm_customer_id,EXTERNAL_ID,ga_customer_ref_destroy,sha256-utf8,same row
+document_key,wrapped_dek,KEY,ga_document_key_shred,sha256-stored,key_id·shredded_at·shredded_by
+disclosure,void_reason_text,FREE_TEXT,ga_disclosure_destroy,sha256-utf8,void_reason_code
+disclosure,supersede_reason_text,FREE_TEXT,ga_disclosure_destroy,sha256-utf8,supersede_reason_code
+disclosure,policy_no,EXTERNAL_ID,ga_disclosure_destroy,sha256-utf8,disclosure_no·status·hashes·chain·times
+recommendation,reason_text,FREE_TEXT,ga_disclosure_destroy,sha256-utf8,reason_code·item link
+review,reason,FREE_TEXT,ga_disclosure_destroy,sha256-utf8,rule·target hash·approver·time
+signature,device,DEVICE,ga_disclosure_destroy,presence,role·channel·method·signed_at·both hashes
+signature,ip,NETWORK,ga_disclosure_destroy,presence-family,same row
+signature,view_evidence,BEHAVIOR,ga_disclosure_destroy,sha256-jcs,same row
+sign_session,view_evidence,BEHAVIOR,ga_disclosure_destroy,sha256-jcs,session status·times·pinned hashes
+compliance_flag,policy_no,EXTERNAL_ID,ga_disclosure_destroy,sha256-utf8,type·status·resolution·times
+customer_data_key,wrapped_key,KEY,RETAINED,-,tenant key lifecycle GD060-062 (not per customer)
+disclosure,customer_ref,PSEUDONYM,RETAINED,-,tombstone link; meaningless once customer_ref is destroyed
+audit_log,detail.customerRef,PSEUDONYM,RETAINED,-,hash chain; pseudonym only
+outbox_event,payload.customerRef,PSEUDONYM,RETAINED,-,published contract history; pseudonym only
 ```
 
 - **객체**(`document_artifact`의 CANONICAL_JSON·PDF·SIGNED_PDF·EVIDENCE_ZIP, `signature_evidence`의 STROKES·IMAGE·SCAN)는 컬럼이 아니라 ①·②로 지운다. 표 아래 문장으로 적고, 테스트는 `kind` 열거(`ArtifactKind`·`SignatureEvidenceKind`) 전부가 ② 경로에 있는지 본다.
-- 지시문의 최소 목록 밖에서 더한 것(Q4): `crm_customer_id`, `policy_no`(두 곳), `review.reason`, `sign_session.view_evidence`.
+- 지시문의 최소 목록 밖에서 더한 것(승인 Q4 — 경계 사례는 지우는 쪽, 식별자·해시·번호·시각만 예외): `crm_customer_id`, `policy_no`(두 곳), `review.reason`, `sign_session.view_evidence`. 구현 중 새로 찾는 컬럼도 표에 먼저 넣고 함수가 따라간다.
 - 남기는 것: 직원 주체(`agent_id`, `signer_subject`, `actor_subject`, `placed_by` 등)는 고객 개인정보가 아니라 직원 업무 기록이다. 보존·파기는 Phase 6 인가·직원 수명주기와 함께 다룬다(Q4).
 - **테스트의 "표에 없는 암호화 컬럼" 검출**: 카탈로그에서 BYTEA 컬럼 전부, `*_enc`·`wrapped_*` 이름, 그리고 V5의 암호문 형식 CHECK가 걸린 컬럼을 모은다. 표 또는 비개인정보 열거(`anchor_receipt.tsa_token` 등 FQN식 `table.column` 목록)에 없으면 실패한다.
 
@@ -429,7 +453,7 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 - 미지원 저장소를 위한 `UNSUPPORTED`는 포트 계약에 남긴다. 미지원이면 예외로 명시하고, 조용한 no-op은 두지 않는다. 계약 테스트의 대역 구현(`FailingPorts`)으로 그 분기를 시험한다.
 - 설계서 §9에는 "DB 보류가 통제(배치 건너뜀), S3 보류는 벨트"를 지원 여부와 무관하게 적는다.
 
-계약 신규 항목: `deleteRemovesEveryVersionAndMarker`, `deletingAMissingKeyCreatesNothing`, `lockedVersionDeleteIsRefused`(3B 재사용), `legalHoldSetGetRelease`, `heldVersionCannotBeDeletedEvenAfterRetention`, `capabilitiesAreExplicit`.
+계약 신규 항목: `deleteRemovesEveryVersionAndMarker`, `deletingAMissingKeyCreatesNothing`(버전별 삭제 뒤 마커 0), `adapterNeverSendsAVersionlessDelete`(승인 B1 — SDK 실행 인터셉터로 요청을 캡처해 모든 `DeleteObject`에 `versionId`가 있음을 단언), `lockedVersionDeleteIsRefused`(3B 재사용), `legalHoldSetGetRelease`, `heldVersionCannotBeDeletedEvenAfterRetention`(B1), `capabilitiesAreExplicit`.
 
 ---
 
@@ -443,8 +467,8 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 |---|---|---|
 | 머클 트리, `AnchorRecord`(잎), 경로 검증, 감사 체인 걷기(`AuditChain.breaks` 확장, 스트리밍), 봉인 체인 식, TSA 포트·검증·스텁, 영수증 형식 | `disclosure-audit`(Spring 무의존) | 지시문 위치 그대로. 순수 |
 | `RetentionDecision`(판정 산식) | `disclosure-sign.retention` | 기존 `RetentionAnchors` 옆. 순수 |
-| `AnchorJob`(A·B 단계), `DestructionJob`, `LegalHoldService`, `TenantVerifier`(`verify tenant`), `ReceiptExporter` | `disclosure-workflow`(`workflow.anchor`·`workflow.retention`·`workflow.verify`) | 필요한 포트가 전부 여기에 있다. Phase 4의 `ExpireService`·3B의 `ArtifactService.gc/reconcile`과 같은 배치 위치 |
-| `PackageVerifier`(`verify package`) | `disclosure-workflow`의 `workflow.verify.offline` | seal(증거 패키지 리더·canonical)과 audit(체인·머클·TSA)를 함께 써야 한다. ArchUnit 새 규칙: 이 패키지는 workflow의 포트·infra·`java.net`·`java.sql`을 참조하지 않는다("네트워크·DB·키에 닿지 않는다"를 구조로 강제) |
+| `AnchorJob`(A·B 단계), `DestructionJob`, `LegalHoldService`, `TenantVerifier`(`verify tenant` 러너 — 계산은 audit 함수), `ReceiptExporter` | `disclosure-workflow`(`workflow.anchor`·`workflow.retention`·`workflow.verify`) | 조정만. 필요한 포트가 전부 여기에 있다. Phase 4의 `ExpireService`·3B의 `ArtifactService.gc/reconcile`과 같은 배치 위치 |
+| `PackageVerifier`(`verify package` 전체), 보고서 모델·직렬화 | `disclosure-audit`(`audit.verify`) | 승인 Q1. 증거 패키지를 **자체 리더**로 읽는다(ZIP·매니페스트 스키마·JCS·SHA-256·감사 행 해시) — seal의 생산자 코드에 의존하지 않으므로 검증이 생산자와 독립이다. ArchUnit 새 규칙: `audit.verify`는 seal·workflow·infra·`java.net`·`java.sql`·`javax.sql`·`javax.crypto`를 참조하지 않는다 |
 | 파기 함수 호출기 `com.ga.disclosure.infra.retention.DestroyerGateway` | `disclosure-infra` | **직접 접근 허용 목록 세 번째 FQN**(롤 `disclosure_destroyer`, 별도 DataSource). 설계서 §9 표의 자리표시 행을 이 FQN으로 확정한다 |
 | CLI | `disclosure-app` | 기존 `OperatorCli` 위임 패턴(`SignCommands`처럼 `AnchorCommands`·`VerifyCommands`·`RetentionCommands`) |
 
@@ -458,13 +482,15 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 
 ### 8.1 `AnchorJob.run(date, actor)` (기본 date = 오늘 KST, 시스템 행위자 `system:anchor`)
 
-**A단계** — 테넌트마다 트랜잭션 1개(READ COMMITTED + 잠금, Q12)
+**A단계** — 테넌트마다 트랜잭션 1개(**REPEATABLE READ**, 승인 Q12)
 1. 그 날짜 앵커가 있으면 NOOP.
-2. 봉인 체인 머리 `disclosure_chain_head`를 `FOR SHARE`로 잡는다. 봉인의 잠금 순서(확인서 → 카운터 → 체인 머리 → 감사)와 같은 방향이다.
-3. 감사 advisory lock을 잡는다.
-4. 두 머리를 읽는다. 잠금이 잡힌 뒤라 그 사이 봉인·감사 쓰기가 끼어들 수 없다. 즉 두 머리가 한 시점이다.
-5. `anchor` INSERT(GD110이 다시 계산).
-6. 감사 `ANCHOR_CREATED`. 이 행의 seq는 `audit_seq + 1`이므로 다음 앵커가 덮는다.
+2. 한 스냅샷에서 봉인 체인 머리(`disclosure_chain_head`)와 감사 머리(마지막 `audit_log` 행)를 읽는다.
+3. `anchor` INSERT(GD110이 다시 계산).
+4. 감사 `ANCHOR_CREATED`(seq = `audit_seq + 1`, 다음 앵커가 덮는다).
+5. 스냅샷 뒤에 다른 트랜잭션이 감사 행을 커밋했다면 둘 중 하나로 끝난다.
+   - 감사 적재(advisory lock 뒤 스냅샷의 머리를 읽는다)가 seq 중복(23505)으로 실패한다.
+   - 직렬화 실패(40001)가 난다.
+   둘 다 그 테넌트만 처음부터 재시도한다(상한 5회). 재시도 횟수는 보고서 `retries`에 테넌트별로 센다. 두 머리가 같은 스냅샷이고, `audit_seq`가 자기 감사 행 직전이라는 것은 성공한 시도에서만 성립한다.
 
 **B단계** — 그 날짜의 영수증 없는 앵커 전부(테넌트별 읽기)
 1. 트리 → 루트 → TSA → 응답 수락 검증.
@@ -489,7 +515,8 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 지시문 목록 그대로이다. 추가로 영수증이 있으면 다음을 본다.
 - 영수증 구간에서 문서 행의 `canonicalHash`·`pdfHash`가 매니페스트와 같은지(`RECEIPT_PATH_INVALID`).
 - 구간 재계산이 `covering.sealChainHead`에 닿는지.
-- 결론: "이 문서는 {genTime} 이전에 이 내용으로 존재했다". `previous`가 있으면 "{previous genTime} 이후"도 붙인다. 다만 이것은 "직전 앵커 이후에 봉인됐다"는 뜻이므로 문장을 그렇게 쓴다(Q13).
+- 결론 상한: "이 문서는 {T1} 이전에 이 내용으로 존재했다"(T1 = `covering` 토큰의 genTime).
+- 결론 하한(승인 Q13 대안, `previous`가 있을 때만): *"이 문서는 {anchorDate} 앵커의 봉인 체인 머리(seq N, 기록 시각 {created_at}) 뒤에 봉인되었다. 하한의 시각은 자체 기록이며 외부로 증명되는 것은 상한({T1} 이전)뿐이다."* 앵커 생성 시각 H ≤ 그 TSA 시각 T0이므로 "T0 이후"는 따라 나오지 않는다. 테스트가 두 문장을 각각 단언한다.
 
 ### 8.4 `verify tenant`
 
@@ -520,13 +547,13 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 | 키 | 위치 | 비고 |
 |---|---|---|
 | `anchoring: {treeDepth: 16}` | GLOBAL, 비오버라이드(스키마 `not: enum`에 추가) | 기존 `anchor`(테넌트 오버라이드 가능)를 대체한다(Q7) |
-| `retentionDays`(정수 ≥ 0, 기본 0) | GLOBAL, 비오버라이드 | **산식은 하나**: 기간 = `P{retentionYears}Y{retentionDays}D`, `retentionYears` 최소 1 → 0, 합이 0이어도 허용(데모·테스트 전용 번들 — Q5) |
+| `retentionDays`(정수 ≥ 0, 기본 0) | GLOBAL, 비오버라이드 | **산식은 하나**: `앵커 + retentionYears + retentionDays`. `retentionYears` 최소 1 → 0으로 풀되 **룰 스키마가 합계 ≥ 1일을 강제**한다(승인 Q5, `retentionYears ≥ 1 ∨ retentionDays ≥ 1`). 데모 짧은 보존 번들은 `0년 1일` |
 | `retention: {contractLinkWaitDays}` | 오버라이드 가능 | 판정 시점 룰(Q10) |
 | `legalHoldReasons`(닫힌 코드 목록), `legalHoldReasonTextMaxLength` | GLOBAL | `voidReasons`와 같은 형태 |
 | `customerRef: {graceDaysAfterLastDestruction, abandonedDays}` | 오버라이드 가능 | |
 | `verify: {unstampedAnchorAlertDays}` | GLOBAL | |
 
-- `retentionYears`·`retentionDays`는 지금처럼 GLOBAL로 둔다. 짧은 보존 데모 테넌트는 **데모 전용 GLOBAL 번들**(`DISC-DEMO-SHORT`, `retentionYears 0`·`retentionDays 0`)을 그 테넌트에만 배포해 만든다(`rules distribute --tenants DEMO3`). 테넌트 오버라이드로 법정 보존을 줄이는 길은 열지 않는다(Q5).
+- `retentionYears`·`retentionDays`는 지금처럼 GLOBAL로 둔다. 짧은 보존 데모 테넌트는 **데모 전용 GLOBAL 번들**(`DISC-DEMO-SHORT`, `retentionYears 0`·`retentionDays 1`)을 그 테넌트에만 배포해 만든다(`rules distribute --tenants DEMO3`). 테넌트 오버라이드로 법정 보존을 줄이는 길은 열지 않는다(Q5).
 
 ### 8.8 데모 (지시문 §6)
 
@@ -539,6 +566,16 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
   6. DEMO3 둘째 건에 보류를 걸고 파기 시도 → `HOLD`.
 - 2회째: 새 앵커·영수증·파기 0, 전부 NOOP.
 - **날짜 문제**: "어제" 앵커는 `--date`로 만들 수 있다. 다만 A단계는 그 날짜의 머리를 지금 읽으므로, 실제로는 "지금 머리를 어제 날짜로 기록"하게 된다. 그래서 `anchor run --date`는 오늘 이후·미래를 거부하고, 과거 날짜는 **그 날짜 앵커가 없고 이후 날짜 앵커도 없을 때만** 허용한다(`anchor_date` 단조 — GD110). 데모는 이 경로로 두 날을 만든다. 운영 의미는 "누락된 날을 늦게 채움"이고, `created_at`이 실제 시각을 남긴다.
+
+### 8.9 데모 시계 오프셋과 이미 끝난 보존 (승인 Q6)
+
+- (a) `ga.demo.clock-offset`(ISO 기간, 예 `-P3D`)은 **데모 프로파일 설정 클래스에만** 있다(`@Profile("demo")` 구성의 `@ConfigurationProperties`).
+  - 운영 프로파일에는 그 키를 읽는 코드 자체가 없다.
+  - 운영 프로파일에서 그 키가 설정돼 있으면 기동 시 실패한다(알 수 없는 `ga.demo.*` 키 거부 검사).
+  - 테스트 두 가지: 운영 프로파일 + 키 → 기동 실패, 데모 프로파일 + 키 → 오프셋 시계.
+- (b) `RetentionLocks`: `retainUntilInstant(retention_until) ≤ clock.instant()`이면 S3 호출 없이 `retention_applied_until`을 기록한다. 감사 사유는 `RETENTION_ALREADY_ELAPSED`이다.
+  - 봉인·완료 직후에는 Q5의 합계 ≥ 1일 때문에 생길 수 없다. 테스트: 최소 보존(0년 1일)으로 봉인한 직후 이 사유 0, 같은 확인서를 보존 만료 뒤 reconcile하면 1.
+  - 데모 흐름: DEMO3을 오프셋 시계로 봉인한다. 실제 시각으로는 과거인 retain-until이라 S3가 400을 내고, 잠금은 보류되며 봉인은 유효하다(3B 규약). 이어서 실제 시계의 `artifacts reconcile --tenants DEMO3`가 `RETENTION_ALREADY_ELAPSED`로 기록하고, 그 뒤 파기한다.
 
 ---
 
@@ -580,6 +617,16 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 - 지정 외 컬럼 하나 소거.
 - `pii-columns` 블록 한 줄 제거.
 
+승인 B2:
+- `SET LOCAL ROLE` 없이 앱 롤로 파기 함수 호출 → 거부.
+- 함수 표식 없이 파기자 롤의 직접 UPDATE → 거부.
+- 데모 시계 오프셋 키를 운영 프로파일에 넣기 → 기동 실패.
+
+승인 B3: `RETENTION_ALREADY_ELAPSED` 감사 스캔.
+- integrationTest 세션이 끝날 때 공유 PostgreSQL 컨테이너의 모든 테넌트 감사에서 이 사유를 센다(평문 스캔과 같이 테스트 실행 전체를 대상으로).
+- 이 사유를 의도적으로 만드는 테스트 클래스가 만든 테넌트(FQN 열거 허용 목록)가 아닌 곳에 1건이라도 있으면 실패한다.
+- 주입: 봉인 경로에서 이 분기를 강제 → 스캔 실패.
+
 ---
 
 ## 10. 순서 (승인 후)
@@ -597,7 +644,7 @@ outbox_event,payload.customerRef,PSEUDONYM,RETAINED,published contract history; 
 
 ---
 
-## 11. 질문 (권장안 먼저)
+## 11. 질문 (권장안 먼저) — 2026-10-03 승인: Q2·Q13 대안, 나머지 권장안(Q12는 승인 문구대로 REPEATABLE READ)
 
 **Q1. 배치 코드 위치(⑦).** 권장: 순수 코드는 `disclosure-audit`(+ 판정 산식은 `disclosure-sign.retention`)에 둔다. 앵커·파기·검증 배치와 `PackageVerifier`는 `disclosure-workflow`에 두고, 레이어 규칙은 넓히지 않는다. 필요한 포트가 전부 workflow에 있어서다. `PackageVerifier`의 오프라인성은 ArchUnit 새 규칙으로 강제한다.
 - 대안: 지시문 권장대로 compliance가 조정. `ArtifactStore`·`DocumentCryptoPort` 등을 seal로 옮기거나, `compliance → workflow`를 허용해야 한다.
