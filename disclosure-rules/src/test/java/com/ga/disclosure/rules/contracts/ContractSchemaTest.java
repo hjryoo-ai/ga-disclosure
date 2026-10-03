@@ -372,8 +372,17 @@ class ContractSchemaTest {
         assertThat(rule.path("validations")).hasSize(12);
         assertThat(rule.path("reasonCodes")).hasSize(5);
         assertThat(rule.path("tenantOverridable")).extracting(JsonNode::asString).containsExactly(
-                "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "anchor", "kpi",
-                "retainUnlinked", "masking", "gateRequiresManager", "sessionTtlMinutes", "agentSignMethod");
+                "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "kpi",
+                "retainUnlinked", "masking", "gateRequiresManager", "sessionTtlMinutes", "agentSignMethod", "retention", "customerRef");
+        // Phase 5(5 계획 승인 Q5·Q7·Q10): 앵커 깊이는 GLOBAL(옛 테넌트 키 anchor 제거), 보존기간 = 년 + 일, 파기·검증 절차 파라미터
+        assertThat(rule.has("anchor")).isFalse();
+        assertThat(rule.at("/anchoring/treeDepth").asInt()).isEqualTo(16);
+        assertThat(rule.path("retentionYears").asInt()).isEqualTo(5);
+        assertThat(rule.path("retentionDays").asInt()).isZero();
+        assertThat(rule.at("/retention/contractLinkWaitDays").asInt()).isEqualTo(365);
+        assertThat(rule.path("legalHoldReasons")).extracting(r -> r.path("code").asString())
+                .containsExactly("LITIGATION", "REGULATOR_INQUIRY", "CUSTOMER_COMPLAINT", "OTHER");
+        assertThat(rule.at("/verify/unstampedAnchorAlertDays").asInt()).isEqualTo(2);
         // Phase 4(3B 수용심사 §3, 4 계획 승인 Q5·Q7): 사유 코드 닫힌 목록, 보존 앵커, 채널 객체
         assertThat(rule.path("voidReasons")).extracting(r -> r.path("code").asString())
                 .containsExactly("CUSTOMER_CANCELLED", "WRITTEN_IN_ERROR", "DUPLICATE", "OTHER");
@@ -415,6 +424,24 @@ class ContractSchemaTest {
         ObjectNode negative = (ObjectNode) read(DISC_2026_07).get("body");
         ((ObjectNode) negative.at("/masking/phone")).put("keepLast", -1);
         assertThat(schema("rules/v1/rule-version.schema.json").validate(negative)).isNotEmpty();
+    }
+
+    /** Phase 5(승인 Q5·Q7): 보존기간 합계는 1일 이상, 보존·앵커·보류 사유·검증 키는 사규로 열 수 없다, 옛 anchor 키는 없다. */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"zero-retention", "overridable:retentionYears", "overridable:retentionDays", "overridable:anchoring",
+            "overridable:legalHoldReasons", "overridable:verify", "legacy-anchor", "depth-25"})
+    void retentionAndAnchoringStayGlobal(String change) {
+        ObjectNode body = (ObjectNode) read(DISC_2026_07).get("body");
+        switch (change) {
+            case "zero-retention" -> body.put("retentionYears", 0).put("retentionDays", 0);
+            case "legacy-anchor" -> body.set("anchor", YAML.readTree("{\"externalTimestamp\": true}"));
+            case "depth-25" -> ((ObjectNode) body.get("anchoring")).put("treeDepth", 25);
+            default -> ((ArrayNode) body.get("tenantOverridable")).add(change.substring("overridable:".length()));
+        }
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(body)).isNotEmpty();
+        ObjectNode oneDay = (ObjectNode) read(DISC_2026_07).get("body");
+        oneDay.put("retentionYears", 0).put("retentionDays", 1);
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(oneDay)).as("0 years + 1 day is the shortest period").isEmpty();
     }
 
     @Test

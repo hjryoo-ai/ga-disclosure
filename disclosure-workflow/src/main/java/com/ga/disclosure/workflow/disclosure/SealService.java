@@ -63,7 +63,7 @@ import java.util.Optional;
  * <p><b>성공 경로(한 쓰기 트랜잭션, 잠금 순서 확인서 → 카운터 → 체인 머리)</b>: 성명 복호화(감사 {@code CUSTOMER_VIEW}, 사유 SEAL) → 봉인 본문·해시 →
  * 채번(봉인일 Asia/Seoul 연도) → 렌더 → 문서 키·암호화 → 업로드(잠금 없음) → 체인 → 봉인 컬럼 저장 → 키·산출물 기록 → 체인 머리 이동 → 감사
  * {@code DISCLOSURE_SEAL} → 오버라이드 플래그 해소(APPROVED·RESOLVED_AT_SEAL) → 커밋. 커밋 <b>후</b> 산출물마다 Object Lock을 건다(보존기한 =
- * 봉인일 + {@code retentionYears}의 당일 끝, Asia/Seoul) — 실패하면 {@code retention_applied_at}이 NULL로 남아 재적용 대상이 된다.
+ * 봉인일 + 보존기간({@code retentionYears}년 + {@code retentionDays}일)의 당일 끝, Asia/Seoul) — 실패하면 {@code retention_applied_at}이 NULL로 남아 재적용 대상이 된다.
  *
  * <p>예외(룰 해석 실패·복호화 실패·스키마 위반·저장소 오류)는 명령 오류다: 롤백 + {@code COMMAND_FAILED}. 업로드 뒤 롤백되면 저장소에 잠금 없는
  * 잔여물이 남고 잔여물 정리({@code ArtifactMaintenance#gc})가 치운다.
@@ -255,7 +255,7 @@ public final class SealService {
         String prev = head.map(SealLedgerPort.ChainLink::hash).orElse(ZERO_CHAIN);
         long chainSeq = head.map(h -> h.seq() + 1).orElse(1L);
         String chainHash = chainHash(prev, canonical.sha256(), pdf.sha256());
-        LocalDate retentionUntil = sealDate.plusYears(l.rule().retentionYears());
+        LocalDate retentionUntil = l.rule().retentionPeriod().from(sealDate);
         SealStamp stamp = new SealStamp(number, now, Sha256.of(canonical.sha256()), Sha256.of(pdf.sha256()), ChainHash.of(chainHash), chainSeq,
                 retentionUntil);
         DisclosureStatus from = d.status();

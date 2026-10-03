@@ -21,7 +21,6 @@
     "channels",
     "identityCheck",
     "proxySignatureDetection",
-    "anchor",
     "subjectRule",
     "kpi",
     "retentionYears",
@@ -37,7 +36,14 @@
     "lifecycleReasonTextMaxLength",
     "retentionAnchors",
     "sessionTtlMinutes",
-    "agentSignMethod"
+    "agentSignMethod",
+    "anchoring",
+    "retentionDays",
+    "retention",
+    "legalHoldReasons",
+    "legalHoldReasonTextMaxLength",
+    "customerRef",
+    "verify"
   ],
   "properties": {
     "minCompare": {
@@ -349,17 +355,18 @@
         }
       }
     },
-    "anchor": {
+    "anchoring": {
       "type": "object",
       "required": [
-        "externalTimestamp"
+        "treeDepth"
       ],
+      "additionalProperties": false,
+      "description": "일일 앵커의 머클 트리(5 계획 §2, 승인 Q7). 깊이는 고정이고 빈 자리는 상수 패딩 잎 — 경로 길이가 테넌트 수와 무관하다. 루트는 전 테넌트 하나이므로 GLOBAL 전용(테넌트별 TSA 선택·해제는 없다 — TSA 엔드포인트·신뢰 앵커는 배포 설정).",
       "properties": {
-        "externalTimestamp": {
-          "type": "boolean"
-        },
-        "tsaProfile": {
-          "type": "string"
+        "treeDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
         }
       }
     },
@@ -401,7 +408,13 @@
     },
     "retentionYears": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 0,
+      "description": "보존기간(년). 기간 = retentionYears년 + retentionDays일(산식 하나, 5 계획 승인 Q5) — 합계는 1일 이상(allOf). GLOBAL 전용."
+    },
+    "retentionDays": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "보존기간에 더하는 일수(테스트·데모의 짧은 보존을 같은 산식으로, 승인 Q5). GLOBAL 전용."
     },
     "retentionAnchors": {
       "type": "array",
@@ -415,6 +428,86 @@
         ]
       },
       "description": "보존기한 앵커(3B 수용심사 §3-3). retention_until = max(각 앵커 날짜 + retentionYears), 앵커가 생길 때마다 다시 계산해 연장만 한다. GLOBAL 전용."
+    },
+    "retention": {
+      "type": "object",
+      "required": [
+        "contractLinkWaitDays"
+      ],
+      "additionalProperties": false,
+      "description": "파기 절차 파라미터(판정 시점의 ACTIVE 룰로 읽는다 — 승인 Q10). 사규로 덮어쓸 수 있다.",
+      "properties": {
+        "contractLinkWaitDays": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "COMPLETED 확인서의 CONTRACT_DATE 앵커를 기다리는 일수. 완료일(KST) + 이 값이 지나면 '계약 없음'으로 확정하고 파기 감사에 anchorsWaived를 남긴다."
+        }
+      }
+    },
+    "legalHoldReasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "label"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,39}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requiresText": {
+            "type": "boolean"
+          }
+        }
+      },
+      "description": "법적 보류 사유 코드. 닫힌 목록 — requiresText면 텍스트 필수. GLOBAL 전용."
+    },
+    "legalHoldReasonTextMaxLength": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "법적 보류 사유 텍스트 상한. GLOBAL 전용."
+    },
+    "customerRef": {
+      "type": "object",
+      "required": [
+        "graceDaysAfterLastDestruction",
+        "abandonedDays"
+      ],
+      "additionalProperties": false,
+      "description": "고객 파기 절차 파라미터(판정 시점 룰). 사규로 덮어쓸 수 있다.",
+      "properties": {
+        "graceDaysAfterLastDestruction": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "abandonedDays": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "required": [
+        "unstampedAnchorAlertDays"
+      ],
+      "additionalProperties": false,
+      "description": "검증 파라미터. GLOBAL 전용.",
+      "properties": {
+        "unstampedAnchorAlertDays": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "영수증 없는 앵커가 이 일수를 넘기면 verify tenant 발견 ANCHOR_UNSTAMPED."
+        }
+      }
     },
     "retainUnlinked": {
       "type": "boolean"
@@ -574,7 +667,13 @@
             "voidReasons",
             "supersedeReasons",
             "lifecycleReasonTextMaxLength",
-            "retentionAnchors"
+            "retentionAnchors",
+            "anchoring",
+            "retentionYears",
+            "retentionDays",
+            "legalHoldReasons",
+            "legalHoldReasonTextMaxLength",
+            "verify"
           ]
         }
       }
@@ -626,6 +725,33 @@
             }
           }
         }
+      }
+    },
+    {
+      "description": "보존기간 합계 ≥ 1일(5 계획 승인 Q5) — 봉인 직후 '이미 끝난 보존'은 생길 수 없다.",
+      "anyOf": [
+        {
+          "properties": {
+            "retentionYears": {
+              "minimum": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "retentionDays": {
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "description": "옛 테넌트 키 anchor(externalTimestamp·tsaProfile)는 v1.11에서 GLOBAL anchoring으로 대체됐다 — 다시 쓸 수 없다(5 계획 승인 Q7).",
+      "not": {
+        "required": [
+          "anchor"
+        ]
       }
     }
   ],

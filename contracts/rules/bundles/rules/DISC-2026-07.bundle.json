@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-2026-07@e9bd163247cc",
+  "bundleId": "DISC-2026-07@79b922cccbb4",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-2026-07",
@@ -129,9 +129,8 @@
       "sameDeviceDistinctCustomersPerDay": 2,
       "minSecondsFromSendToSign": 60
     },
-    "anchor": {
-      "externalTimestamp": true,
-      "tsaProfile": "RFC3161"
+    "anchoring": {
+      "treeDepth": 16
     },
     "subjectRule": {
       "largeGaOnly": true,
@@ -144,11 +143,42 @@
       "collectionRate": "COMPLETED_LINKED / SUBJECT"
     },
     "retentionYears": 5,
+    "retentionDays": 0,
     "retentionAnchors": [
       "SEAL",
       "COMPLETION",
       "CONTRACT_DATE"
     ],
+    "retention": {
+      "contractLinkWaitDays": 365
+    },
+    "legalHoldReasons": [
+      {
+        "code": "LITIGATION",
+        "label": "소송·분쟁"
+      },
+      {
+        "code": "REGULATOR_INQUIRY",
+        "label": "감독기관 조사"
+      },
+      {
+        "code": "CUSTOMER_COMPLAINT",
+        "label": "고객 민원"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      }
+    ],
+    "legalHoldReasonTextMaxLength": 500,
+    "customerRef": {
+      "graceDaysAfterLastDestruction": 30,
+      "abandonedDays": 1825
+    },
+    "verify": {
+      "unstampedAnchorAlertDays": 2
+    },
     "retainUnlinked": true,
     "exceptionApproval": {
       "role": "MANAGER"
@@ -176,13 +206,14 @@
       "channels",
       "identityCheck",
       "proxySignatureDetection",
-      "anchor",
       "kpi",
       "retainUnlinked",
       "masking",
       "gateRequiresManager",
       "sessionTtlMinutes",
-      "agentSignMethod"
+      "agentSignMethod",
+      "retention",
+      "customerRef"
     ],
     "validations": [
       {

@@ -11,6 +11,7 @@ import com.ga.disclosure.domain.enums.SignerRole;
 import com.ga.disclosure.domain.enums.TieBreak;
 import com.ga.disclosure.domain.enums.ValidationStage;
 import com.ga.disclosure.domain.vo.ReasonCode;
+import com.ga.disclosure.domain.vo.RetentionPeriod;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.canonical.Sha256;
@@ -247,8 +248,43 @@ public record EffectiveRule(
 
     // ------------------------------------------------------------------ 보관·검증 목록·사규 허용 키
 
-    public int retentionYears() {
-        return intValue("retentionYears");
+    /** 보존기간 = {@code retentionYears}년 + {@code retentionDays}일(산식 하나, 5 계획 승인 Q5). GLOBAL 전용 키. */
+    public RetentionPeriod retentionPeriod() {
+        return new RetentionPeriod(intValue("retentionYears"), intValue("retentionDays"));
+    }
+
+    /** 일일 앵커 머클 트리 깊이(GLOBAL 전용, 비오버라이드 — 루트는 전 테넌트 하나, 5 계획 §2). */
+    public int anchoringTreeDepth() {
+        return intValue(object("anchoring"), "anchoring.treeDepth", "treeDepth");
+    }
+
+    /** COMPLETED 확인서가 계약일 앵커를 기다리는 일수(파기 절차 파라미터 — 판정 시점의 ACTIVE 룰로 읽는다, 승인 Q10). */
+    public int contractLinkWaitDays() {
+        return intValue(object("retention"), "retention.contractLinkWaitDays", "contractLinkWaitDays");
+    }
+
+    /** 법적 보류 사유 코드(닫힌 목록). */
+    public List<LifecycleReasonRule> legalHoldReasons() {
+        return lifecycleReasons("legalHoldReasons");
+    }
+
+    public int legalHoldReasonTextMaxLength() {
+        return intValue("legalHoldReasonTextMaxLength");
+    }
+
+    /** 고객 파기 유예: 그 고객의 마지막 확인서 파기 뒤 일수. */
+    public int customerGraceDaysAfterLastDestruction() {
+        return intValue(object("customerRef"), "customerRef.graceDaysAfterLastDestruction", "graceDaysAfterLastDestruction");
+    }
+
+    /** 확인서가 한 번도 없었던 고객의 파기: 등록 뒤 일수. */
+    public int customerAbandonedDays() {
+        return intValue(object("customerRef"), "customerRef.abandonedDays", "abandonedDays");
+    }
+
+    /** 영수증 없는 앵커를 verify tenant가 발견으로 올리기까지의 일수. */
+    public int unstampedAnchorAlertDays() {
+        return intValue(object("verify"), "verify.unstampedAnchorAlertDays", "unstampedAnchorAlertDays");
     }
 
     /** 보존기한 앵커(3B 수용심사 §3-3). GLOBAL 전용 키. */

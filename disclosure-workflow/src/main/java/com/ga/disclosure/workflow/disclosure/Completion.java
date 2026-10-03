@@ -114,7 +114,7 @@ final class Completion {
         Map<RetentionAnchor, LocalDate> anchors = new EnumMap<>(RetentionAnchor.class);
         anchors.put(RetentionAnchor.SEAL, seal.sealedAt().atZone(SealService.SEOUL).toLocalDate());
         anchors.put(RetentionAnchor.COMPLETION, now.atZone(SealService.SEOUL).toLocalDate());
-        LocalDate retentionUntil = RetentionAnchors.until(seal.retentionUntil(), l.rule().retentionAnchors(), anchors, l.rule().retentionYears());
+        LocalDate retentionUntil = RetentionAnchors.until(seal.retentionUntil(), l.rule().retentionAnchors(), anchors, l.rule().retentionPeriod());
 
         List<EvidenceInput.AuditRow> auditRows = new ArrayList<>();
         for (AuditRecord r : audit.readTarget(CommandRunner.TARGET, id.toString())) {
