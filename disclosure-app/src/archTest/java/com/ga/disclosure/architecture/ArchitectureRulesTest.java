@@ -51,11 +51,21 @@ class ArchitectureRulesTest {
                     "애플리케이션 DataSource로 위 두 빈을 조립하는 자동 구성"),
             new Allowed("com.ga.platform.spring.jdbc.TenantDirectoryReader",
                     "운영자 CLI --tenants all 전용 테넌트 ID 목록 — tenant.tenant_id만 읽을 수 있는 disclosure_operator 롤로 별도 접속"
-                            + "(Phase 1 계획 D4, 설계서 §9)"));
+                            + "(Phase 1 계획 D4, 설계서 §9)"),
+            new Allowed(P + "infra.retention.DestroyerGateway",
+                    "파기 함수 3개 호출 — 호출자 트랜잭션의 연결에서 SET LOCAL ROLE disclosure_destroyer(전용 롤, 함수 EXECUTE만) → 함수 → RESET ROLE. "
+                            + "테넌트 데이터를 읽지 않는다(5 계획 승인 Q2, 설계서 §9)"));
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(
-            new Allowed(P + "infra.json", "엔진 응답 JSON 역직렬화 경계 — 숫자를 비교·정렬·분류하지 않는다"));
+            new Allowed(P + "infra.json", "엔진 응답 JSON 역직렬화 경계 — 숫자를 비교·정렬·분류하지 않는다"),
+            new Allowed(P + "audit.tsa.stub", "BC 인증서·토큰 생성 API의 ASN.1 INTEGER 일련번호(BigInteger 매개변수) — 금액·비율이 아니며 "
+                    + "연산·비교하지 않는다(Phase 5 계획 §3). 검증 쪽(audit.tsa)은 ASN1Integer·hex로 다뤄 BigInteger를 쓰지 않는다"));
+
+    /** {@code org.bouncycastle..} 참조 허용 패키지(4 수용심사 승인 ① — 테스트 픽스처는 이 검사 대상 밖). 하위 패키지 불포함. */
+    static final List<Allowed> BOUNCY_CASTLE_PACKAGES = List.of(
+            new Allowed(P + "audit.tsa", "RFC 3161 요청 생성·응답 수락·토큰 검증(TimestampClient·TimestampVerifier)"),
+            new Allowed(P + "audit.tsa.stub", "로컬 스텁 TSA — BC TimeStampResponseGenerator·자체 서명 인증서(데모 프로파일이 런타임에 쓴다)"));
 
     /** RatioLabel.value()(엔진 ratioToAvg 원문 문자열) 호출 허용 패키지 — 전부 "원문을 그대로 옮기는" 자리다. */
     static final List<Allowed> RATIO_LABEL_VALUE_PACKAGES = List.of(
@@ -104,6 +114,8 @@ class ArchitectureRulesTest {
         assertThat(classes.containPackage("com.ga.platform.canonical")).isTrue();
         assertThat(classes.containPackage(P + "infra.persistence")).isTrue();
         assertThat(classes.containPackage(P + "app")).isTrue();
+        assertThat(classes.containPackage(P + "audit.tsa.stub")).isTrue();
+        assertThat(classes.containPackage(P + "audit.verify")).isTrue();
         assertThat(classes.stream().map(c -> c.getName()))
                 .noneMatch(n -> n.contains(".architecture.") || n.endsWith("IT") || n.endsWith("Test"));
     }
@@ -215,12 +227,38 @@ class ArchitectureRulesTest {
                 .check(classes);
     }
 
+    // (j) Phase 5: BouncyCastle은 TSA 패키지 안에서만 — 포트·결과 타입에 BC 타입이 없어 바깥은 DER 바이트·record만 본다
+    @Test
+    void bouncyCastleOnlyInTsaPackages() {
+        String[] allowed = BOUNCY_CASTLE_PACKAGES.stream().map(Allowed::fqn).toArray(String[]::new);
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().resideOutsideOfPackages(allowed)
+                .should().dependOnClassesThat().resideInAPackage("org.bouncycastle..")
+                .allowEmptyShould(true)
+                .because("4 수용심사 승인 ①: org.bouncycastle.. 참조는 disclosure-audit의 ..tsa..와 테스트 픽스처만")
+                .check(classes);
+    }
+
+    // (k) Phase 5 승인 Q1: verify package는 생산자(seal)·workflow·infra·DB·네트워크·파일 시스템·키에 의존하지 않는다 — 입력 바이트만 받아 자체
+    //     리더와 계약 스키마로 검증한다(스텁·HTTP TSA 어댑터도 쓰지 않는다)
+    @Test
+    void verifyPackageIsIndependentOfTheProducerAndOfEveryEnvironment() {
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().resideInAPackage(P + "audit.verify..")
+                .should().dependOnClassesThat().resideInAnyPackage(P + "seal..", P + "workflow..", P + "infra..", P + "compliance..", P + "api..",
+                        P + "app..", P + "audit.tsa.http..", P + "audit.tsa.stub..", "java.sql..", "javax.sql..", "java.net..", "java.nio.file..",
+                        "javax.crypto..", "org.springframework..")
+                .because("5 계획 승인 Q1: verify package는 DB·키·워크플로·생산자 코드 의존 0 — 패키지와 영수증·신뢰 앵커 바이트만으로 검증한다")
+                .check(classes);
+    }
+
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
         List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE), DB_INFRASTRUCTURE, ORDERING_CLASSES)
                 .flatMap(List::stream).toList();
-        List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE))
+        List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE),
+                        BOUNCY_CASTLE_PACKAGES)
                 .flatMap(List::stream).toList();
         assertThat(ArchRules.staleClasses(classes, classAllowlist)).as("stale class entries").isEmpty();
         assertThat(ArchRules.stalePackages(classes, packageAllowlist)).as("stale package entries").isEmpty();

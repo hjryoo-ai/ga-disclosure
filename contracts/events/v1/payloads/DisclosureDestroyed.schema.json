@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureDestroyed.schema.json",
+  "title": "DisclosureDestroyed payload (v1)",
+  "description": "보존기간 종료 후 파기(Phase 5): 지정 개인정보 컬럼이 NULL이 되고 객체·문서 키가 지워졌다. 번호·상태·해시·체인은 묘비로 남는다. 식별자·번호·시각만 싣는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "disclosureId",
+    "disclosureNo",
+    "destroyedAt"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "disclosureNo": {
+      "$ref": "../defs.schema.json#/$defs/disclosureNo"
+    },
+    "destroyedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    }
+  }
+}

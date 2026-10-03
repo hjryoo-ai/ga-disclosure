@@ -77,7 +77,6 @@ class ImmutabilityTriggerIT {
         META.put("superseded_by_id", "gen_random_uuid()");
         META.put("completed_at", "TIMESTAMPTZ '2026-09-24 00:00:00+09'");
         META.put("voided_at", "TIMESTAMPTZ '2026-09-24 00:00:00+09'");
-        META.put("void_reason", "'상담 취소'");                               // V8: 이관 뒤 쓰지 않는 옛 컬럼(언제나 NULL, V9에서 제거)
         META.put("void_reason_code", "'CUSTOMER_CANCELLED'");                 // V8: 무효·정정 사유 코드·텍스트(메타, 한 번만 쓴다 — GD100)
         META.put("void_reason_text", "'상담 취소'");
         META.put("supersede_reason_code", "'CONTENT_ERROR'");
@@ -85,6 +84,8 @@ class ImmutabilityTriggerIT {
         META.put("policy_no", "'POL-9'");
         META.put("contract_date", "DATE '2026-10-01'");
         META.put("retention_until", "DATE '2031-10-01'");
+        META.put("destroyed_at", "TIMESTAMPTZ '2036-10-02 00:00:00+09'");     // V9: 파기 함수만(정의자 롤 + 표식) — 그 밖은 GD113
+        META.put("destroyed_by", "'someone'");
     }
 
     @BeforeAll
@@ -176,7 +177,7 @@ class ImmutabilityTriggerIT {
             case "superseded_by_id" -> status.equals("SUPERSEDED") ? "GD004" : "23514";   // 한 번만 쓰고, SUPERSEDED에만 있다(사유 코드와 함께)
             case "voided_at", "void_reason_code", "void_reason_text" -> status.equals("VOID") ? "GD100" : "23514";   // VOID ⇔ 시각 ⇔ 코드, 한 번만
             case "supersede_reason_code", "supersede_reason_text" -> status.equals("SUPERSEDED") ? "GD100" : "23514";
-            case "void_reason" -> "23514";                                                 // 옛 컬럼은 더 쓰지 않는다
+            case "destroyed_at", "destroyed_by" -> "GD113";                                // V9: 파기 함수 밖에서는 어떤 상태에서도
             case "completed_at" -> switch (status) {
                 case "COMPLETED" -> "GD100";                                               // 한 번만
                 case "VOID", "SUPERSEDED" -> null;                                         // 완료 뒤 무효·정정은 완료 시각을 유지할 수 있다

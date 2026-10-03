@@ -4,6 +4,7 @@ import com.ga.disclosure.app.notify.ConsoleSignLinkNotifier;
 import com.ga.disclosure.infra.crypto.SecureRandomTokenSource;
 import com.ga.disclosure.seal.renderer.SignedPdfAppender;
 import com.ga.disclosure.sign.token.TokenSource;
+import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
@@ -54,7 +55,8 @@ public class SignConfiguration {
 
     @Bean
     public SignService signService(DisclosureServiceDeps deps, SignSessionStore sessions, SignatureStore signatures, DocumentRecordStore records,
-                                   DocumentCryptoPort crypto, ArtifactStore storage, SignedPdfAppender appender, SealService seal) {
-        return new SignService(deps, sessions, signatures, records, crypto, storage, appender, seal.transactionTimeout());
+                                   DocumentCryptoPort crypto, ArtifactStore storage, SignedPdfAppender appender, SealService seal,
+                                   AnchorStore anchors) {
+        return new SignService(deps, sessions, signatures, records, crypto, storage, appender, seal.transactionTimeout(), anchors);
     }
 }

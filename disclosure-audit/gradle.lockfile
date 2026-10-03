@@ -2,11 +2,24 @@
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
 # To regenerate this file, run: ./gradlew :disclosure-audit:dependencies --write-locks
+com.ethlo.time:itu:1.14.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.fasterxml.jackson.core:jackson-annotations:2.21=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+com.networknt:json-schema-validator:3.0.6=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+commons-logging:commons-logging:1.3.6=testRuntimeClasspath
+de.rototor.pdfbox:graphics2d:3.0.1=testRuntimeClasspath
 io.github.erdtman:java-json-canonicalization:1.1=runtimeClasspath,testRuntimeClasspath
+io.github.openhtmltopdf:openhtmltopdf-core:1.1.87=testRuntimeClasspath
+io.github.openhtmltopdf:openhtmltopdf-pdfbox:1.1.87=testRuntimeClasspath
 net.bytebuddy:byte-buddy:1.18.11=testCompileClasspath,testRuntimeClasspath
+org.apache.pdfbox:fontbox:3.0.7=testRuntimeClasspath
+org.apache.pdfbox:pdfbox-io:3.0.7=testRuntimeClasspath
+org.apache.pdfbox:pdfbox:3.0.7=testRuntimeClasspath
+org.apache.pdfbox:xmpbox:3.0.7=testRuntimeClasspath
 org.apiguardian:apiguardian-api:1.1.2=testCompileClasspath
 org.assertj:assertj-core:3.27.7=testCompileClasspath,testRuntimeClasspath
+org.bouncycastle:bcpkix-jdk18on:1.86=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.bouncycastle:bcprov-jdk18on:1.86=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.bouncycastle:bcutil-jdk18on:1.86=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.jspecify:jspecify:1.0.1=testCompileClasspath
 org.junit.jupiter:junit-jupiter-api:6.0.3=testCompileClasspath,testRuntimeClasspath
 org.junit.jupiter:junit-jupiter-engine:6.0.3=testRuntimeClasspath
@@ -17,8 +30,11 @@ org.junit.platform:junit-platform-engine:6.0.3=testRuntimeClasspath
 org.junit.platform:junit-platform-launcher:6.0.3=testRuntimeClasspath
 org.junit:junit-bom:6.0.3=testCompileClasspath,testRuntimeClasspath
 org.opentest4j:opentest4j:1.3.0=testCompileClasspath,testRuntimeClasspath
+org.slf4j:slf4j-api:2.0.18=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.snakeyaml:snakeyaml-engine:3.0.1=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.springframework.boot:spring-boot-dependencies:4.1.1=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 tools.jackson.core:jackson-core:3.1.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 tools.jackson.core:jackson-databind:3.1.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+tools.jackson.dataformat:jackson-dataformat-yaml:3.1.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 tools.jackson:jackson-bom:3.1.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 empty=annotationProcessor,testAnnotationProcessor

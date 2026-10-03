@@ -174,16 +174,16 @@ class SealColumnCheckIT {
         assertThat(state).isEqualTo(ok ? null : "23514");
     }
 
-    /** V8: 옛 {@code void_reason}은 이관 뒤 쓰지 않는다(V9에서 제거) — 값이 있으면 거부. */
+    /** V8: 옛 {@code void_reason}은 이관 뒤 쓰지 않았고, V9가 컬럼을 제거했다(전방 호환 2단계의 둘째 단계). */
     @Test
-    void legacyVoidReasonIsNoLongerWritten() {
+    void legacyVoidReasonColumnIsGone() {
         String state = sqlStateOrNull(() -> DB.asApp(T, c -> SeedData.exec(c, """
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
                                         issuer_mode, status, consult_date, rule_version_id, voided_at, void_reason_code, void_reason)
                 VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', 'VOID', DATE '2026-09-23', 'DISC-2026-07',
                         TIMESTAMPTZ '2026-09-24 09:00:00+09', 'CUSTOMER_CANCELLED', '상담 취소')
                 """, T)));
-        assertThat(state).isEqualTo("23514");
+        assertThat(state).isEqualTo("42703");
     }
 
     static Stream<Arguments> completedCombinations() {

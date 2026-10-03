@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/verify/v1/verify-report.schema.json",
+  "title": "Verify report (v1)",
+  "description": "verify package(오프라인)·verify tenant(온라인)의 보고서 — 5 계획 §4. 직렬화는 JCS이고 VERIFY_RUN 감사에 그 SHA-256을 남긴다. 결과 MATCH = 종료 0, MISMATCH = 종료 2. 입력 오류(종료 3)는 보고서가 아니라 {code, message}다. 모든 객체는 닫혀 있다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reportVersion", "verifierVersion", "kind", "inputs", "result", "checks", "findings", "statements", "conclusion", "counts"],
+  "properties": {
+    "reportVersion": { "const": 1 },
+    "verifierVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9./+-]{0,63}$" },
+    "kind": { "enum": ["PACKAGE", "TENANT"] },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "receipt", "trust", "tenantId", "from", "to", "asOf"],
+      "properties": {
+        "package": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/fileDigest" }] },
+        "receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/fileDigest" }] },
+        "trust": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/fileDigest" }] },
+        "tenantId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}$" },
+        "from": { "type": ["integer", "null"], "minimum": 1 },
+        "to": { "type": ["integer", "null"], "minimum": 1 },
+        "asOf": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" }
+      }
+    },
+    "result": { "enum": ["MATCH", "MISMATCH"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "status", "count"],
+        "properties": {
+          "check": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,47}$" },
+          "status": { "enum": ["PASS", "FAIL", "SKIPPED"] },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "where", "detail"],
+        "properties": {
+          "code": { "$ref": "#/$defs/findingCode" },
+          "where": { "type": "object", "additionalProperties": { "type": ["string", "integer", "null"] } },
+          "detail": { "type": "object", "additionalProperties": { "type": ["string", "integer", "boolean", "null"] } }
+        }
+      }
+    },
+    "statements": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "conclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existedBefore", "sealedAfter", "tsaTrusted"],
+      "properties": {
+        "existedBefore": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$", "description": "외부(TSA)로 증명되는 상한: covering 토큰의 genTime" },
+        "sealedAfter": {
+          "description": "자체 기록인 하한(승인 Q13 대안): 매니페스트가 가리키는 직전 앵커의 날짜·봉인 체인 seq·기록 시각. 외부 증명이 아니다",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["anchorDate", "sealChainSeq", "recordedAt"],
+              "properties": {
+                "anchorDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+                "sealChainSeq": { "type": "integer", "minimum": 0 },
+                "recordedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" }
+              }
+            }
+          ]
+        },
+        "tsaTrusted": { "type": ["boolean", "null"] }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disclosures", "objects", "auditRows", "anchors", "receipts"],
+      "properties": {
+        "disclosures": { "type": "integer", "minimum": 0 },
+        "objects": { "type": "integer", "minimum": 0 },
+        "auditRows": { "type": "integer", "minimum": 0 },
+        "anchors": { "type": "integer", "minimum": 0 },
+        "receipts": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "fileDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findingCode": {
+      "enum": ["PACKAGE_ENTRY_MISMATCH", "SIGNED_PDF_NOT_PREFIXED", "SIGNATURE_BINDING_MISMATCH", "AUDIT_ENTRY_MISMATCH", "SEAL_CHAIN_BROKEN",
+               "AUDIT_CHAIN_BROKEN", "NUMBERING_GAP", "OBJECT_HASH_MISMATCH", "OBJECT_MISSING", "OBJECT_NOT_DELETED", "DESTRUCTION_UNAUDITED",
+               "ANCHOR_MISMATCH", "RECEIPT_PATH_INVALID", "TSA_INVALID", "TSA_UNTRUSTED", "ANCHOR_UNSTAMPED", "RECEIPT_NOT_COVERING"]
+    }
+  }
+}

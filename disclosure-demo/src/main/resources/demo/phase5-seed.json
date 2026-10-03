@@ -1,0 +1,9 @@
+{
+  "tenants": [
+    { "tenantId": "DEMO3", "name": "데모GA 3(짧은 보존 데모)", "engineBaseUrl": "http://engine-stub.local/demo3", "largeGa": false,
+      "identityLinks": [
+        { "subject": "demo-agent", "agentId": "DEMO-AGENT-1", "roles": ["AGENT"], "orgPath": "/HQ/B1" },
+        { "subject": "demo-manager", "agentId": "DEMO-MGR-1", "roles": ["MANAGER"], "orgPath": "/HQ" }
+      ] }
+  ]
+}

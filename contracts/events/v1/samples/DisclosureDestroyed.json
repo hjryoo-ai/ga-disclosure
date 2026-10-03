@@ -1,0 +1,16 @@
+{
+  "eventId": "00000009-0000-4000-8000-000000000009",
+  "seq": 1009,
+  "type": "DisclosureDestroyed",
+  "version": 1,
+  "occurredAt": "2031-09-25T09:00:00+09:00",
+  "aggregate": {
+    "kind": "DISCLOSURE",
+    "id": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192"
+  },
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "disclosureNo": "DEMO1-2026-000001",
+    "destroyedAt": "2031-09-25T09:00:00+09:00"
+  }
+}

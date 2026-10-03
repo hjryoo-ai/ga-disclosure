@@ -27,6 +27,8 @@ import java.util.Objects;
 final class RetentionLocks {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    /** 감사 {@code ARTIFACT_RETAIN.detail.reason}: 보존기한이 이미 끝나 저장소 잠금을 걸지 않았다(승인 Q6(b)). */
+    static final String ELAPSED = "RETENTION_ALREADY_ELAPSED";
 
     private final DocumentRecordStore records;
     private final ArtifactStore storage;
@@ -47,6 +49,19 @@ final class RetentionLocks {
         boolean pending = false;
         Instant until = SealService.retainUntilInstant(retentionUntil);
         for (LockedObject o : objects) {
+            if (!until.isAfter(clock.instant())) {
+                // 5 계획 승인 Q6(b): 보존기한 당일이 이미 끝났다 — 저장소는 과거 기한을 거부하므로(400) 부르지 않고, 적용을 기록하되 사유를 남긴다.
+                // 봉인·완료 직후에는 보존 합계 ≥ 1일이라 생기지 않는다(B3 감사 스캔이 운영 경로 0건을 확인한다).
+                transactions.inTenant(tenant, () -> {
+                    if (records.markRetentionApplied(o, clock.instant(), retentionUntil)) {
+                        audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_RETAIN,
+                                SealService.ARTIFACT_TARGET, o.storageKey(), detail(o).put("retainUntil", until.toString())
+                                        .put("reason", ELAPSED)));
+                    }
+                    return null;
+                });
+                continue;
+            }
             try {
                 storage.applyRetention(o.storageKey(), until);
                 transactions.inTenant(tenant, () -> {

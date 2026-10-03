@@ -45,6 +45,13 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
         return new DisclosureFlagPort.RaisedFlag(f.flagId(), f.created());
     }
 
+    @Override
+    public DisclosureFlagPort.RaisedFlag raiseUnattached(DisclosureFlagPort.Type type, String severity, String targetKind, String targetId,
+                                                         Instant raisedAt) {
+        ComplianceFlagPort.RaisedFlag f = raiseFor(type.name(), severity, null, targetKind, targetId, raisedAt);
+        return new DisclosureFlagPort.RaisedFlag(f.flagId(), f.created());
+    }
+
     private ComplianceFlagPort.RaisedFlag raiseFor(String type, String severity, UUID disclosureIdOrNull, String targetKind, String targetId, Instant raisedAt) {
         Map<String, Object> params = new HashMap<>();
         params.put("disclosureId", disclosureIdOrNull);

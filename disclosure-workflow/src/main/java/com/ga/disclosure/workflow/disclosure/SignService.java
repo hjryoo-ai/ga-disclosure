@@ -30,6 +30,7 @@ import com.ga.disclosure.sign.proxy.ProxyThresholds;
 import com.ga.disclosure.sign.token.SignToken;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
@@ -126,7 +127,7 @@ public final class SignService {
     private final Duration transactionTimeout;
 
     public SignService(DisclosureServiceDeps deps, SignSessionStore sessions, SignatureStore signatures, DocumentRecordStore records,
-                       DocumentCryptoPort crypto, ArtifactStore storage, SignedPdfAppender appender, Duration transactionTimeout) {
+                       DocumentCryptoPort crypto, ArtifactStore storage, SignedPdfAppender appender, Duration transactionTimeout, AnchorStore anchors) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.signatures = Objects.requireNonNull(signatures, "signatures");
         this.records = Objects.requireNonNull(records, "records");
@@ -145,7 +146,7 @@ public final class SignService {
         this.stored = new StoredArtifacts(records, crypto, storage);
         RuleResolver rules = deps.rules();
         TemplateResolver templates = deps.templates();
-        this.completion = new Completion(stored, records, crypto, storage, audit, rules, templates, appender);
+        this.completion = new Completion(stored, records, crypto, storage, audit, rules, templates, appender, anchors);
         this.locks = new RetentionLocks(records, storage, audit, transactions, clock);
     }
 

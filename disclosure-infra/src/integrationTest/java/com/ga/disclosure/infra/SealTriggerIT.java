@@ -120,7 +120,7 @@ class SealTriggerIT {
     }
 
     @Test
-    void ownerChangesKeysOnlyThroughTheShredFunction() {
+    void keysChangeOnlyByShreddingUnderTheDefinerMarker() {
         UUID[] id = new UUID[1];
         DB.seed(T, c -> {
             id[0] = SeedData.disclosure(c, T, "SEALED", SeedData.hash('7'));
@@ -134,30 +134,14 @@ class SealTriggerIT {
             assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c, sql, T, id[0])))).as(sql).isEqualTo("GD092");
         }
         assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c, "TRUNCATE document_key CASCADE")))).isIn("GD092", "GD030");
-        // 애플리케이션 롤은 파기 함수를 실행할 수 없다(EXECUTE 부여 없음 — Phase 5 파기 배치 전용 롤이 받는다)
-        assertRejected(DB, T, "42501", "SELECT ga_shred_document_key(?, ?, now(), 'app')", T, id[0]);
-        // 소유 롤: 파기 → 감싼 키 NULL, 시각·주체 기록, 다시 부르면 대상 없음
-        String[] shredded = new String[2];
-        DB.seed(T, c -> {
-            try (var ps = c.prepareStatement("SELECT ga_shred_document_key(?, ?, TIMESTAMPTZ '2031-09-24 00:00:00+09', 'RETENTION:test')")) {
-                ps.setString(1, T);
-                ps.setObject(2, id[0]);
-                try (var rs = ps.executeQuery()) {
-                    rs.next();
-                    shredded[0] = rs.getString(1);
-                }
-            }
-            try (var ps = c.prepareStatement("SELECT ga_shred_document_key(?, ?, now(), 'again')")) {
-                ps.setString(1, T);
-                ps.setObject(2, id[0]);
-                try (var rs = ps.executeQuery()) {
-                    rs.next();
-                    shredded[1] = rs.getString(1);
-                }
-            }
-        });
-        assertThat(shredded[0]).isEqualTo(SeedData.documentKeyId(id[0]));
-        assertThat(shredded[1]).isNull();
+        // 애플리케이션 롤은 파기 함수를 직접 실행할 수 없다(V9: EXECUTE는 disclosure_destroyer만 — SET LOCAL ROLE 경로는 DestroyerRoleIT)
+        assertRejected(DB, T, "42501", "SELECT ga_document_key_shred(?, ?, CURRENT_DATE, now(), 'app')", T, id[0]);
+        // V9: 소유 롤도 표식 없이는 파기할 수 없다(3B의 current_user 검사 대체 — 정의자 롤 + 함수 표식만)
+        assertThat(sqlStateOf(() -> DB.seed(T, c -> SeedData.exec(c,
+                "UPDATE document_key SET wrapped_dek = NULL, shredded_at = now(), shredded_by = 'owner'" + where, T, id[0])))).isEqualTo("GD092");
+        // 정의자 롤 + 표식: 파기 → 감싼 키 NULL, 시각·주체 기록. 다시 해도 대상이 없다(wrapped_dek IS NOT NULL만 고른다)
+        DB.seed(T, c -> SeedData.shredDocumentKey(c, T, id[0]));
+        DB.seed(T, c -> SeedData.shredDocumentKey(c, T, id[0]));
         long live = DB.asApp(T, c -> SeedData.longValue(c,
                 "SELECT count(*) FROM document_key WHERE tenant_id = ? AND disclosure_id = ? AND wrapped_dek IS NOT NULL", T, id[0]));
         assertThat(live).isZero();

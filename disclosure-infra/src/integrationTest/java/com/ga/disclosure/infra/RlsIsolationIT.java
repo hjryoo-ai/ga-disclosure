@@ -29,8 +29,11 @@ class RlsIsolationIT {
 
     private static final PostgresHarness DB = PostgresHarness.get();
 
-    /** V8 기준 테넌트 테이블 수(V8 signature_evidence·outbox_head·outbox_event 추가). 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게). */
-    private static final int EXPECTED_TABLE_COUNT = 27;
+    /**
+     * V9 기준 테넌트 테이블 수(V8 signature_evidence·outbox_head·outbox_event 추가, V9 anchor·anchor_receipt·legal_hold 추가와 audit_anchor 제거).
+     * 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게).
+     */
+    private static final int EXPECTED_TABLE_COUNT = 29;
 
     static final List<String> TABLES = catalogTables();
 
@@ -204,6 +207,7 @@ class RlsIsolationIT {
     @ValueSource(strings = {
             "SET ROLE disclosure_migrator",
             "SET ROLE postgres",
+            "SET ROLE disclosure_destroy_definer",                 // V9: 파기 함수 정의자 롤로는 전환할 수 없다(파기자 롤 전환은 DestroyerRoleIT)
             "SET SESSION AUTHORIZATION disclosure_migrator",
             "SET session_replication_role = replica",
             "ALTER TABLE disclosure DISABLE ROW LEVEL SECURITY",

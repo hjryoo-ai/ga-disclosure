@@ -2,6 +2,7 @@ package com.ga.disclosure.rules.resolve;
 
 import com.ga.disclosure.domain.enums.IdentityMethod;
 import com.ga.disclosure.domain.enums.RetentionAnchor;
+import com.ga.disclosure.domain.vo.RetentionPeriod;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.enums.SignatureMethod;
 import com.ga.disclosure.domain.vo.RuleVersionId;
@@ -63,6 +64,15 @@ class EffectiveRuleSignKeysTest {
         assertThat(BUNDLE.supersedeReasons()).extracting(LifecycleReasonRule::code)
                 .containsExactly("CONTENT_ERROR", "PRODUCT_DATA_CORRECTED", "OTHER");
         assertThat(BUNDLE.lifecycleReasonTextMaxLength()).isEqualTo(500);
+        // Phase 5(5 계획 §8.7)
+        assertThat(BUNDLE.retentionPeriod()).isEqualTo(new RetentionPeriod(5, 0));
+        assertThat(BUNDLE.anchoringTreeDepth()).isEqualTo(16);
+        assertThat(BUNDLE.contractLinkWaitDays()).isEqualTo(365);
+        assertThat(BUNDLE.legalHoldReasons()).filteredOn(LifecycleReasonRule::requiresText).extracting(LifecycleReasonRule::code).containsExactly("OTHER");
+        assertThat(BUNDLE.legalHoldReasonTextMaxLength()).isEqualTo(500);
+        assertThat(BUNDLE.customerGraceDaysAfterLastDestruction()).isEqualTo(30);
+        assertThat(BUNDLE.customerAbandonedDays()).isEqualTo(1825);
+        assertThat(BUNDLE.unstampedAnchorAlertDays()).isEqualTo(2);
     }
 
     @Test
@@ -72,16 +82,21 @@ class EffectiveRuleSignKeysTest {
             ((ObjectNode) b.get("proxySignatureDetection")).set("sameIpDistinctCustomersPerDay", json("5"));
             ((ObjectNode) b.get("channels")).set("PAPER_SCAN", json("{\"enabled\": false}"));
             b.set("retentionAnchors", json("[\"COMPLETION\"]"));
+            b.set("retentionYears", json("0"));
+            b.set("retentionDays", json("1"));
+            ((ObjectNode) b.get("retention")).set("contractLinkWaitDays", json("7"));
         });
         assertThat(changed.agentSignMethod()).isEqualTo(SignatureMethod.SSO_APPROVAL);
         assertThat(changed.sameIpDistinctCustomersPerDay()).hasValue(5);
         assertThat(changed.channel(SignatureChannel.PAPER_SCAN)).isEqualTo(new ChannelPolicy(false, false));
         assertThat(changed.retentionAnchors()).containsExactly(RetentionAnchor.COMPLETION);
+        assertThat(changed.retentionPeriod()).isEqualTo(new RetentionPeriod(0, 1));
+        assertThat(changed.contractLinkWaitDays()).isEqualTo(7);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"voidReasons", "supersedeReasons", "lifecycleReasonTextMaxLength", "retentionAnchors", "sessionTtlMinutes",
-            "agentSignMethod", "channels"})
+            "agentSignMethod", "channels", "retentionDays", "anchoring", "retention", "legalHoldReasons", "customerRef", "verify"})
     void missingKeysFailWithoutDefaults(String key) {
         EffectiveRule missing = rule(b -> b.remove(key));
         assertThatThrownBy(() -> {
@@ -92,6 +107,12 @@ class EffectiveRuleSignKeysTest {
                 case "retentionAnchors" -> missing.retentionAnchors();
                 case "sessionTtlMinutes" -> missing.sessionTtlMinutes(SignatureChannel.TOUCH_PAD);
                 case "agentSignMethod" -> missing.agentSignMethod();
+                case "retentionDays" -> missing.retentionPeriod();
+                case "anchoring" -> missing.anchoringTreeDepth();
+                case "retention" -> missing.contractLinkWaitDays();
+                case "legalHoldReasons" -> missing.legalHoldReasons();
+                case "customerRef" -> missing.customerAbandonedDays();
+                case "verify" -> missing.unstampedAnchorAlertDays();
                 default -> missing.channel(SignatureChannel.TOUCH_PAD);
             }
         }).isInstanceOf(MissingRuleKeyException.class);

@@ -1,5 +1,6 @@
 package com.ga.disclosure.audit;
 
+import com.ga.disclosure.audit.chain.ChainBreak;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.canonical.Sha256;
 import com.ga.platform.core.tenant.TenantId;
@@ -7,8 +8,8 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 감사 체인의 정의(설계서 §5·§6.7).
@@ -59,26 +60,11 @@ public final class AuditChain {
 
     /**
      * 한 테넌트의 행 목록(seq 오름차순)을 처음부터 재계산해 어긋난 곳을 돌려준다 — seq 갭·중복, prevHash 단절, entryHash 불일치.
-     * 운영 {@code verify} 명령(Phase 5)의 핵심 판정이다.
+     * 흘려 읽는 걷기({@link AuditChainWalker})의 목록판이다.
      */
     public static List<String> breaks(List<AuditRecord> records) {
-        List<String> out = new ArrayList<>();
-        String prev = GENESIS;
-        long expectedSeq = 1;
-        for (AuditRecord r : records) {
-            if (r.seq() != expectedSeq) {
-                out.add("seq " + r.seq() + " where " + expectedSeq + " was expected");
-            }
-            if (!r.prevHash().equals(prev)) {
-                out.add("seq " + r.seq() + " prevHash does not link to the previous entry");
-            }
-            String recomputed = entryHash(r.prevHash(), canonicalEntry(r.tenantId(), r.seq(), r.entry()));
-            if (!recomputed.equals(r.entryHash())) {
-                out.add("seq " + r.seq() + " entryHash does not match its content");
-            }
-            prev = r.entryHash();
-            expectedSeq = r.seq() + 1;
-        }
-        return out;
+        AuditChainWalker walker = new AuditChainWalker(Set.of());
+        records.forEach(walker::accept);
+        return walker.breaks().stream().map(ChainBreak::message).toList();
     }
 }

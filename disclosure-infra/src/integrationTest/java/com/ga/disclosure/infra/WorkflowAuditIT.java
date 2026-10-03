@@ -107,6 +107,11 @@ class WorkflowAuditIT {
             }
 
             @Override
+            public List<AuditRecord> readAfter(long afterSeq, int limit) {
+                return s.audit.readAfter(afterSeq, limit);
+            }
+
+            @Override
             public List<AuditRecord> readTarget(String targetKind, String targetId) {
                 return s.audit.readTarget(targetKind, targetId);
             }

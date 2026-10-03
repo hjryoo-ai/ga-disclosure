@@ -1,0 +1,304 @@
+{
+  "bundleId": "DISC-DEMO-SHORT@2aa67b3e046c",
+  "kind": "RULE",
+  "scope": "GLOBAL",
+  "ruleVersionId": "DISC-DEMO-SHORT",
+  "applyFrom": "2026-07-01",
+  "body": {
+    "minCompare": 3,
+    "distinctInsurer": true,
+    "gradeRequired": {
+      "whenLargeGa": true
+    },
+    "allowedGradingPolicies": [
+      "GRADING-2026-07"
+    ],
+    "allowedRankingPolicies": [
+      "RANK-2026-07"
+    ],
+    "allowedTieBreaks": [
+      "SHARED_RANK",
+      "STRICT"
+    ],
+    "snapshotMaxAgeDays": 7,
+    "reasonCodes": [
+      {
+        "code": "COVERAGE",
+        "label": "보장수준"
+      },
+      {
+        "code": "PREMIUM",
+        "label": "보험료"
+      },
+      {
+        "code": "PURPOSE",
+        "label": "가입목적"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      },
+      {
+        "code": "CUSTOMER_REQUEST",
+        "label": "고객 요청 보험사",
+        "auto": true
+      }
+    ],
+    "reasonTextMaxLength": 500,
+    "voidReasons": [
+      {
+        "code": "CUSTOMER_CANCELLED",
+        "label": "고객 상담 취소"
+      },
+      {
+        "code": "WRITTEN_IN_ERROR",
+        "label": "작성 오류"
+      },
+      {
+        "code": "DUPLICATE",
+        "label": "중복 작성"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      }
+    ],
+    "supersedeReasons": [
+      {
+        "code": "CONTENT_ERROR",
+        "label": "기재 내용 오류"
+      },
+      {
+        "code": "PRODUCT_DATA_CORRECTED",
+        "label": "상품 정보 정정"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      }
+    ],
+    "lifecycleReasonTextMaxLength": 500,
+    "signerSet": [
+      "CUSTOMER",
+      "AGENT",
+      "MANAGER"
+    ],
+    "signOrder": "SEQUENTIAL",
+    "managerConfirmMode": "REQUIRED",
+    "signDeadlineDays": 7,
+    "gateRequiresManager": true,
+    "remoteLinkTtlHours": 72,
+    "sessionTtlMinutes": {
+      "TOUCH_PAD": 30,
+      "PAPER_SCAN": 10080
+    },
+    "agentSignMethod": "DRAWN",
+    "channels": {
+      "TOUCH_PAD": {
+        "enabled": true
+      },
+      "REMOTE_LINK": {
+        "enabled": true
+      },
+      "PAPER_SCAN": {
+        "enabled": true,
+        "requiresManagerReview": true
+      },
+      "CERTIFIED_ESIGN": {
+        "enabled": false
+      }
+    },
+    "identityCheck": {
+      "REMOTE_LINK": [
+        "LINK_POSSESSION",
+        "BIRTH_DATE"
+      ],
+      "TOUCH_PAD": [
+        "AGENT_FACE_TO_FACE",
+        "SCROLL_COMPLETE"
+      ],
+      "PAPER_SCAN": [
+        "AGENT_FACE_TO_FACE"
+      ],
+      "maxFailures": 5
+    },
+    "proxySignatureDetection": {
+      "sameDeviceDistinctCustomersPerDay": 2,
+      "minSecondsFromSendToSign": 60
+    },
+    "anchoring": {
+      "treeDepth": 16
+    },
+    "subjectRule": {
+      "largeGaOnly": true,
+      "excludedGroups": [
+        "PG-AUTO"
+      ],
+      "contractDateFrom": "2026-07-01"
+    },
+    "kpi": {
+      "collectionRate": "COMPLETED_LINKED / SUBJECT"
+    },
+    "retentionYears": 0,
+    "retentionDays": 1,
+    "retentionAnchors": [
+      "SEAL",
+      "COMPLETION",
+      "CONTRACT_DATE"
+    ],
+    "retention": {
+      "contractLinkWaitDays": 365
+    },
+    "legalHoldReasons": [
+      {
+        "code": "LITIGATION",
+        "label": "소송·분쟁"
+      },
+      {
+        "code": "REGULATOR_INQUIRY",
+        "label": "감독기관 조사"
+      },
+      {
+        "code": "CUSTOMER_COMPLAINT",
+        "label": "고객 민원"
+      },
+      {
+        "code": "OTHER",
+        "label": "기타",
+        "requiresText": true
+      }
+    ],
+    "legalHoldReasonTextMaxLength": 500,
+    "customerRef": {
+      "graceDaysAfterLastDestruction": 30,
+      "abandonedDays": 1825
+    },
+    "verify": {
+      "unstampedAnchorAlertDays": 2
+    },
+    "retainUnlinked": true,
+    "exceptionApproval": {
+      "role": "MANAGER"
+    },
+    "masking": {
+      "name": {
+        "keepFirst": 1,
+        "keepLast": 1,
+        "maskChar": "*"
+      },
+      "phone": {
+        "keepFirst": 3,
+        "keepLast": 4,
+        "maskChar": "*"
+      },
+      "birthDate": {
+        "keepFirst": 0,
+        "keepLast": 0,
+        "maskChar": "*"
+      }
+    },
+    "tenantOverridable": [
+      "signDeadlineDays",
+      "remoteLinkTtlHours",
+      "channels",
+      "identityCheck",
+      "proxySignatureDetection",
+      "kpi",
+      "retainUnlinked",
+      "masking",
+      "gateRequiresManager",
+      "sessionTtlMinutes",
+      "agentSignMethod",
+      "retention",
+      "customerRef"
+    ],
+    "validations": [
+      {
+        "id": "R-MIN-COMPARE",
+        "stages": [
+          "COMPARE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-DISTINCT-INSURER",
+        "stages": [
+          "COMPARE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-SAME-GROUP",
+        "stages": [
+          "COMPARE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-PANEL",
+        "stages": [
+          "COMPARE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-GRADE-REQUIRED",
+        "stages": [
+          "GRADE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-GRADE-UNAVAILABLE",
+        "stages": [
+          "GRADE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-RANK-MONOTONIC",
+        "stages": [
+          "GRADE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-REASON",
+        "stages": [
+          "REASON",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-TEMP-PRODUCT",
+        "stages": [
+          "COMPARE",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-REQUESTED",
+        "stages": [
+          "REASON",
+          "SEAL"
+        ]
+      },
+      {
+        "id": "R-SIGNER-SET",
+        "stages": [
+          "COMPLETE"
+        ]
+      },
+      {
+        "id": "R-FIELD-REQUIRED",
+        "stages": [
+          "REASON",
+          "SEAL"
+        ]
+      }
+    ]
+  }
+}

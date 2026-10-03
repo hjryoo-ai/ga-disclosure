@@ -238,11 +238,14 @@ public final class ArtifactService {
         int failed = 0;
         for (DocumentRecordStore.Unretained u : pending) {
             Instant until = SealService.retainUntilInstant(u.retentionUntil());
-            try {
-                storage.applyRetention(u.record().storageKey(), until);
-            } catch (RuntimeException e) {
-                failed++;
-                continue;
+            boolean elapsed = !until.isAfter(clock.instant());              // 승인 Q6(b): 이미 끝난 보존 — 저장소를 부르지 않고 사유와 함께 기록
+            if (!elapsed) {
+                try {
+                    storage.applyRetention(u.record().storageKey(), until);
+                } catch (RuntimeException e) {
+                    failed++;
+                    continue;
+                }
             }
             boolean marked = transactions.inTenant(tenant, () -> {
                 boolean first = records.markRetentionApplied(u.record(), clock.instant(), u.retentionUntil());
@@ -251,6 +254,9 @@ public final class ArtifactService {
                             .put("kind", u.record().kindName()).put("retainUntil", until.toString()).put("reconciled", true);
                     if (u.record() instanceof SignatureEvidenceRecord e) {
                         detail.put("signatureId", e.signatureId().toString());
+                    }
+                    if (elapsed) {
+                        detail.put("reason", RetentionLocks.ELAPSED);
                     }
                     audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.ARTIFACT_RETAIN,
                             SealService.ARTIFACT_TARGET, u.record().storageKey(), detail));

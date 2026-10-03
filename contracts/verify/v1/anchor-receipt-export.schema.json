@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/verify/v1/anchor-receipt-export.schema.json",
+  "title": "Anchor receipt export (v1)",
+  "description": "anchor receipt export — 5 계획 §8.2, 4 수용심사 결정 4. 증거 패키지 하나에 대해: 문서를 덮는 첫 앵커와 그 영수증(covering), 매니페스트가 가리키는 직전 앵커(previous, 문서보다 앞선 봉인 체인 머리일 때만), 그 사이 봉인 체인 구간(해시만 — 파기된 확인서도 묘비 해시로). 감사 행은 넣지 않는다(감사 연속은 verify tenant만). 개인정보 없음. 모든 객체는 닫혀 있다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["exportVersion", "tenantId", "disclosureId", "disclosureNo", "chainSeq", "covering", "previous", "sealChain"],
+  "properties": {
+    "exportVersion": { "const": 1 },
+    "tenantId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}$" },
+    "disclosureId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "disclosureNo": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-[0-9]{4}-[0-9]{6}$" },
+    "chainSeq": { "type": "integer", "minimum": 1 },
+    "covering": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor", "receipt"],
+      "properties": {
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "receipt": { "$ref": "#/$defs/receipt" }
+      }
+    },
+    "previous": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anchor"],
+          "properties": { "anchor": { "$ref": "#/$defs/anchor" } }
+        }
+      ]
+    },
+    "sealChain": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chainSeq", "disclosureNo", "canonicalHash", "pdfHash", "chainHash"],
+        "properties": {
+          "chainSeq": { "type": "integer", "minimum": 1 },
+          "disclosureNo": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-[0-9]{4}-[0-9]{6}$" },
+          "canonicalHash": { "$ref": "#/$defs/sha256" },
+          "pdfHash": { "$ref": "#/$defs/sha256" },
+          "chainHash": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchorSeq", "anchorDate", "sealChainSeq", "sealChainHead", "auditSeq", "auditHead", "leafHash", "createdAt"],
+      "properties": {
+        "anchorSeq": { "type": "integer", "minimum": 1 },
+        "anchorDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "sealChainSeq": { "type": "integer", "minimum": 0 },
+        "sealChainHead": { "$ref": "#/$defs/sha256" },
+        "auditSeq": { "type": "integer", "minimum": 0 },
+        "auditHead": { "$ref": "#/$defs/sha256" },
+        "leafHash": { "$ref": "#/$defs/sha256" },
+        "createdAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["batchId", "rootHash", "treeDepth", "leafIndex", "merklePath", "tsaToken", "tsaGenTime", "tsaPolicyOid", "tsaSerial"],
+      "properties": {
+        "batchId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "rootHash": { "$ref": "#/$defs/sha256" },
+        "treeDepth": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "leafIndex": { "type": "integer", "minimum": 0 },
+        "merklePath": { "type": "array", "minItems": 1, "maxItems": 24, "items": { "$ref": "#/$defs/sha256" } },
+        "tsaToken": { "type": "string", "contentEncoding": "base64", "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+        "tsaGenTime": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" },
+        "tsaPolicyOid": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)+$" },
+        "tsaSerial": { "type": "string", "pattern": "^[0-9a-f]+$" }
+      }
+    }
+  }
+}

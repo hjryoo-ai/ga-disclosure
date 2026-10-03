@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ga.example/contracts/seal/v1/evidence-manifest.schema.json",
   "title": "Evidence package manifest (v1)",
-  "description": "증거 패키지(EVIDENCE_ZIP)의 manifest.json(JCS 바이트, 패키지 첫 엔트리) — 4 계획 §4, 설계서 §6.5. files가 manifest를 뺀 엔트리 전부의 해시를 경로 순으로 담아 매니페스트 해시가 패키지 전체를 묶는다. 서명 스트로크·이미지·스캔 원본은 넣지 않고 signatures[].evidence에 해시만 둔다. 본인확인은 결과만(입력값 없음). 앵커 참조는 Phase 5 전까지 null. 모든 객체는 닫혀 있다.",
+  "description": "증거 패키지(EVIDENCE_ZIP)의 manifest.json(JCS 바이트, 패키지 첫 엔트리) — 4 계획 §4, 설계서 §6.5. files가 manifest를 뺀 엔트리 전부의 해시를 경로 순으로 담아 매니페스트 해시가 패키지 전체를 묶는다. 서명 스트로크·이미지·스캔 원본은 넣지 않고 signatures[].evidence에 해시만 둔다. 본인확인은 결과만(입력값 없음). 앵커 참조는 완료 시점의 최신 앵커(없으면 null, Phase 5). 모든 객체는 닫혀 있다.",
   "type": "object",
   "required": ["manifestVersion", "tenantId", "disclosureId", "disclosureNo", "version", "hashes", "pinned", "snapshot", "sealedAt", "completedAt",
                "retentionUntil", "signatures", "audit", "anchor", "files"],
@@ -103,7 +103,24 @@
         "lastEntryHash": { "$ref": "#/$defs/sha256" }
       }
     },
-    "anchor": { "type": "null", "description": "Phase 5 앵커 전까지 null" },
+    "anchor": {
+      "description": "완료 시점에 이미 있던 그 테넌트의 최신 일일 앵커 참조(없으면 null) — Phase 5 추가형(4 수용심사 결정 2). 이후 증명은 영수증 내보내기가 잇는다",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anchorSeq", "anchorDate", "leafHash", "sealChainSeq", "auditSeq"],
+          "properties": {
+            "anchorSeq": { "type": "integer", "minimum": 1 },
+            "anchorDate": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+            "leafHash": { "$ref": "#/$defs/sha256" },
+            "sealChainSeq": { "type": "integer", "minimum": 0 },
+            "auditSeq": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
     "files": {
       "type": "array",
       "minItems": 4,

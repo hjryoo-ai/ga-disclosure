@@ -63,7 +63,7 @@ import java.util.Optional;
  * <p><b>성공 경로(한 쓰기 트랜잭션, 잠금 순서 확인서 → 카운터 → 체인 머리)</b>: 성명 복호화(감사 {@code CUSTOMER_VIEW}, 사유 SEAL) → 봉인 본문·해시 →
  * 채번(봉인일 Asia/Seoul 연도) → 렌더 → 문서 키·암호화 → 업로드(잠금 없음) → 체인 → 봉인 컬럼 저장 → 키·산출물 기록 → 체인 머리 이동 → 감사
  * {@code DISCLOSURE_SEAL} → 오버라이드 플래그 해소(APPROVED·RESOLVED_AT_SEAL) → 커밋. 커밋 <b>후</b> 산출물마다 Object Lock을 건다(보존기한 =
- * 봉인일 + {@code retentionYears}의 당일 끝, Asia/Seoul) — 실패하면 {@code retention_applied_at}이 NULL로 남아 재적용 대상이 된다.
+ * 봉인일 + 보존기간({@code retentionYears}년 + {@code retentionDays}일)의 당일 끝, Asia/Seoul) — 실패하면 {@code retention_applied_at}이 NULL로 남아 재적용 대상이 된다.
  *
  * <p>예외(룰 해석 실패·복호화 실패·스키마 위반·저장소 오류)는 명령 오류다: 롤백 + {@code COMMAND_FAILED}. 업로드 뒤 롤백되면 저장소에 잠금 없는
  * 잔여물이 남고 잔여물 정리({@code ArtifactMaintenance#gc})가 치운다.
@@ -72,7 +72,7 @@ public final class SealService {
 
     public static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final String ZERO_CHAIN = "0".repeat(64);
+    private static final String ZERO_CHAIN = com.ga.disclosure.audit.chain.SealChain.ZERO;
     static final String CUSTOMER_TARGET = "CUSTOMER_REF";
     static final String ARTIFACT_TARGET = "DOCUMENT_ARTIFACT";
 
@@ -255,7 +255,7 @@ public final class SealService {
         String prev = head.map(SealLedgerPort.ChainLink::hash).orElse(ZERO_CHAIN);
         long chainSeq = head.map(h -> h.seq() + 1).orElse(1L);
         String chainHash = chainHash(prev, canonical.sha256(), pdf.sha256());
-        LocalDate retentionUntil = sealDate.plusYears(l.rule().retentionYears());
+        LocalDate retentionUntil = l.rule().retentionPeriod().from(sealDate);
         SealStamp stamp = new SealStamp(number, now, Sha256.of(canonical.sha256()), Sha256.of(pdf.sha256()), ChainHash.of(chainHash), chainSeq,
                 retentionUntil);
         DisclosureStatus from = d.status();
@@ -277,9 +277,9 @@ public final class SealService {
         return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, retentionUntil);
     }
 
-    /** SHA-256(prev ‖ canonical ‖ pdf), 세 값은 소문자 hex ASCII(V7 GD095와 같은 식). */
+    /** 봉인 체인 식 하나({@link com.ga.disclosure.audit.chain.SealChain} — 검증·앵커가 같은 식을 쓴다, V7 GD095는 SQL로 다시 계산). */
     static String chainHash(String prev, String canonicalHash, String pdfHash) {
-        return com.ga.platform.canonical.Sha256.of((prev + canonicalHash + pdfHash).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        return com.ga.disclosure.audit.chain.SealChain.next(prev, canonicalHash, pdfHash);
     }
 
     /** 보존기한(날짜) 당일 끝 = 다음 날 00:00 Asia/Seoul. */

@@ -4,8 +4,16 @@ import com.ga.disclosure.infra.storage.ArtifactStoreBootstrap;
 import com.ga.disclosure.infra.storage.S3ArtifactStore;
 import com.ga.disclosure.infra.testing.SeaweedHarness;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
+import com.ga.disclosure.workflow.artifact.ArtifactStore.Capabilities;
+import com.ga.disclosure.workflow.artifact.ArtifactStore.Support;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.core.interceptor.Context;
+import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRetentionRequest;
 import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -14,6 +22,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,7 +42,55 @@ class SeaweedArtifactStoreIT extends ArtifactStoreContract {
 
     @Override
     protected boolean deleteWithGovernanceBypassRejected(ArtifactStore store, String key) {
-        String bucket = ((S3ArtifactStore) store).bucket();
+        return governanceBypassRejected(store, key);
+    }
+
+    @Override
+    protected Capabilities expectedCapabilities() {
+        return new Capabilities(Support.SUPPORTED);
+    }
+
+    @Override
+    protected void createDeleteMarker(ArtifactStore store, String key) {
+        versionlessDelete(store, key);
+    }
+
+    @Override
+    protected RecordingStore freshRecordingStore() {
+        return recordingSeaweedStore();
+    }
+
+    /** 포장(FailingPorts.Store)을 벗겨 S3 어댑터의 버킷을 얻는다. */
+    static String bucketOf(ArtifactStore store) {
+        return store instanceof FailingPorts.Store failing ? bucketOf(failing.delegate) : ((S3ArtifactStore) store).bucket();
+    }
+
+    static void versionlessDelete(ArtifactStore store, String key) {
+        try (S3Client raw = S3.client()) {
+            raw.deleteObject(b -> b.bucket(bucketOf(store)).key(key));
+        }
+    }
+
+    /** 어댑터 클라이언트에 실행 인터셉터를 붙여 보낸 요청을 기록한다(승인 B1). */
+    static RecordingStore recordingSeaweedStore() {
+        List<SentRequest> sent = new CopyOnWriteArrayList<>();
+        ExecutionInterceptor capture = new ExecutionInterceptor() {
+            @Override
+            public void beforeExecution(Context.BeforeExecution context, ExecutionAttributes attributes) {
+                sent.add(switch (context.request()) {
+                    case DeleteObjectRequest d -> new SentRequest("DeleteObject", d.key(), d.versionId(), d.bypassGovernanceRetention());
+                    case DeleteObjectsRequest d -> new SentRequest("DeleteObjects", null, null, d.bypassGovernanceRetention());
+                    case PutObjectRetentionRequest r -> new SentRequest("PutObjectRetention", r.key(), r.versionId(), r.bypassGovernanceRetention());
+                    default -> new SentRequest(context.request().getClass().getSimpleName(), null, null, null);
+                });
+            }
+        };
+        String bucket = S3.freshBucket();
+        return new RecordingStore(new S3ArtifactStore(S3ArtifactStore.client(S3.settings(bucket), List.of(capture)), bucket), sent);
+    }
+
+    static boolean governanceBypassRejected(ArtifactStore store, String key) {
+        String bucket = bucketOf(store);
         try (S3Client raw = S3.client()) {
             ObjectVersion latest = raw.listObjectVersions(b -> b.bucket(bucket).prefix(key)).versions().stream()
                     .filter(ObjectVersion::isLatest).findFirst().orElseThrow();

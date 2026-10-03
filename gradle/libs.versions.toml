@@ -14,6 +14,7 @@ postgres-image = "postgres:18.6"
 seaweedfs-image = "chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d"  # 4.48, digest 고정(3B 승인 Q1) — 하네스·compose와 같아야 한다
 awssdk = "2.55.9"               # S3 어댑터(3B 승인 Q12). Boot BOM 밖 — 2026-10-01 Maven Central 최신. url-connection-client만 쓴다
 openhtmltopdf = "1.1.87"         # HTML→PDF/A 렌더러(LGPL-2.1, PDFBox 3.0.7 전이 — 3A 실측 조합 그대로, 3.0.8 상향은 골든 갱신 사유와 함께)
+bouncycastle = "1.86"            # RFC 3161 TSA 토큰 생성(스텁)·검증(4 수용심사 승인 ①). Boot BOM 밖 — 2026-10-03 Maven Central 최신, OSV 0건. Bouncy Castle Licence(MIT 계열)
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
@@ -27,6 +28,9 @@ awssdk-s3 = { module = "software.amazon.awssdk:s3" }
 awssdk-url-connection-client = { module = "software.amazon.awssdk:url-connection-client" }
 testcontainers = { module = "org.testcontainers:testcontainers" }
 openhtmltopdf-pdfbox = { module = "io.github.openhtmltopdf:openhtmltopdf-pdfbox", version.ref = "openhtmltopdf" }
+bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
+bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+bcutil = { module = "org.bouncycastle:bcutil-jdk18on", version.ref = "bouncycastle" }
 
 # BOM 관리 — 버전 없음
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }

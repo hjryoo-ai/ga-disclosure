@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/verify/v1/destruction-report.schema.json",
+  "title": "Destruction run report (v1)",
+  "description": "destruction run 보고서 — 5 계획 §5.2·§8.4. 형식은 format 주석이 아니라 pattern으로 강제한다(검증기는 format을 단언하지 않는다). 한 테넌트의 한 실행: 판정 시각, 판정 시점 ACTIVE 룰, 파기(또는 dry-run의 파기 예정)·건너뜀(대표 사유와 전체 사유)·실패(단계·코드), 대기 면제 앵커 수, 키 파기 뒤 보류로 멈춘 수, 고객 참조 파기. 개인정보 없음 — ID·번호·사유 코드·수. 모든 객체는 닫혀 있다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reportVersion", "tenantId", "asOf", "dryRun", "ruleVersionId", "candidates", "destroyed", "wouldDestroy", "skipped", "skippedByReason",
+               "failed", "anchorsWaived", "holdAfterShred", "customers"],
+  "properties": {
+    "reportVersion": { "const": 1 },
+    "tenantId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}$" },
+    "asOf": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" },
+    "dryRun": { "type": "boolean" },
+    "ruleVersionId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "candidates": { "type": "integer", "minimum": 0 },
+    "destroyed": { "type": "array", "items": { "$ref": "#/$defs/destroyed" } },
+    "wouldDestroy": { "type": "array", "items": { "$ref": "#/$defs/destroyed" } },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["disclosureId", "reason", "reasons"],
+        "properties": {
+          "disclosureId": { "$ref": "#/$defs/uuid" },
+          "reason": { "$ref": "#/$defs/skipReason" },
+          "reasons": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/skipReason" } }
+        }
+      }
+    },
+    "skippedByReason": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/skipReason" },
+      "additionalProperties": { "type": "integer", "minimum": 1 }
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["disclosureId", "stage", "code"],
+        "properties": {
+          "disclosureId": { "$ref": "#/$defs/uuid" },
+          "stage": { "enum": ["SHRED", "DELETE_OBJECTS", "DESTROY"] },
+          "code": { "type": "string", "pattern": "^[A-Za-z0-9_]{1,64}$" }
+        }
+      }
+    },
+    "anchorsWaived": { "type": "integer", "minimum": 0 },
+    "holdAfterShred": { "type": "integer", "minimum": 0 },
+    "customers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates", "destroyed", "skippedByReason"],
+      "properties": {
+        "candidates": { "type": "integer", "minimum": 0 },
+        "destroyed": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" } },
+        "skippedByReason": {
+          "type": "object",
+          "propertyNames": { "pattern": "^(ALREADY_DESTROYED|LIVE_DISCLOSURES|HOLD|GRACE_NOT_ELAPSED|DRY_RUN|REFUSED_[A-Z0-9]{5})$" },
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "skipReason": { "enum": ["ALREADY_DESTROYED", "NOT_TERMINAL", "HOLD", "LOCK_NOT_EXPIRED", "PENDING_ANCHOR", "RETENTION_NOT_REACHED"] },
+    "destroyed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disclosureId", "disclosureNo", "anchorsWaived"],
+      "properties": {
+        "disclosureId": { "$ref": "#/$defs/uuid" },
+        "disclosureNo": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-[0-9]{4}-[0-9]{6}$" },
+        "anchorsWaived": { "type": "array", "uniqueItems": true, "items": { "enum": ["SEAL", "COMPLETION", "CONTRACT_DATE"] } }
+      }
+    }
+  }
+}

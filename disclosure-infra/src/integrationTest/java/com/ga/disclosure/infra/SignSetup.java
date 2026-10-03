@@ -90,7 +90,7 @@ final class SignSetup implements AutoCloseable {
 
     SignService signServiceWith(com.ga.disclosure.workflow.artifact.DocumentRecordStore records, com.ga.disclosure.workflow.artifact.ArtifactStore store) {
         return new SignService(w.deps(clock), sessions, signatures, records, s.cipher, store, new SignedPdfAppender(),
-                SealService.DEFAULT_TRANSACTION_TIMEOUT);
+                SealService.DEFAULT_TRANSACTION_TIMEOUT, new com.ga.disclosure.infra.persistence.AnchorRepository(w.gateway));
     }
 
     /** 연락처·생년월일(같은 센티널)이 있는 고객을 하나 더 등록한다(대리 서명 탐지 — 서로 다른 고객). */

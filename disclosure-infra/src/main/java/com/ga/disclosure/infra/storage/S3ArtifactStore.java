@@ -6,14 +6,18 @@ import com.ga.disclosure.workflow.artifact.ObjectLockedException;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.GetObjectRetentionResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectLockLegalHold;
+import software.amazon.awssdk.services.s3.model.ObjectLockLegalHoldStatus;
 import software.amazon.awssdk.services.s3.model.ObjectLockRetention;
 import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -29,8 +33,8 @@ import java.util.Optional;
 
 /**
  * {@link ArtifactStore}의 S3 어댑터(AWS SDK v2 표준 API만). 잠금은 {@code PutObjectRetention}(COMPLIANCE)으로 최신 버전에 걸고, 삭제는 키의
- * 모든 버전을 버전 ID로 지운다(삭제 표식이 아니라 실제 삭제 — 잠긴 버전은 저장소가 거부한다). 거부(403·Object Lock)는
- * {@link ObjectLockedException}으로 옮긴다.
+ * 모든 버전과 삭제 마커를 버전 ID로 지운다(버전 없는 삭제는 마커만 만들므로 보내지 않는다 — 잠기거나 보류된 버전은 저장소가 거부한다). legal hold는
+ * 모든 버전에 건다. 거버넌스 우회 헤더는 보내지 않는다. 거부(403·Object Lock)는 {@link ObjectLockedException}으로 옮긴다.
  */
 public final class S3ArtifactStore implements ArtifactStore, AutoCloseable {
 
@@ -44,7 +48,13 @@ public final class S3ArtifactStore implements ArtifactStore, AutoCloseable {
 
     /** 설정으로 클라이언트를 만든다: URLConnection HTTP 클라이언트, 경로 형식, 체크섬은 필요할 때만(호환 저장소 공통 분모). */
     public static S3Client client(S3StorageSettings settings) {
+        return client(settings, List.of());
+    }
+
+    /** 위와 같되 SDK 실행 인터셉터를 붙인다(계약 테스트가 보낸 요청을 캡처한다 — 승인 B1). */
+    public static S3Client client(S3StorageSettings settings, List<ExecutionInterceptor> interceptors) {
         return S3Client.builder()
+                .overrideConfiguration(c -> interceptors.forEach(c::addExecutionInterceptor))
                 .endpointOverride(settings.endpoint())
                 .region(Region.of(settings.region()))
                 .credentialsProvider(StaticCredentialsProvider.create(
@@ -125,25 +135,88 @@ public final class S3ArtifactStore implements ArtifactStore, AutoCloseable {
 
     @Override
     public void delete(String key) {
-        for (ObjectVersion v : versions(key)) {
+        Listing listing = listing(key);
+        for (String versionId : listing.allIds()) {
             try {
-                s3.deleteObject(b -> b.bucket(bucket).key(key).versionId(v.versionId()));
+                s3.deleteObject(b -> b.bucket(bucket).key(key).versionId(versionId));
             } catch (S3Exception e) {
                 throw locked(key, e);
             }
         }
     }
 
-    private List<ObjectVersion> versions(String key) {
-        List<ObjectVersion> out = new ArrayList<>();
-        for (ListObjectVersionsResponse page : s3.listObjectVersionsPaginator(b -> b.bucket(bucket).prefix(key))) {
-            page.versions().stream().filter(v -> v.key().equals(key)).forEach(out::add);
+    @Override
+    public VersionCount versionCount(String key) {
+        Listing listing = listing(key);
+        return new VersionCount(listing.versions().size(), listing.markers().size());
+    }
+
+    /** Object Lock 버킷(기동 확인 {@link ArtifactStoreBootstrap})이면 legal hold는 표준 API의 일부다 — SeaweedFS 4.48 실측(5 계획 §6). */
+    @Override
+    public Capabilities capabilities() {
+        return new Capabilities(Support.SUPPORTED);
+    }
+
+    @Override
+    public void setLegalHold(String key, boolean on) {
+        List<ObjectVersion> versions = listing(key).versions();
+        if (versions.isEmpty()) {
+            throw new ArtifactMissingException(key);
         }
-        return out;
+        ObjectLockLegalHold hold = ObjectLockLegalHold.builder().status(on ? ObjectLockLegalHoldStatus.ON : ObjectLockLegalHoldStatus.OFF).build();
+        for (ObjectVersion v : versions) {
+            s3.putObjectLegalHold(b -> b.bucket(bucket).key(key).versionId(v.versionId()).legalHold(hold));
+        }
+    }
+
+    @Override
+    public boolean legalHold(String key) {
+        List<ObjectVersion> versions = listing(key).versions();
+        if (versions.isEmpty()) {
+            throw new ArtifactMissingException(key);
+        }
+        for (ObjectVersion v : versions) {
+            if (!holdOn(key, v.versionId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean holdOn(String key, String versionId) {
+        try {
+            ObjectLockLegalHold hold = s3.getObjectLegalHold(b -> b.bucket(bucket).key(key).versionId(versionId)).legalHold();
+            return hold != null && hold.status() == ObjectLockLegalHoldStatus.ON;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404 || e.statusCode() == 400) {
+                return false;                               // legal hold를 한 번도 설정하지 않은 버전
+            }
+            throw e;
+        }
+    }
+
+    /** 키(정확히 일치)의 버전과 삭제 마커. 접두 나열이라 같은 접두의 다른 키는 거른다. */
+    private Listing listing(String key) {
+        List<ObjectVersion> versions = new ArrayList<>();
+        List<DeleteMarkerEntry> markers = new ArrayList<>();
+        for (ListObjectVersionsResponse page : s3.listObjectVersionsPaginator(b -> b.bucket(bucket).prefix(key))) {
+            page.versions().stream().filter(v -> v.key().equals(key)).forEach(versions::add);
+            page.deleteMarkers().stream().filter(m -> m.key().equals(key)).forEach(markers::add);
+        }
+        return new Listing(versions, markers);
+    }
+
+    private record Listing(List<ObjectVersion> versions, List<DeleteMarkerEntry> markers) {
+        List<String> allIds() {
+            List<String> ids = new ArrayList<>();
+            versions.forEach(v -> ids.add(v.versionId()));
+            markers.forEach(m -> ids.add(m.versionId()));
+            return ids;
+        }
     }
 
     private String latestVersion(String key) {
-        return versions(key).stream().filter(ObjectVersion::isLatest).map(ObjectVersion::versionId).findFirst()
+        return listing(key).versions().stream().filter(ObjectVersion::isLatest).map(ObjectVersion::versionId).findFirst()
                 .orElseThrow(() -> new ArtifactMissingException(key));
     }
 

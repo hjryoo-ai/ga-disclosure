@@ -91,5 +91,27 @@ public enum AuditAction {
     /** 완료: 서명본·증거 패키지 해시, 연장된 보존기한, 증거 패키지가 담은 감사 범위. */
     DISCLOSURE_COMPLETED,
     /** 서명 기한 경과로 만료(이전 상태·기한·판정 기준 시각, 닫은 세션). */
-    DISCLOSURE_EXPIRE
+    DISCLOSURE_EXPIRE,
+
+    // ---------------------------------------------------------------- Phase 5: 앵커·검증·파기(대상 ANCHOR·DISCLOSURE·CUSTOMER_REF)
+    /** 일일 앵커(대상 ANCHOR, 대상 ID = KST 날짜): 앵커 순번, 두 체인 머리와 seq, 잎 해시. 이 행의 seq = 앵커 audit_seq + 1. */
+    ANCHOR_CREATED,
+    /** 영수증 저장(대상 ANCHOR): 배치 ID·루트·깊이·잎 위치·TSA 시각·일련번호. */
+    ANCHOR_RECEIPT_STORED,
+    /** 영수증 내보내기(대상 DISCLOSURE): 덮는·직전 앵커 순번, 봉인 체인 구간, 내보낸 바이트의 SHA-256. */
+    ANCHOR_RECEIPT_EXPORTED,
+    /** {@code verify tenant} 1회(대상 TENANT): 보고서 JCS의 SHA-256, 결과, 발견 코드별 수. verify의 유일한 쓰기(+ 불일치 시 CHAIN_BROKEN 플래그). */
+    VERIFY_RUN,
+    /** 파기 ①(대상 DISCLOSURE): 문서 데이터 키 파기 — 키 ID와 감싼 키 바이트의 SHA-256(지운 값의 해시), 판정 날짜·룰 버전. */
+    DOCUMENT_KEY_SHREDDED,
+    /** 파기 ③(대상 DISCLOSURE): 지정 컬럼 NULL·묘비 — 지운 값마다 표현(해시·존재), 지운 객체 키 수, 대기 면제 앵커, 판정 룰 버전. */
+    DISCLOSURE_DESTROYED,
+    /** 고객 파기(대상 CUSTOMER_REF): 지운 값마다 암호문 바이트·외부 식별자의 해시, 판정 룰 버전. */
+    CUSTOMER_REF_DESTROYED,
+    /** 파기 배치 요약(대상 TENANT, 테넌트당 1행): 후보·파기·건너뜀 사유별·실패·고객 파기 수. dry-run은 쓰지 않는다. */
+    DESTRUCTION_BATCH_RUN,
+    /** 법적 보류 설정(대상 DISCLOSURE|CUSTOMER_REF): 보류 ID·사유 코드·텍스트 길이(텍스트 자체는 행에만)·룰 버전. 저장소 보류 결과는 보고서에. */
+    LEGAL_HOLD_PLACED,
+    /** 법적 보류 해제: 보류 ID·해제 사유 코드. 저장소 보류 해제 결과는 보고서에. */
+    LEGAL_HOLD_RELEASED
 }
