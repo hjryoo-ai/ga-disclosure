@@ -130,7 +130,8 @@ final class SignSupport {
 
     /** 행위자가 이 확인서의 담당 설계사인가({@code identity_link} 해석 agent_id = 확인서 agent_id, AGENT 역할). */
     boolean assigned(Actor actor, Disclosure d) {
-        return agents.find(actor.subject()).filter(l -> l.hasRole("AGENT")).map(l -> l.agentId().value().equals(d.agentId())).orElse(false);
+        return agents.find(actor.subject()).filter(l -> l.hasRole("AGENT")).flatMap(AgentDirectory.LinkedIdentity::agentId)
+                .map(id -> id.value().equals(d.agentId())).orElse(false);
     }
 
     /** 이미 서명한 역할인가. */

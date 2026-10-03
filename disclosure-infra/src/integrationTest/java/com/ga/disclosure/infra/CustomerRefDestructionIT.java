@@ -89,7 +89,7 @@ class CustomerRefDestructionIT {
         LegalHoldService holds = r.holdService(RetentionSetup.at(RetentionSetup.AFTER));     // 해제된 고객 보류의 사유 텍스트(V11)
         LegalHoldService.Outcome hold = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new LegalHoldService.Target.Customer(r.x.signer), "OTHER",
                 "가상 민원 메모 — 허구");
-        holds.release(r.x.w.tenant, RetentionSetup.OPERATOR, hold.holdId(), "CASE_CLOSED");
+        holds.release(r.x.w.tenant, RetentionSetup.RELEASER, hold.holdId(), "CASE_CLOSED");
 
         DestructionJob.Report second = runAt(RetentionSetup.AFTER.plus(Duration.ofDays(2)));
 

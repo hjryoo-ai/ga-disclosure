@@ -139,9 +139,13 @@ class Phase5CliIT {
         assertThat(Files.exists(tmp.resolve("home/tsa-stub.p12"))).isTrue();
         assertThat(run(with(env, "anchor", "run", "--tenants", tenant, "--operator", "cli-test")))
                 .contains("created=[]", "unchanged=[" + tenant + "]", "batches=0", "receipts=0");
-        String tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1).toString();
-        assertThatThrownBy(() -> run(with(env, "anchor", "run", "--date", tomorrow, "--tenants", tenant, "--operator", "cli-test")))
-                .hasStackTraceContaining("anchor run finished with 1 failure(s)").satisfies(e -> assertThat(exitCode(e)).isEqualTo(2));
+        // 5 수용심사 R1: 오늘(KST)이 아닌 날짜는 미래도 소급도 DATE_NOT_TODAY — 앵커는 늘지 않는다
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        for (LocalDate other : List.of(today.plusDays(1), today.minusDays(1))) {
+            assertThatThrownBy(() -> run(with(env, "anchor", "run", "--date", other.toString(), "--tenants", tenant, "--operator", "cli-test")))
+                    .hasStackTraceContaining("anchor run finished with 1 failure(s)").satisfies(e -> assertThat(exitCode(e)).isEqualTo(2));
+        }
+        assertThat(column(tenant, "SELECT count(*) FROM anchor WHERE tenant_id = ?")).containsExactly("1");
 
         Path receipt = tmp.resolve("receipt.json");
         assertThat(run(with(env, "anchor", "receipt", "export", "--tenant", tenant, "--id", id, "--out", receipt.toString(), "--operator", "auditor-1")))
@@ -205,7 +209,7 @@ class Phase5CliIT {
 
         String hold = column(tenant, "SELECT hold_id::text FROM legal_hold WHERE tenant_id = ? AND released_at IS NULL").getFirst();
         assertThat(run(with(env, "legal-hold", "release", "--tenant", tenant, "--hold", hold, "--reason-code", "CASE_CLOSED", "--operator",
-                "compliance-1"))).contains("LEGAL_HOLD_RELEASE " + tenant + " hold=" + hold);
+                "compliance-2"))).contains("LEGAL_HOLD_RELEASE " + tenant + " hold=" + hold);
         assertThat(run(with(env, "retention", "destroy", "--tenants", tenant, "--operator", "cli-test"))).contains("  DESTROYED " + heldId);
         assertThat(column(tenant, "SELECT count(*) FROM disclosure WHERE tenant_id = ? AND destroyed_at IS NOT NULL")).containsExactly("2");
     }

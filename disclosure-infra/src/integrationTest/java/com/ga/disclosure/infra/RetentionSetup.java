@@ -30,6 +30,8 @@ import java.util.function.Consumer;
 final class RetentionSetup implements AutoCloseable {
 
     static final Actor OPERATOR = new Actor("ops-retention@test", "OPERATOR");
+    /** 보류 해제자(4-eyes — 설정자와 다른 주체, V12 ck_legal_hold_four_eyes). */
+    static final Actor RELEASER = new Actor("ops-retention-2@test", "OPERATOR");
     static final Actor SYSTEM = new Actor("system:destruction", "SYSTEM");
     /** B3: {@code RETENTION_ALREADY_ELAPSED}를 의도적으로 만드는 테넌트(감사 스캔이 이 밖의 발생을 실패로 본다). */
     static final Set<String> ELAPSED_TENANTS = ConcurrentHashMap.newKeySet();

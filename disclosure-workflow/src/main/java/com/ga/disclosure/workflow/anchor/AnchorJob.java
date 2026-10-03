@@ -100,7 +100,7 @@ public final class AnchorJob {
         this(store, audit, transactions, rules, tsa, clock, UUID::randomUUID);
     }
 
-    /** 오늘(KST) 날짜로 실행한다. */
+    /** 오늘(KST) 날짜로 실행한다. 다른 날짜는 {@link #run(List, LocalDate, Actor)}가 {@code DATE_NOT_TODAY}로 거부한다(R1). */
     public Report run(List<TenantId> tenants, Actor actor) {
         return run(tenants, LocalDate.ofInstant(clock.instant(), SEOUL), actor);
     }
@@ -108,9 +108,10 @@ public final class AnchorJob {
     public Report run(List<TenantId> tenants, LocalDate date, Actor actor) {
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(actor, "actor");
-        if (date.isAfter(LocalDate.ofInstant(clock.instant(), SEOUL))) {
-            // 5 계획 §8.8: 미래 날짜는 거부한다 — A단계는 지금의 머리를 읽으므로 미래 날짜 앵커는 "그 날의 머리"가 아니다
-            List<Failure> refused = tenants.stream().map(t -> new Failure("A", t, date, "DATE_IN_FUTURE")).toList();
+        if (!date.equals(LocalDate.ofInstant(clock.instant(), SEOUL))) {
+            // 5 수용심사 R1: 앵커 날짜 = 생성 시각의 KST 날짜(V12 CHECK). A단계는 지금의 머리를 읽으므로 다른 날짜의 라벨은 그 날의 머리가
+            // 아니다 — 소급(지난 날)도 미래도 거부한다. 빠진 날은 다음 앵커가 덮고 verify tenant가 ANCHOR_MISSING_DAY로 알린다.
+            List<Failure> refused = tenants.stream().map(t -> new Failure("A", t, date, "DATE_NOT_TODAY")).toList();
             return new Report(date, List.of(), List.of(), Map.of(), List.of(), 0, refused);
         }
         List<TenantId> created = new ArrayList<>();
@@ -165,7 +166,8 @@ public final class AnchorJob {
         ChainHeads heads = store.heads();
         var latest = store.latest();
         if (latest.isPresent() && !latest.get().record().anchorDate().isBefore(date)) {
-            return new Outcome.Refused("DATE_NOT_AFTER_LATEST");             // GD110도 거부한다 — 지난 날짜를 뒤늦게 고정하지 않는다
+            // 날짜가 오늘로 고정되었으므로 여기 오는 것은 시계가 마지막 앵커보다 뒤로 간 경우뿐이다(GD110도 거부한다)
+            return new Outcome.Refused("CLOCK_BEHIND_LATEST");
         }
         long seq = latest.map(a -> a.record().anchorSeq() + 1).orElse(1L);
         AnchorRecord record = new AnchorRecord(tenant, seq, date, heads.sealChainSeq(), heads.sealChainHead(), heads.auditSeq(), heads.auditHead());

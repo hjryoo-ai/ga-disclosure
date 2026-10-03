@@ -37,7 +37,7 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 
 고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).
 
-`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`.
+`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`. Phase 6A는 작업 잠금 롤 `disclosure_job_lock`을 더했고(V12가 롤이 없으면 실패), 룰 번들 네 개를 제자리로 다시 해시했으며(6A 룰 키), 앵커 날짜를 생성 시각의 KST 날짜로 묶는 CHECK가 옛 데모의 소급 앵커("어제 날짜로 지금 머리")를 거부한다 — 5 이전 볼륨은 `down -v`(사용자 결정, 스크립트는 볼륨을 지우지 않는다).
 
 ## 룰은 코드가 아니라 데이터다 (Phase 1)
 

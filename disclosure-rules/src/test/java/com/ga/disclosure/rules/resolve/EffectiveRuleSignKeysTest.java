@@ -22,8 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Phase 4 룰 키(3B 수용심사 §2-2·§3-3, 4 계획 승인 Q3·Q5·Q8): 번들 값이 그대로 읽히고, 빠지거나 형식이 틀리면 기본값 없이 예외다.
- * IP 재사용 지표만 선택 키(없으면 끔).
+ * Phase 4 룰 키(3B 수용심사 §2-2·§3-3, 4 계획 승인 Q3·Q5·Q8)와 Phase 5·6A 키: 번들 값이 그대로 읽히고, 빠지거나 형식이 틀리면 기본값 없이
+ * 예외다. IP 재사용 지표만 선택 키(없으면 끔).
  */
 class EffectiveRuleSignKeysTest {
 
@@ -73,6 +73,14 @@ class EffectiveRuleSignKeysTest {
         assertThat(BUNDLE.customerGraceDaysAfterLastDestruction()).isEqualTo(30);
         assertThat(BUNDLE.customerAbandonedDays()).isEqualTo(1825);
         assertThat(BUNDLE.unstampedAnchorAlertDays()).isEqualTo(2);
+        // Phase 6A(6A 계획 §1.4·§1.5)
+        assertThat(BUNDLE.legalHoldReleaseReasons()).extracting(LifecycleReasonRule::code)
+                .containsExactly("CASE_CLOSED", "INQUIRY_CLOSED", "COMPLAINT_RESOLVED", "PLACED_IN_ERROR");
+        assertThat(BUNDLE.legalHoldReleaseReasons()).noneMatch(LifecycleReasonRule::requiresText);
+        assertThat(BUNDLE.idempotencyTtlHours()).isEqualTo(24);
+        assertThat(BUNDLE.idempotencyLeaseSeconds()).isEqualTo(120);
+        assertThat(BUNDLE.publicSignTenantRatePerMinute()).isEqualTo(600);
+        assertThat(BUNDLE.notifyRetry()).isEqualTo(new NotifyRetryRule(5, 60, 2, 3600));
     }
 
     @Test
@@ -92,11 +100,23 @@ class EffectiveRuleSignKeysTest {
         assertThat(changed.retentionAnchors()).containsExactly(RetentionAnchor.COMPLETION);
         assertThat(changed.retentionPeriod()).isEqualTo(new RetentionPeriod(0, 1));
         assertThat(changed.contractLinkWaitDays()).isEqualTo(7);
+
+        EffectiveRule api = rule(b -> {
+            ((ObjectNode) b.get("api")).set("idempotencyTtlHours", json("48"));
+            ((ObjectNode) b.get("publicSign")).set("tenantRatePerMinute", json("3"));
+            ((ObjectNode) b.get("notify")).set("retry", json("{\"maxAttempts\": 2, \"initialDelaySeconds\": 5, \"multiplier\": 3, \"maxDelaySeconds\": 30}"));
+            b.set("legalHoldReleaseReasons", json("[{\"code\": \"ONLY\", \"label\": \"only\"}]"));
+        });
+        assertThat(api.idempotencyTtlHours()).isEqualTo(48);
+        assertThat(api.publicSignTenantRatePerMinute()).isEqualTo(3);
+        assertThat(api.notifyRetry()).isEqualTo(new NotifyRetryRule(2, 5, 3, 30));
+        assertThat(api.legalHoldReleaseReasons()).extracting(LifecycleReasonRule::code).containsExactly("ONLY");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"voidReasons", "supersedeReasons", "lifecycleReasonTextMaxLength", "retentionAnchors", "sessionTtlMinutes",
-            "agentSignMethod", "channels", "retentionDays", "anchoring", "retention", "legalHoldReasons", "customerRef", "verify"})
+            "agentSignMethod", "channels", "retentionDays", "anchoring", "retention", "legalHoldReasons", "customerRef", "verify",
+            "legalHoldReleaseReasons", "api", "publicSign", "notify"})
     void missingKeysFailWithoutDefaults(String key) {
         EffectiveRule missing = rule(b -> b.remove(key));
         assertThatThrownBy(() -> {
@@ -113,6 +133,10 @@ class EffectiveRuleSignKeysTest {
                 case "legalHoldReasons" -> missing.legalHoldReasons();
                 case "customerRef" -> missing.customerAbandonedDays();
                 case "verify" -> missing.unstampedAnchorAlertDays();
+                case "legalHoldReleaseReasons" -> missing.legalHoldReleaseReasons();
+                case "api" -> missing.idempotencyTtlHours();
+                case "publicSign" -> missing.publicSignTenantRatePerMinute();
+                case "notify" -> missing.notifyRetry();
                 default -> missing.channel(SignatureChannel.TOUCH_PAD);
             }
         }).isInstanceOf(MissingRuleKeyException.class);
@@ -131,6 +155,10 @@ class EffectiveRuleSignKeysTest {
                 .sameIpDistinctCustomersPerDay())
                 .isInstanceOf(MissingRuleKeyException.class);
         assertThatThrownBy(() -> rule(b -> ((ObjectNode) b.get("sessionTtlMinutes")).remove("PAPER_SCAN")).sessionTtlMinutes(SignatureChannel.PAPER_SCAN))
+                .isInstanceOf(MissingRuleKeyException.class);
+        assertThatThrownBy(() -> rule(b -> ((ObjectNode) b.get("notify").get("retry")).set("maxDelaySeconds", json("59"))).notifyRetry())
+                .as("상한 < 초기 지연").isInstanceOf(MissingRuleKeyException.class);
+        assertThatThrownBy(() -> rule(b -> ((ObjectNode) b.get("api")).set("idempotencyLeaseSeconds", json("\"120\""))).idempotencyLeaseSeconds())
                 .isInstanceOf(MissingRuleKeyException.class);
     }
 }

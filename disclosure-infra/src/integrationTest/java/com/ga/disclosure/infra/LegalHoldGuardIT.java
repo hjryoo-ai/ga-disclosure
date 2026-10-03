@@ -25,7 +25,7 @@ class LegalHoldGuardIT {
             VALUES (?, ?, ?, ?, 'LITIGATION', 'compliance@x', now())
             """;
     private static final String RELEASE = """
-            UPDATE legal_hold SET released_at = now(), released_by = 'compliance@x', release_reason_code = 'CASE_CLOSED'
+            UPDATE legal_hold SET released_at = now(), released_by = 'compliance-2@x', release_reason_code = 'CASE_CLOSED'
              WHERE tenant_id = ? AND hold_id = ?
             """;
 
@@ -46,7 +46,7 @@ class LegalHoldGuardIT {
         assertRejected(DB, T, "GD112", """
                 INSERT INTO legal_hold (tenant_id, hold_id, disclosure_id, reason_code, placed_by, placed_at, released_by, released_at,
                                         release_reason_code)
-                VALUES (?, ?, ?, 'LITIGATION', 'c@x', now(), 'c@x', now(), 'X')
+                VALUES (?, ?, ?, 'LITIGATION', 'c@x', now(), 'c2@x', now(), 'X')
                 """, T, UUID.randomUUID(), disclosure);
         UUID first = UUID.randomUUID();
         DB.asAppCommitting(T, c -> SeedData.exec(c, PLACE, T, first, disclosure, null));

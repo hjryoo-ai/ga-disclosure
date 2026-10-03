@@ -29,18 +29,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 
 /**
  * 법적 보류(5 계획 §8.6). 통제는 DB 보류다 — 파기 배치·파기 함수가 건너뛴다. 저장소 보류는 벨트: 지원하면 대상 객체(고객 보류면 그 고객의 봉인된 확인서
  * 객체 전부)의 모든 버전에 켜고, 해제 때 끈다(다른 활성 보류가 덮는 객체는 끄지 않는다). 저장소 보류 실패·미지원은 보고만 하고 DB 보류는 유지한다.
  * {@code retention_until}은 바꾸지 않는다. 사유 코드는 설정 시점(오늘 KST)의 룰 {@code legalHoldReasons}, 텍스트 상한은
- * {@code legalHoldReasonTextMaxLength}. 해제 사유 코드는 룰 어휘가 없다 — 형식만 본다.
+ * {@code legalHoldReasonTextMaxLength}. 해제 사유 코드는 해제 시점 룰 {@code legalHoldReleaseReasons}(닫힌 목록 — 5 수용심사 D12가 §14 #15를
+ * 6A에서 닫았다)이고, 해제자는 설정자와 달라야 한다(4-eyes — 여기와 DB {@code ck_legal_hold_four_eyes} 양쪽, 5 수용심사 결정 1).
  */
 public final class LegalHoldService {
 
-    // TODO(confirm#15): 해제 사유 코드의 닫힌 목록(룰 어휘)은 미정 — 그 전까지 형식(대문자 코드)만 검사한다
-    static final Pattern RELEASE_REASON = Pattern.compile("^[A-Z][A-Z0-9_]{1,31}$");
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -115,18 +113,23 @@ public final class LegalHoldService {
     }
 
     public Outcome release(TenantId tenant, Actor actor, UUID holdId, String releaseReasonCode) {
-        if (releaseReasonCode == null || !RELEASE_REASON.matcher(releaseReasonCode).matches()) {
-            throw new LegalHoldRejectedException("BAD_RELEASE_REASON");
-        }
         Instant now = clock.instant();
         Set<String> keys = transactions.inTenant(tenant, () -> {
             LegalHoldStore.Hold hold = holds.find(holdId).orElseThrow(() -> new LegalHoldRejectedException("NOT_FOUND"));
+            EffectiveRule rule = rules.resolve(tenant, LocalDate.ofInstant(now, SEOUL));
+            if (rule.legalHoldReleaseReasons().stream().noneMatch(r -> r.code().equals(releaseReasonCode))) {
+                throw new LegalHoldRejectedException("BAD_RELEASE_REASON");
+            }
+            if (hold.placedBy().equals(actor.subject())) {
+                throw new LegalHoldRejectedException("FOUR_EYES_REQUIRED");
+            }
             if (!holds.release(holdId, actor.subject(), now, releaseReasonCode)) {
                 throw new LegalHoldRejectedException("ALREADY_RELEASED");
             }
             Target target = hold.disclosureOrNull() != null ? new Target.Disclosure(hold.disclosureOrNull()) : new Target.Customer(hold.customerOrNull());
             audit.append(new AuditEntry(now, actor.subject(), actor.role(), AuditAction.LEGAL_HOLD_RELEASED, targetKind(target), targetId(target),
-                    JSON.createObjectNode().put("holdId", holdId.toString()).put("releaseReasonCode", releaseReasonCode)));
+                    JSON.createObjectNode().put("holdId", holdId.toString()).put("releaseReasonCode", releaseReasonCode)
+                            .put("ruleVersionId", rule.globalRuleVersionId().value())));
             return stillUncovered(target);
         });
         return new Outcome(holdId, storageHold(keys, false));

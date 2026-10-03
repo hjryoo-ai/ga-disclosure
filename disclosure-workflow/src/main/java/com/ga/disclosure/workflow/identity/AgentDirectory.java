@@ -1,6 +1,7 @@
 package com.ga.disclosure.workflow.identity;
 
 import com.ga.platform.core.tenant.AgentId;
+import com.ga.platform.core.tenant.OrgPath;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -15,8 +16,11 @@ public interface AgentDirectory {
 
     Optional<LinkedIdentity> find(String subject);
 
-    /** {@code identity_link} 행 1개. */
-    record LinkedIdentity(String subject, AgentId agentId, Set<String> roles, String orgPath) {
+    /**
+     * {@code identity_link} 행 1개. 설계사가 아닌 주체(COMPLIANCE·SCHEDULER·FEED_CONSUMER)는 {@code agent_id}가 없고, 서비스 주체는 조직도
+     * 없다(V12, 6A 승인 Q2 — AGENT ⇒ agent_id, AGENT·MANAGER ⇒ 조직 경로는 DB CHECK).
+     */
+    record LinkedIdentity(String subject, Optional<AgentId> agentId, Set<String> roles, Optional<OrgPath> orgPath) {
         public LinkedIdentity {
             Objects.requireNonNull(subject, "subject");
             Objects.requireNonNull(agentId, "agentId");

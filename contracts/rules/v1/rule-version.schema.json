@@ -43,7 +43,11 @@
     "legalHoldReasons",
     "legalHoldReasonTextMaxLength",
     "customerRef",
-    "verify"
+    "verify",
+    "legalHoldReleaseReasons",
+    "api",
+    "publicSign",
+    "notify"
   ],
   "properties": {
     "minCompare": {
@@ -475,6 +479,29 @@
       "minimum": 1,
       "description": "법적 보류 사유 텍스트 상한. GLOBAL 전용."
     },
+    "legalHoldReleaseReasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "label"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,39}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "법적 보류 해제 사유 코드(5 수용심사 D12 — §14 #15를 6A에서 닫는다). 닫힌 목록, 해제에는 텍스트가 없다. 해제자 ≠ 설정자(4-eyes)는 유스케이스와 DB CHECK. GLOBAL 전용."
+    },
     "customerRef": {
       "type": "object",
       "required": [
@@ -506,6 +533,81 @@
           "type": "integer",
           "minimum": 0,
           "description": "영수증 없는 앵커가 이 일수를 넘기면 verify tenant 발견 ANCHOR_UNSTAMPED."
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "required": [
+        "idempotencyTtlHours",
+        "idempotencyLeaseSeconds"
+      ],
+      "additionalProperties": false,
+      "description": "내부 REST 파라미터(6A). GLOBAL 전용.",
+      "properties": {
+        "idempotencyTtlHours": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Idempotency-Key 보관 시간. 지나면 IDEMPOTENCY_PURGE 작업이 지운다."
+        },
+        "idempotencyLeaseSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "진행 중 키의 임차 — 이 시간이 지나도록 완료되지 않은 키는 같은 요청이 인수한다(claim_seq + 1)."
+        }
+      }
+    },
+    "publicSign": {
+      "type": "object",
+      "required": [
+        "tenantRatePerMinute"
+      ],
+      "additionalProperties": false,
+      "description": "고객 공개 서명 경로 파라미터(6A). 응답 패딩 하한은 룰이 아니라 배포 설정 ga.public-sign.min-response-millis다(6A 승인 Q6 — 없는 테넌트에도 같아야 하는 값). GLOBAL 전용.",
+      "properties": {
+        "tenantRatePerMinute": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "테넌트별 공개 경로 분당 요청 한도(고정 1분 창, 인스턴스별). 초과는 거부 응답과 같은 바이트."
+        }
+      }
+    },
+    "notify": {
+      "type": "object",
+      "required": [
+        "retry"
+      ],
+      "additionalProperties": false,
+      "description": "통지 아웃박스 파라미터(6A). 실행 시점(오늘 KST)의 ACTIVE 룰로 읽는다. GLOBAL 전용.",
+      "properties": {
+        "retry": {
+          "type": "object",
+          "required": [
+            "maxAttempts",
+            "initialDelaySeconds",
+            "multiplier",
+            "maxDelaySeconds"
+          ],
+          "additionalProperties": false,
+          "description": "재시도 백오프: delay(n) = min(maxDelaySeconds, initialDelaySeconds × multiplier^(n−1)), n = 실패 후 시도 수. maxAttempts번째 실패에서 DEAD + NOTIFY_FAILED 플래그. 정수 산술, 지터 없음.",
+          "properties": {
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "initialDelaySeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "multiplier": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxDelaySeconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     },
@@ -673,7 +775,11 @@
             "retentionDays",
             "legalHoldReasons",
             "legalHoldReasonTextMaxLength",
-            "verify"
+            "verify",
+            "legalHoldReleaseReasons",
+            "api",
+            "publicSign",
+            "notify"
           ]
         }
       }

@@ -79,11 +79,11 @@ class SealColumnCheckIT {
         return sqlStateOrNull(() -> DB.asApp(T, c -> {
             SeedData.exec(c, "INSERT INTO disclosure_counter (tenant_id, year, seq) VALUES (?, 2026, 1)", T);
             return SeedData.exec(c, """
-                    INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
+                    INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version,
                                             issuer_mode, status, consult_date, rule_version_id, disclosure_no, sealed_at, canonical_hash,
                                             pdf_hash, chain_hash, chain_seq, retention_until, voided_at, void_reason_code, void_reason_text,
                                             superseded_by_id, supersede_reason_code, completed_at)
-                    VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', ?, ?,
+                    VALUES (?, gen_random_uuid(), '/HQ/B1', 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', ?, ?,
                             CAST(? AS timestamptz), ?, ?, ?, ?, CAST(? AS date), CAST(? AS timestamptz), ?, ?,
                             CASE WHEN ? THEN gen_random_uuid() END, ?, CAST(? AS timestamptz))
                     """, T, status, ruleVersion, no, sealedAt, canonical, pdf, chain, chainSeq, retention, voidedAt, voidCode, voidText,
@@ -178,9 +178,9 @@ class SealColumnCheckIT {
     @Test
     void legacyVoidReasonColumnIsGone() {
         String state = sqlStateOrNull(() -> DB.asApp(T, c -> SeedData.exec(c, """
-                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
+                INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version,
                                         issuer_mode, status, consult_date, rule_version_id, voided_at, void_reason_code, void_reason)
-                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', 'VOID', DATE '2026-09-23', 'DISC-2026-07',
+                VALUES (?, gen_random_uuid(), '/HQ/B1', 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', 'VOID', DATE '2026-09-23', 'DISC-2026-07',
                         TIMESTAMPTZ '2026-09-24 09:00:00+09', 'CUSTOMER_CANCELLED', '상담 취소')
                 """, T)));
         assertThat(state).isEqualTo("42703");
@@ -218,11 +218,11 @@ class SealColumnCheckIT {
         String state = sqlStateOrNull(() -> DB.asApp(T, c -> {
             SeedData.exec(c, "INSERT INTO disclosure_counter (tenant_id, year, seq) VALUES (?, 2026, 1)", T);
             return SeedData.exec(c, """
-                    INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
+                    INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version,
                                             issuer_mode, status, consult_date, rule_version_id, disclosure_no, sealed_at, canonical_hash,
                                             pdf_hash, chain_hash, chain_seq, retention_until, voided_at, void_reason_code, superseded_by_id,
                                             supersede_reason_code, supersede_reason_text, completed_at)
-                    VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', 'DISC-2026-07', ?,
+                    VALUES (?, gen_random_uuid(), '/HQ/B1', 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', 'DISC-2026-07', ?,
                             CAST(? AS timestamptz), ?, ?, ?, ?, CAST(? AS date), CAST(? AS timestamptz), ?, CASE WHEN ? THEN gen_random_uuid() END,
                             ?, ?, CAST(? AS timestamptz))
                     """, T, status, sealed ? NUMBER : null, sealed ? SeedData.SEALED_AT : null, sealed ? CANONICAL : null, sealed ? PDF : null,

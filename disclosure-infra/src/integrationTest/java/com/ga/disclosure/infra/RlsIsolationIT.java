@@ -30,10 +30,10 @@ class RlsIsolationIT {
     private static final PostgresHarness DB = PostgresHarness.get();
 
     /**
-     * V9 기준 테넌트 테이블 수(V8 signature_evidence·outbox_head·outbox_event 추가, V9 anchor·anchor_receipt·legal_hold 추가와 audit_anchor 제거).
-     * 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게).
+     * V12 기준 테넌트 테이블 수(V8 signature_evidence·outbox_head·outbox_event 추가, V9 anchor·anchor_receipt·legal_hold 추가와 audit_anchor 제거,
+     * V12 idempotency_key·async_job·notification_outbox 추가). 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게).
      */
-    private static final int EXPECTED_TABLE_COUNT = 29;
+    private static final int EXPECTED_TABLE_COUNT = 32;
 
     static final List<String> TABLES = catalogTables();
 
@@ -186,7 +186,7 @@ class RlsIsolationIT {
     @Test
     void cannotWriteRowsOfAnotherTenant() {
         assertThatThrownBy(() -> DB.asApp(A, c -> SeedData.exec(c,
-                "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'x', 'y', ARRAY['AGENT'], '/')", B)))
+                "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'x', 'y', ARRAY['AGENT'], '/X')", B)))
                 .isInstanceOf(PostgresHarness.UncheckedSqlException.class)
                 .satisfies(e -> assertThat(((PostgresHarness.UncheckedSqlException) e).sqlState()).isEqualTo("42501"));
         assertThat(DB.<Integer>asApp(A, c -> SeedData.exec(c, "UPDATE identity_link SET org_path = '/X' WHERE tenant_id = ?", B))).isZero();

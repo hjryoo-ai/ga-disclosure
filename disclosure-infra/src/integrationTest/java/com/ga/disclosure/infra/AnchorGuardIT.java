@@ -60,13 +60,26 @@ class AnchorGuardIT {
         return HEX.formatHex(sha256(new byte[] {0}, jcs.getBytes(StandardCharsets.UTF_8)));
     }
 
+    /** 생성 시각은 앵커 날짜의 KST 정오다(V12 R1 CHECK — 앵커 날짜 = 생성 시각의 KST 날짜). 날짜 자리값만 다르게 넣는 경우는 {@link #AT}. */
     private static final String INSERT = """
             INSERT INTO anchor (tenant_id, anchor_seq, anchor_date, seal_chain_seq, seal_chain_head, audit_seq, audit_head, leaf_hash, created_at)
-            VALUES (?, ?, CAST(? AS date), ?, ?, ?, ?, ?, now())
+            VALUES (?, ?, CAST(? AS date), ?, ?, ?, ?, ?, (CAST(? AS date) + TIME '12:00') AT TIME ZONE 'Asia/Seoul')
+            """;
+
+    /** 생성 시각을 직접 준다(마지막 자리). */
+    private static final String AT = """
+            INSERT INTO anchor (tenant_id, anchor_seq, anchor_date, seal_chain_seq, seal_chain_head, audit_seq, audit_head, leaf_hash, created_at)
+            VALUES (?, ?, CAST(? AS date), ?, ?, ?, ?, ?, CAST(? AS timestamptz))
             """;
 
     private static Object[] row(long seq, String date, long sealSeq, String sealHead, long auditSeq, String auditHead, String leaf) {
-        return new Object[] {T, seq, date, sealSeq, sealHead, auditSeq, auditHead, leaf};
+        return new Object[] {T, seq, date, sealSeq, sealHead, auditSeq, auditHead, leaf, date};
+    }
+
+    private static Object[] at(Object[] row, String createdAt) {
+        Object[] out = row.clone();
+        out[out.length - 1] = createdAt;
+        return out;
     }
 
     private static Object[] valid(long seq, String date, long sealSeq, String sealHead, long auditSeq) {
@@ -97,6 +110,23 @@ class AnchorGuardIT {
         assertRejected(DB, T, "GD110", INSERT, valid(2, "2026-09-30", 2, sealHead2, 3));                      // 날짜 역행
         assertRejected(DB, T, "GD110", INSERT, valid(2, "2026-10-02", 0, ZERO, 3));                           // 봉인 위치 역행
         assertAllowed(DB, T, INSERT, valid(2, "2026-10-02", 2, sealHead2, 3));
+    }
+
+    /**
+     * 5 수용심사 R1(V12 {@code ck_anchor_date_is_creation_day}): 앵커 날짜는 생성 시각의 KST 날짜다. 지금의 머리를 지난(또는 다음) 날짜 라벨로
+     * 고정하는 소급 행은 DB가 거부한다. 경계는 KST 자정이다(UTC 15:00).
+     */
+    @Test
+    void theAnchorDateIsTheKstDayOfItsCreation() {
+        String t = SeedData.uniqueTenant("ANK");
+        DB.seed(t, c -> SeedData.tenant(c, t));
+        String date = "2026-10-01";
+        Object[] first = new Object[] {t, 1L, date, 0L, ZERO, 0L, ZERO, leaf(t, 1, date, 0, ZERO, 0, ZERO), null};
+        assertRejected(DB, t, "23514", AT, at(first, "2026-10-02 09:00:00+09"));                         // 다음 날 만든 어제 라벨(소급)
+        assertRejected(DB, t, "23514", AT, at(first, "2026-09-30 23:59:59+09"));                         // 전날 만든 내일 라벨
+        assertRejected(DB, t, "23514", AT, at(first, "2026-10-01 15:00:00+00"));                         // UTC로는 10-01, KST로는 10-02
+        assertAllowed(DB, t, AT, at(first, "2026-09-30 15:00:00+00"));                                   // KST 10-01 00:00
+        assertAllowed(DB, t, AT, at(first, "2026-10-01 23:59:59.999+09"));
     }
 
     // ------------------------------------------------------------------ 영수증

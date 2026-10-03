@@ -8,6 +8,7 @@ import com.ga.disclosure.audit.outbox.OutboxPayloads;
 import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.platform.core.tenant.AgentId;
+import com.ga.platform.core.tenant.OrgPath;
 import com.ga.disclosure.domain.disclosure.AgentReason;
 import com.ga.disclosure.domain.disclosure.DisclosureCommand;
 import com.ga.disclosure.domain.disclosure.DisclosureStateTable;
@@ -119,8 +120,10 @@ public final class DisclosureService {
     public DisclosureId createDraft(TenantId tenant, Actor agent, CustomerRef customerRef, GroupCode group, LocalDate consultDate,
                                     TemplateType templateType) {
         return runner.inTransaction(tenant, agent, "CREATE_DRAFT", null, () -> {
-            AgentId agentId = agents.find(agent.subject()).filter(l -> l.hasRole("AGENT")).map(AgentDirectory.LinkedIdentity::agentId)
+            AgentDirectory.LinkedIdentity link = agents.find(agent.subject()).filter(l -> l.hasRole("AGENT"))
                     .orElseThrow(() -> new CommandRejectedException("AGENT_NOT_LINKED", "the actor is not linked to an agent in this tenant"));
+            AgentId agentId = link.agentId().orElseThrow();      // AGENT ⇒ agent_id·조직 경로(V12 CHECK)
+            OrgPath orgPath = link.orgPath().orElseThrow();
             if (!customers.exists(customerRef)) {
                 throw new CommandRejectedException("UNKNOWN_CUSTOMER", "no customer " + customerRef);
             }
@@ -137,7 +140,7 @@ public final class DisclosureService {
             Disclosure d = Disclosure.draft(id, agentId.value(), customerRef, group, consultDate, rule.globalRuleVersionId(),
                     rule.tenantRuleVersion().orElse(null), template.ref(), profile.issuerMode(),
                     loader.context(tenant, rule, template, group, consultDate));
-            store.insert(d);
+            store.insert(d, orgPath);
             ObjectNode detail = JSON.createObjectNode()
                     .put("customerRef", customerRef.value())
                     .put("groupCode", group.value())

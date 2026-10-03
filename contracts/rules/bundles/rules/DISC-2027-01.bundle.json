@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-2027-01@8572bba91ee6",
+  "bundleId": "DISC-2027-01@bc4d5b1e69a7",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-2027-01",
@@ -174,12 +174,45 @@
       }
     ],
     "legalHoldReasonTextMaxLength": 500,
+    "legalHoldReleaseReasons": [
+      {
+        "code": "CASE_CLOSED",
+        "label": "사건 종결"
+      },
+      {
+        "code": "INQUIRY_CLOSED",
+        "label": "조사·문의 종결"
+      },
+      {
+        "code": "COMPLAINT_RESOLVED",
+        "label": "민원 해결"
+      },
+      {
+        "code": "PLACED_IN_ERROR",
+        "label": "잘못 설정"
+      }
+    ],
     "customerRef": {
       "graceDaysAfterLastDestruction": 30,
       "abandonedDays": 1825
     },
     "verify": {
       "unstampedAnchorAlertDays": 2
+    },
+    "api": {
+      "idempotencyTtlHours": 24,
+      "idempotencyLeaseSeconds": 120
+    },
+    "publicSign": {
+      "tenantRatePerMinute": 600
+    },
+    "notify": {
+      "retry": {
+        "maxAttempts": 5,
+        "initialDelaySeconds": 60,
+        "multiplier": 2,
+        "maxDelaySeconds": 3600
+      }
     },
     "retainUnlinked": true,
     "exceptionApproval": {

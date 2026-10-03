@@ -258,9 +258,13 @@ public class OperatorCli implements ApplicationRunner {
             for (JsonNode link : t.path("identityLinks")) {
                 java.util.List<String> roles = new java.util.ArrayList<>();
                 link.get("roles").forEach(r -> roles.add(r.asString()));
-                int linked = transactions.inTenant(tenant, () -> identityLinks.linkIfAbsent(link.get("subject").asString(),
-                        link.get("agentId").asString(), roles, link.get("orgPath").asString()));
-                out.println("SEED IDENTITY_LINK " + tenant + " " + link.get("agentId").asString() + (linked == 1 ? " CREATED" : " EXISTS"));
+                // 설계사가 아닌 주체(COMPLIANCE·SCHEDULER·FEED_CONSUMER)는 agentId가 없고 서비스 주체는 조직도 없다(V12)
+                String agentId = link.hasNonNull("agentId") ? link.get("agentId").asString() : null;
+                String orgPath = link.hasNonNull("orgPath") ? link.get("orgPath").asString() : null;
+                int linked = transactions.inTenant(tenant, () -> identityLinks.linkIfAbsent(link.get("subject").asString(), agentId, roles,
+                        orgPath));
+                out.println("SEED IDENTITY_LINK " + tenant + " " + (agentId != null ? agentId : link.get("subject").asString())
+                        + (linked == 1 ? " CREATED" : " EXISTS"));
             }
         }
         for (JsonNode r : seed.path("tenantRules")) {

@@ -42,9 +42,12 @@ class ReceiptExportIT {
         x.close();
     }
 
+    /** 그 날(KST)의 시계로 앵커를 만든다 — 앵커 날짜 = 생성 시각의 KST 날짜(5 수용심사 R1, V12 CHECK). 지난 날은 시계를 그만큼 되돌린다. */
     AnchorJob.Report anchor(String day) {
+        LocalDate today = LocalDate.ofInstant(x.clock.instant(), java.time.ZoneId.of("Asia/Seoul"));
+        java.time.Clock onThatDay = java.time.Clock.offset(x.clock, Duration.ofDays(java.time.temporal.ChronoUnit.DAYS.between(today, LocalDate.parse(day))));
         return new AnchorJob(anchors, x.w.audit, x.w.tx, new RuleResolver(x.w.rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()),
-                x.clock).run(List.of(x.w.tenant), LocalDate.parse(day), AnchorJobIT.SYSTEM);
+                onThatDay).run(List.of(x.w.tenant), AnchorJobIT.SYSTEM);
     }
 
     DisclosureId completed() {

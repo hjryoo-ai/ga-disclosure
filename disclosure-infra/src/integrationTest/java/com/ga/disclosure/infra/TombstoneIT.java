@@ -85,7 +85,7 @@ class TombstoneIT {
         var holds = r.holdService(RetentionSetup.at(RetentionSetup.AFTER));         // 해제된 보류의 사유 텍스트도 지운다(V11)
         var placed = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new com.ga.disclosure.workflow.retention.LegalHoldService.Target.Disclosure(id),
                 "OTHER", "가상 분쟁 메모 — 허구");
-        holds.release(r.x.w.tenant, RetentionSetup.OPERATOR, placed.holdId(), "CASE_CLOSED");
+        holds.release(r.x.w.tenant, RetentionSetup.RELEASER, placed.holdId(), "CASE_CLOSED");
         Map<String, List<JsonNode>> before = new java.util.TreeMap<>();
         ERASABLE.keySet().forEach(t -> before.put(t, rows(t, id)));
         Set<String> expected = expectedErasure(before);

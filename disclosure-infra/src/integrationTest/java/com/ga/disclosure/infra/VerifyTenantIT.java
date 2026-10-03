@@ -198,11 +198,18 @@ class VerifyTenantIT {
         assertThat(openChainBroken("ANCHOR", "1")).isEqualTo(1);
     }
 
+    /**
+     * 6A R1: 앵커는 매일 만들어지고(빠진 날은 {@code ANCHOR_MISSING_DAY}) 날짜는 그 날의 시계다 — 그래서 사흘 내내 TSA가 실패한 테넌트를 만든다.
+     * 기한을 넘긴 것은 첫 날(23일)뿐이다.
+     */
     @Test
     void anAnchorLeftUnstampedPastTheAlertDaysIsReportedWithoutAFlag() {
-        anchor("2026-09-23", request -> {
-            throw new TimestampFailure(TimestampFailure.Kind.UNAVAILABLE, "TRANSPORT");
-        });
+        for (String day : List.of("2026-09-23", "2026-09-24", "2026-09-25")) {
+            anchor(day, request -> {
+                throw new TimestampFailure(TimestampFailure.Kind.UNAVAILABLE, "TRANSPORT");
+            });
+            x.clock.advance(Duration.ofDays(1));
+        }
         Clock inTime = Clock.fixed(Instant.parse("2026-09-25T00:00:00Z"), ZoneOffset.UTC);      // KST 9-25: 23 + 2일 = 25 — 아직
         assertThat(verifier(inTime).run(x.w.tenant, SealSetup.COMPLIANCE, trust).findings()).isEmpty();
 
@@ -210,6 +217,38 @@ class VerifyTenantIT {
         VerifyReport r = verifier(late).run(x.w.tenant, SealSetup.COMPLIANCE, trust);
 
         assertThat(codes(r)).containsExactly(FindingCode.ANCHOR_UNSTAMPED);
+        assertThat(r.findings()).singleElement().satisfies(f -> assertThat(f.where()).containsEntry("anchorDate", "2026-09-23"));
+        assertThat(r.exitCode()).isEqualTo(2);
+        assertThat(x.s.count("SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND type = 'CHAIN_BROKEN'", x.w.tenant.value())).isZero();
+    }
+
+    /**
+     * 5 수용심사 R1·6A 승인 Q10: 첫 앵커부터 어제(KST)까지 앵커가 없는 날은 구간마다 {@code ANCHOR_MISSING_DAY} 1건 — 가운데 공백과 끝의 공백, 오늘은
+     * 아직 돌지 않았을 수 있어 넣지 않는다. 운영 신호라 불일치(종료 2)지만 {@code CHAIN_BROKEN}을 올리지 않는다.
+     */
+    @Test
+    void missingAnchorDaysAreReportedPerGapUpToYesterdayWithoutAFlag() {
+        anchor("2026-09-23", tsa);
+        x.clock.advance(Duration.ofDays(3));
+        anchor("2026-09-26", tsa);                                                                  // 24·25일 공백
+
+        VerifyReport sameDay = verifier(x.clock).run(x.w.tenant, SealSetup.COMPLIANCE, trust);      // KST 9-26: 오늘은 셈하지 않는다
+        assertThat(sameDay.findings()).singleElement().satisfies(f -> {
+            assertThat(f.code()).isEqualTo(FindingCode.ANCHOR_MISSING_DAY);
+            assertThat(f.where()).containsEntry("afterAnchorSeq", 1L).containsEntry("fromDate", "2026-09-24").containsEntry("toDate", "2026-09-25");
+            assertThat(f.detail()).containsEntry("days", 2L);
+        });
+        assertThat(VerifySchemas.report(sameDay.toJson())).isEmpty();
+
+        Clock later = Clock.fixed(Instant.parse("2026-09-29T01:00:00Z"), ZoneOffset.UTC);          // KST 9-29: 27·28일이 끝의 공백
+        VerifyReport r = verifier(later).run(x.w.tenant, SealSetup.COMPLIANCE, trust);
+
+        // 시험용 스텁 TSA 인증서는 1일 유효라 26일 앵커는 영수증이 없다 — 그 ANCHOR_UNSTAMPED(26 + 2 < 29)는 이 테스트의 대상이 아니다
+        List<VerifyReport.Finding> missing = r.findings().stream().filter(f -> f.code() == FindingCode.ANCHOR_MISSING_DAY).toList();
+        assertThat(missing).hasSize(2);
+        assertThat(codes(r)).doesNotContain(FindingCode.SEAL_CHAIN_BROKEN, FindingCode.AUDIT_CHAIN_BROKEN, FindingCode.ANCHOR_MISMATCH);
+        assertThat(missing.getLast().where()).containsEntry("afterAnchorSeq", 2L).containsEntry("fromDate", "2026-09-27")
+                .containsEntry("toDate", "2026-09-28");
         assertThat(r.exitCode()).isEqualTo(2);
         assertThat(x.s.count("SELECT count(*) FROM compliance_flag WHERE tenant_id = ? AND type = 'CHAIN_BROKEN'", x.w.tenant.value())).isZero();
     }

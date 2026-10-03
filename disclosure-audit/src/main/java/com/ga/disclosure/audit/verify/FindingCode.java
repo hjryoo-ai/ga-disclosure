@@ -1,6 +1,6 @@
 package com.ga.disclosure.audit.verify;
 
-/** 발견 코드(지시문 13개 + 계획 추가 4개, 5 계획 §4). 스키마 {@code verify-report.schema.json#/$defs/findingCode}와 같은 목록이다(테스트 대조). */
+/** 발견 코드(지시문 13개 + 계획 추가 4개, 5 계획 §4; 6A R1 {@code ANCHOR_MISSING_DAY}). 스키마 {@code verify-report.schema.json#/$defs/findingCode}와 같은 목록이다(테스트 대조). */
 public enum FindingCode {
     PACKAGE_ENTRY_MISMATCH,
     SIGNED_PDF_NOT_PREFIXED,
@@ -18,5 +18,6 @@ public enum FindingCode {
     TSA_INVALID,
     TSA_UNTRUSTED,
     ANCHOR_UNSTAMPED,
-    RECEIPT_NOT_COVERING
+    RECEIPT_NOT_COVERING,
+    ANCHOR_MISSING_DAY
 }

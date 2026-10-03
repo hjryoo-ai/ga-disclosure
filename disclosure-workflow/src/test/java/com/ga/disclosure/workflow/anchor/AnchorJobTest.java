@@ -104,15 +104,19 @@ class AnchorJobTest {
         assertThat(report.batches()).singleElement().satisfies(b -> assertThat(b.leaves()).isEqualTo(1));
     }
 
-    /** 5 계획 §8.8: 오늘(KST) 뒤의 날짜는 앵커도 영수증도 만들지 않는다. 오늘은 된다. */
+    /** 5 수용심사 R1: 오늘(KST)이 아닌 날짜 — 미래도 소급도 — 는 앵커도 영수증도 만들지 않는다. 오늘은 된다. */
     @Test
-    void aFutureDateIsRefusedForEveryTenantAndTodayIsAllowed() {
-        AnchorJob.Report future = job(Map.of(A, 16, B, 16), new Bound()).run(List.of(A, B), DAY.plusDays(1), SYSTEM);
+    void aDateOtherThanTodayIsRefusedForEveryTenantAndTodayIsAllowed() {
+        for (LocalDate other : List.of(DAY.plusDays(1), DAY.minusDays(1))) {
+            AnchorJob.Report refused = job(Map.of(A, 16, B, 16), new Bound()).run(List.of(A, B), other, SYSTEM);
 
-        assertThat(future.failures()).containsExactly(new AnchorJob.Failure("A", A, DAY.plusDays(1), "DATE_IN_FUTURE"),
-                new AnchorJob.Failure("A", B, DAY.plusDays(1), "DATE_IN_FUTURE"));
-        assertThat(future.created()).isEmpty();
-        assertThat(job(Map.of(A, 16), new Bound()).run(List.of(A), DAY, SYSTEM).created()).as("미래 앵커가 남았으면 DATE_NOT_AFTER_LATEST").containsExactly(A);
+            assertThat(refused.failures()).as(other.toString()).containsExactly(new AnchorJob.Failure("A", A, other, "DATE_NOT_TODAY"),
+                    new AnchorJob.Failure("A", B, other, "DATE_NOT_TODAY"));
+            assertThat(refused.created()).isEmpty();
+            assertThat(refused.receipts()).isZero();
+        }
+        assertThat(anchors.rows).as("거부된 날짜는 아무것도 남기지 않는다").isEmpty();
+        assertThat(job(Map.of(A, 16), new Bound()).run(List.of(A), DAY, SYSTEM).created()).containsExactly(A);
     }
 
     @Test

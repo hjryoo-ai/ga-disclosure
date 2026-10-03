@@ -37,6 +37,7 @@ import com.ga.disclosure.workflow.disclosure.Lineage;
 import com.ga.disclosure.workflow.disclosure.SealStamp;
 import com.ga.disclosure.workflow.disclosure.VoidMark;
 import com.ga.platform.canonical.Canonicalizer;
+import com.ga.platform.core.tenant.OrgPath;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.stereotype.Repository;
@@ -75,7 +76,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     }
 
     @Override
-    public void insert(Disclosure d) {
+    public void insert(Disclosure d, OrgPath orgPath) {
         Map<String, Object> params = new HashMap<>();
         params.put("id", d.id().value());
         params.put("agentId", d.agentId());
@@ -90,11 +91,14 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         params.put("consultDate", d.consultDate());
         params.put("version", d.lineage().version());
         params.put("supersedesId", d.lineage().supersedesIdOrNull() == null ? null : d.lineage().supersedesIdOrNull().value());
+        params.put("orgPath", orgPath.value());
         update("""
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
-                                        rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date, version, supersedes_id)
+                                        rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date, version, supersedes_id,
+                                        org_path)
                 VALUES (:tenantId, :id, :agentId, :customerRef, :groupCode, :templateId, :templateVersion,
-                        :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate, :version, :supersedesId)
+                        :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate, :version, :supersedesId,
+                        :orgPath)
                 """, params);
         writeChildren(d);
     }

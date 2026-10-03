@@ -21,7 +21,9 @@ import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.sign.session.SessionEvent;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
+import com.ga.platform.core.tenant.OrgPath;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -99,10 +101,12 @@ public final class LifecycleService {
     private final DisclosureLoader loader;
     private final OutboxPort outbox;
     private final SessionClosing closing;
+    private final AgentDirectory agents;
 
     public LifecycleService(DisclosureServiceDeps deps, SignSessionStore sessions) {
         this.closing = new SessionClosing(sessions, deps.audit(), deps.clock());
         this.outbox = deps.outbox();
+        this.agents = deps.agents();
         this.store = deps.store();
         this.flags = deps.flags();
         this.rules = deps.rules();
@@ -165,13 +169,16 @@ public final class LifecycleService {
                 registry.plan(stage, rule);
             }
             TemplateResolution template = templates.resolve(tenant, l.template().templateType(), original.consultDate());
+            // 새 버전은 새 작성 행위다: 조직 스냅샷은 이전 버전에서 복사하지 않고 행위자의 현재 identity_link에서 다시 읽는다(6A 승인 Q1)
+            OrgPath orgPath = agents.find(actor.subject()).flatMap(AgentDirectory.LinkedIdentity::orgPath)
+                    .orElseThrow(() -> new CommandRejectedException("ACTOR_ORG_UNKNOWN", "the actor has no organisation in this tenant"));
             DisclosureId next = DisclosureId.of(UUID.randomUUID());
             Disclosure corrected = Disclosure.supersedingDraft(next, original, rule.globalRuleVersionId(), rule.tenantRuleVersion().orElse(null),
                     template.ref(), loader.context(tenant, rule, template, original.groupCode(), original.consultDate()));
             DisclosureStatus from = original.status();
             original.supersede(next, reason);
             store.save(original);
-            store.insert(corrected);
+            store.insert(corrected, orgPath);
             record(actor, AuditAction.DISCLOSURE_SUPERSEDE, id, JSON.createObjectNode().put("from", from.name()).put("to", original.status().name())
                     .put("next", next.toString()).put("nextVersion", corrected.lineage().version())
                     .put("reasonCode", reason.code()).put("reasonTextLength", reason.textLength()).put("actorRole", actor.role()));

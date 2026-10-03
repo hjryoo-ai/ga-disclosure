@@ -76,11 +76,11 @@ public final class SeedData {
         String inserted = sealed ? "REASONED" : status;
         boolean graded = !UNGRADED_STATUSES.contains(inserted);
         exec(c, """
-                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code,
+                INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code,
                                         template_id, template_version, rule_version_id, issuer_mode, status, consult_date,
                                         grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break, grade_basis,
                                         snapshot_generated_at)
-                VALUES (?, ?, 'AGENT-1', ?, 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
+                VALUES (?, ?, '/HQ/B1', 'AGENT-1', ?, 'PG-HEALTH', 'STANDARD', 1, ?, 'SELF', ?, DATE '2026-09-23',
                         CASE WHEN ? THEN 'GRD-1' END, CASE WHEN ? THEN 'GRADING-2026-07' END, CASE WHEN ? THEN 'RANK-2026-07' END,
                         CASE WHEN ? THEN 'SHARED_RANK' END,
                         CASE WHEN ? THEN '{"groupAvgSource": "ASSOC_DISCLOSURE", "period": "2026Q2", "groupPopulation": 27}'::jsonb END,
@@ -251,6 +251,50 @@ public final class SeedData {
         return inserted == 1 ? session : null;
     }
 
+    /** 원격 링크 OPEN 세션 — 토큰은 발송 때 생기므로 {@code token_hash} NULL(V12, 6A 승인 Q3). 부모가 서명 가능 상태가 아니면 null. */
+    public static UUID remoteSession(Connection c, String tenant, UUID disclosure) throws SQLException {
+        UUID session = UUID.randomUUID();
+        int inserted = exec(c, """
+                INSERT INTO sign_session (tenant_id, session_id, disclosure_id, signer_role, channel, token_hash, expires_at, status,
+                                          issued_by, issued_at, signed_doc_hash, signed_pdf_hash)
+                SELECT d.tenant_id, ?, d.disclosure_id, 'CUSTOMER', 'REMOTE_LINK', NULL,
+                       TIMESTAMPTZ '2026-09-26 10:00:00+09', 'OPEN', 'agent@seed', TIMESTAMPTZ '2026-09-23 10:01:00+09',
+                       d.canonical_hash, d.pdf_hash
+                  FROM disclosure d
+                 WHERE d.tenant_id = ? AND d.disclosure_id = ? AND d.status IN ('SEALED', 'PARTIALLY_SIGNED')
+                """, session, tenant, disclosure);
+        return inserted == 1 ? session : null;
+    }
+
+    /** 서명 링크 통지 1건(V12, PENDING). 수신자는 실재하는 고객 가명이어야 한다(FK). */
+    public static UUID notification(Connection c, String tenant, String customerRef, UUID session) throws SQLException {
+        UUID id = UUID.randomUUID();
+        exec(c, """
+                INSERT INTO notification_outbox (tenant_id, notification_id, kind, customer_ref, session_id, status, next_attempt_at, created_at)
+                VALUES (?, ?, 'SIGN_LINK', ?, ?, 'PENDING', TIMESTAMPTZ '2026-09-23 10:01:00+09', TIMESTAMPTZ '2026-09-23 10:01:00+09')
+                """, tenant, id, customerRef, session);
+        return id;
+    }
+
+    /** QUEUED 작업 1건(V12 async_job). */
+    public static UUID asyncJob(Connection c, String tenant, String kind) throws SQLException {
+        UUID id = UUID.randomUUID();
+        exec(c, """
+                INSERT INTO async_job (tenant_id, job_id, kind, status, requested_by, channel, requested_at)
+                VALUES (?, ?, ?, 'QUEUED', 'scheduler@seed', 'HTTP', TIMESTAMPTZ '2026-10-01 00:00:00+09')
+                """, tenant, id, kind);
+        return id;
+    }
+
+    /** 진행 중 Idempotency-Key 1건(V12). 만료는 {@code expiresAt}, 생성·청구는 그 하루 전. */
+    public static void idempotencyKey(Connection c, String tenant, String subject, String key, String expiresAt) throws SQLException {
+        exec(c, """
+                INSERT INTO idempotency_key (tenant_id, actor_subject, idem_key, request_hash, claimed_at, created_at, expires_at)
+                SELECT ?, ?, ?, repeat('0', 64), e - INTERVAL '1 day', e - INTERVAL '1 day', e
+                  FROM (SELECT CAST(? AS timestamptz) AS e) x
+                """, tenant, subject, key, expiresAt);
+    }
+
     /** 서명자 집합 검사(V8 GD104)가 읽는 고정 GLOBAL 룰 본문(JCS 정렬). */
     public static final String SIGNER_RULE_BODY = "{\"managerConfirmMode\":\"REQUIRED\",\"signerSet\":[\"CUSTOMER\",\"AGENT\",\"MANAGER\"]}";
 
@@ -419,7 +463,7 @@ public final class SeedData {
         }
     }
 
-    /** 테넌트 테이블 전부(V8 기준 27개)에 한 행 이상을 넣는다(RLS 격리 검증용). 봉인 시드가 카운터·체인 머리를, 산출물 시드가 문서 키를 만든다. */
+    /** 테넌트 테이블 전부(V12 기준 32개)에 한 행 이상을 넣는다(RLS 격리 검증용). 봉인 시드가 카운터·체인 머리를, 산출물 시드가 문서 키를 만든다. */
     public static void everyTable(Connection c, String tenant) throws SQLException {
         tenant(c, tenant);
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, 'sub-1', 'AGENT-1', ARRAY['AGENT'], '/HQ/B1')", tenant);
@@ -487,6 +531,10 @@ public final class SeedData {
                 INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at)
                 VALUES (?, ?, 'MISSING', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09')
                 """, tenant, UUID.randomUUID());
+        // V12
+        notification(c, tenant, SEED_CUSTOMER_REF, remoteSession(c, tenant, sealed));      // 고객 서명의 세션은 USED라 OPEN이 비어 있다
+        asyncJob(c, tenant, "VERIFY_TENANT");
+        idempotencyKey(c, tenant, "sub-1", "seed-idempotency-0001", "2026-09-24 10:00:00+09");
     }
 
     /** 관리자 예외 승인 1건(V6 review, 부모는 가변 상태여야 한다 — GD080; 부모의 고정 룰 버전 2종을 싣는다 — V7 GD081). */
