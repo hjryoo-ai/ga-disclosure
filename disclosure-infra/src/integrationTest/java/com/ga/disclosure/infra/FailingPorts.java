@@ -6,6 +6,7 @@ import com.ga.disclosure.workflow.artifact.ArtifactRecord;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.artifact.UnsupportedCapabilityException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ final class FailingPorts {
     static final class Store implements ArtifactStore {
         final ArtifactStore delegate;
         final AtomicBoolean failRetention = new AtomicBoolean();
+        final AtomicBoolean legalHoldUnsupported = new AtomicBoolean();
         final List<String> uploaded = new ArrayList<>();
         /** Object Lock 적용 호출마다 그때 DB 트랜잭션이 열려 있었는가(커밋 전 잠금 금지 — 언제나 false여야 한다). */
         final List<Boolean> retentionInsideTransaction = new ArrayList<>();
@@ -75,6 +77,33 @@ final class FailingPorts {
         @Override
         public void delete(String key) {
             delegate.delete(key);
+        }
+
+        @Override
+        public VersionCount versionCount(String key) {
+            return delegate.versionCount(key);
+        }
+
+        /** {@code legalHoldUnsupported}이면 미지원 저장소의 대역(5 계획 §6 — 미지원은 예외로 명시, 조용한 no-op 없음). */
+        @Override
+        public Capabilities capabilities() {
+            return legalHoldUnsupported.get() ? new Capabilities(Support.UNSUPPORTED) : delegate.capabilities();
+        }
+
+        @Override
+        public void setLegalHold(String key, boolean on) {
+            if (legalHoldUnsupported.get()) {
+                throw new UnsupportedCapabilityException("legal hold");
+            }
+            delegate.setLegalHold(key, on);
+        }
+
+        @Override
+        public boolean legalHold(String key) {
+            if (legalHoldUnsupported.get()) {
+                throw new UnsupportedCapabilityException("legal hold");
+            }
+            return delegate.legalHold(key);
         }
     }
 

@@ -32,12 +32,44 @@ public interface ArtifactStore {
     List<StoredObject> list(String prefix);
 
     /**
-     * 키의 모든 버전을 지운다(잔여물 정리 전용). 잠긴 버전이 있으면 저장소가 거부하고 {@link ObjectLockedException} — 잠긴 산출물은 보존기한 전에
-     * 어떤 경로로도 지워지지 않는다.
+     * 키의 모든 버전과 삭제 마커를 <b>버전 ID로</b> 지운다(잔여물 정리·파기). 버전 없는 삭제는 보내지 않는다 — 없는 키도 마커가 생긴다(5 계획 §6
+     * 실측). 잠긴 버전이나 legal hold가 켜진 버전이 있으면 저장소가 거부하고 {@link ObjectLockedException} — 보존기한 전에, 그리고 보류 중에는
+     * 보존기한 뒤에도 어떤 경로로도 지워지지 않는다. 끝나면 {@link #versionCount}가 0·0이다. 없는 키는 아무것도 하지 않는다.
      */
     void delete(String key);
 
+    /** 키의 버전 수와 삭제 마커 수(파기 확인·{@code verify tenant}의 {@code OBJECT_NOT_DELETED}). */
+    VersionCount versionCount(String key);
+
+    /** 저장소가 지원하는 기능. 미지원 기능의 호출은 {@link UnsupportedCapabilityException}이다(조용한 no-op 없음). */
+    Capabilities capabilities();
+
+    /**
+     * 키의 <b>모든 버전</b>에 legal hold를 켜거나 끈다(보존과 독립 — 켜져 있으면 보존 만료 뒤에도 삭제가 거부된다). 통제는 DB 보류이고 이것은 벨트다
+     * (설계서 §9). 버전이 없으면 {@link ArtifactMissingException}, 미지원이면 {@link UnsupportedCapabilityException}.
+     */
+    void setLegalHold(String key, boolean on);
+
+    /** 모든 버전에 legal hold가 켜져 있는가. 버전이 없으면 {@link ArtifactMissingException}, 미지원이면 {@link UnsupportedCapabilityException}. */
+    boolean legalHold(String key);
+
     /** 객체 1건(최신 버전). */
     record StoredObject(String key, Instant lastModified, long size) {
+    }
+
+    /** 키의 버전·삭제 마커 수. */
+    record VersionCount(int versions, int deleteMarkers) {
+        public boolean isEmpty() {
+            return versions == 0 && deleteMarkers == 0;
+        }
+    }
+
+    enum Support { SUPPORTED, UNSUPPORTED }
+
+    /** 저장소 능력(5 계획 §6). */
+    record Capabilities(Support legalHold) {
+        public Capabilities {
+            java.util.Objects.requireNonNull(legalHold, "legalHold");
+        }
     }
 }

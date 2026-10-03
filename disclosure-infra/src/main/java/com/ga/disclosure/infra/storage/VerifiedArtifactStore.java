@@ -80,4 +80,24 @@ public final class VerifiedArtifactStore implements ArtifactStore {
     public void delete(String key) {
         ready().delete(key);
     }
+
+    @Override
+    public VersionCount versionCount(String key) {
+        return ready().versionCount(key);
+    }
+
+    @Override
+    public Capabilities capabilities() {
+        return ready().capabilities();
+    }
+
+    @Override
+    public void setLegalHold(String key, boolean on) {
+        ready().setLegalHold(key, on);
+    }
+
+    @Override
+    public boolean legalHold(String key) {
+        return ready().legalHold(key);
+    }
 }
