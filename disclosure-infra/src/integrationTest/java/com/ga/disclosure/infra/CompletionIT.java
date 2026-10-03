@@ -68,6 +68,7 @@ class CompletionIT {
         assertThat(Arrays.equals(signed, 0, original.length, original, 0, original.length)).as("sealed PDF is a byte prefix").isTrue();
         byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, viewer, id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
         assertThat(EvidencePackageReader.verify(zip)).isEmpty();
+        assertThat(manifestOf(zip).get("anchor").isNull()).as("완료 전 앵커가 없으면 null").isTrue();
 
         // 커밋 뒤 잠금: 산출물 4종 + 서명 증거 4종(고객·설계사 스트로크·이미지) 전부 완료 보존기한까지
         java.time.Instant until = SealService.retainUntilInstant(LocalDate.parse("2031-09-23"));
@@ -76,6 +77,38 @@ class CompletionIT {
 
         assertThat(x.s.actionsFor(id)).containsSubsequence(AuditAction.SIGNATURE_CAPTURED, AuditAction.SIGNATURE_CAPTURED,
                 AuditAction.SIGNATURE_CAPTURED, AuditAction.DISCLOSURE_COMPLETED);
+    }
+
+    /** 5 계획 §8.1: 매니페스트 {@code anchor} = 완료 시점에 이미 있던 그 테넌트의 최신 앵커(패키지는 다시 만들지 않는다). */
+    @Test
+    void theManifestReferencesTheLatestAnchorThatExistedAtCompletion() {
+        DisclosureId id = x.sealed();
+        com.ga.disclosure.infra.persistence.AnchorRepository anchors = new com.ga.disclosure.infra.persistence.AnchorRepository(x.w.gateway);
+        com.ga.disclosure.audit.tsa.stub.LocalStubTsa tsa = com.ga.disclosure.audit.tsa.stub.LocalStubTsa.ephemeral(x.clock);
+        new com.ga.disclosure.workflow.anchor.AnchorJob(anchors, x.w.audit, x.w.tx, new com.ga.disclosure.rules.resolve.RuleResolver(x.w.rules),
+                new com.ga.disclosure.audit.tsa.TimestampClient(tsa, com.ga.disclosure.audit.tsa.NonceSource.secure(), tsa.trustAnchors()), x.clock)
+                .run(List.of(x.w.tenant), LocalDate.parse("2026-09-23"), AnchorJobIT.SYSTEM);
+        com.ga.disclosure.audit.anchor.AnchorRecord anchor = x.w.tx.inTenant(x.w.tenant, anchors::latest).orElseThrow().record();
+
+        assertThat(x.customerSignsOnTouchPad(id).accepted()).isTrue();
+        x.clock.advance(java.time.Duration.ofMinutes(5));
+        assertThat(x.agentSigns(id).accepted()).isTrue();
+        x.clock.advance(java.time.Duration.ofMinutes(5));
+        assertThat(x.managerConfirms(id).completed()).isTrue();
+
+        byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, SealSetup.COMPLIANCE, id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
+        assertThat(EvidencePackageReader.verify(zip)).isEmpty();
+        tools.jackson.databind.JsonNode ref = manifestOf(zip).get("anchor");
+        assertThat(ref.get("anchorSeq").asLong()).isEqualTo(anchor.anchorSeq());
+        assertThat(ref.get("anchorDate").asString()).isEqualTo("2026-09-23");
+        assertThat(ref.get("leafHash").asString()).isEqualTo(anchor.leafHash());
+        assertThat(ref.get("sealChainSeq").asLong()).isEqualTo(anchor.sealChainSeq()).isEqualTo(1);
+        assertThat(ref.get("auditSeq").asLong()).isEqualTo(anchor.auditSeq());
+    }
+
+    private static tools.jackson.databind.JsonNode manifestOf(byte[] zip) {
+        return com.ga.platform.canonical.Canonicalizer.parseStrict(new String(EvidencePackageReader.entries(zip).get("manifest.json"),
+                java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Test

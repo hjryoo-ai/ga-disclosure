@@ -91,5 +91,11 @@ public enum AuditAction {
     /** 완료: 서명본·증거 패키지 해시, 연장된 보존기한, 증거 패키지가 담은 감사 범위. */
     DISCLOSURE_COMPLETED,
     /** 서명 기한 경과로 만료(이전 상태·기한·판정 기준 시각, 닫은 세션). */
-    DISCLOSURE_EXPIRE
+    DISCLOSURE_EXPIRE,
+
+    // ---------------------------------------------------------------- Phase 5: 앵커·검증·파기(대상 ANCHOR·DISCLOSURE·CUSTOMER_REF)
+    /** 일일 앵커(대상 ANCHOR, 대상 ID = KST 날짜): 앵커 순번, 두 체인 머리와 seq, 잎 해시. 이 행의 seq = 앵커 audit_seq + 1. */
+    ANCHOR_CREATED,
+    /** 영수증 저장(대상 ANCHOR): 배치 ID·루트·깊이·잎 위치·TSA 시각·일련번호. */
+    ANCHOR_RECEIPT_STORED
 }

@@ -16,4 +16,10 @@ public interface WorkflowTransactions {
      * 정리의 유예가 이 제한보다 크면 진행 중인 봉인의 객체를 건드리지 않는다.
      */
     <T> T inTenant(TenantId tenant, java.time.Duration timeout, Supplier<T> work);
+
+    /**
+     * REPEATABLE READ 트랜잭션(5 계획 승인 Q12 — 일일 앵커가 두 체인 머리를 한 스냅샷에서 읽는다). 스냅샷 뒤 다른 트랜잭션의 커밋과 부딪히면
+     * (직렬화 실패 40001, 감사 seq 유일성 23505) 롤백하고 {@link ConcurrentWriteConflict}를 던진다 — 호출자가 처음부터 다시 한다.
+     */
+    <T> T inTenantRepeatableRead(TenantId tenant, Supplier<T> work);
 }

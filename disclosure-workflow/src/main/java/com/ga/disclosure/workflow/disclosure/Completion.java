@@ -16,6 +16,7 @@ import com.ga.disclosure.seal.canonical.CanonicalDocument;
 import com.ga.disclosure.seal.evidence.EvidenceInput;
 import com.ga.disclosure.seal.evidence.EvidencePackage;
 import com.ga.disclosure.seal.evidence.EvidencePackageBuilder;
+import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.seal.renderer.DisclosurePdfRenderer;
 import com.ga.disclosure.seal.renderer.SignatureAppearance;
 import com.ga.disclosure.seal.renderer.SignedPdfAppender;
@@ -65,9 +66,11 @@ final class Completion {
     private final RuleResolver rules;
     private final TemplateResolver templates;
     private final SignedPdfAppender appender;
+    private final AnchorStore dailyAnchors;
 
     Completion(StoredArtifacts stored, DocumentRecordStore records, DocumentCryptoPort crypto, ArtifactStore storage, AuditPort audit,
-               RuleResolver rules, TemplateResolver templates, SignedPdfAppender appender) {
+               RuleResolver rules, TemplateResolver templates, SignedPdfAppender appender, AnchorStore anchors) {
+        this.dailyAnchors = Objects.requireNonNull(anchors, "anchors");
         this.stored = Objects.requireNonNull(stored, "stored");
         this.records = Objects.requireNonNull(records, "records");
         this.crypto = Objects.requireNonNull(crypto, "crypto");
@@ -132,7 +135,9 @@ final class Completion {
                         d.template().version(), templates.contentHash(tenant, d.template())),
                 new EvidenceInput.Snapshot(snapshot.snapshot().snapshotId().value(), snapshot.snapshot().gradingPolicyVersionId(),
                         snapshot.snapshot().rankingPolicyVersionId(), snapshot.snapshot().tieBreak().name(), snapshot.generatedAt()),
-                seal.sealedAt(), now, retentionUntil, signatures.stream().map(s -> record(s, evidence)).toList(), auditRows);
+                seal.sealedAt(), now, retentionUntil, signatures.stream().map(s -> record(s, evidence)).toList(), auditRows,
+                dailyAnchors.latest().map(a -> new EvidenceInput.AnchorRef(a.record().anchorSeq(), a.record().anchorDate(), a.leafHash(),
+                        a.record().sealChainSeq(), a.record().auditSeq())).orElse(null));
         EvidencePackage pkg = EvidencePackageBuilder.build(input);
 
         DocumentCryptoPort.StoredKey key = stored.liveKey(id);

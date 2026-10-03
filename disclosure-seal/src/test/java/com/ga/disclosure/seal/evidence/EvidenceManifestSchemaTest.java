@@ -24,11 +24,33 @@ class EvidenceManifestSchemaTest {
         assertThat(EvidenceManifestSchema.validateManifest(manifest())).isEmpty();
     }
 
+    /** Phase 5 추가형: 완료 시점의 최신 앵커 참조 객체(키 5개, 닫힘). null은 여전히 유효하다 — 기존 패키지는 다시 만들지 않는다. */
+    @Test
+    void anAnchorReferenceIsAClosedObjectAndNullStaysValid() {
+        EvidenceInput base = EvidenceFixtures.input();
+        EvidenceInput anchored = new EvidenceInput(base.tenantId(), base.disclosureId(), base.disclosureNo(), base.version(), base.canonicalJson(),
+                base.pdf(), base.signedPdf(), base.chainHash(), base.chainSeq(), base.pinned(), base.snapshot(), base.sealedAt(), base.completedAt(),
+                base.retentionUntil(), base.signatures(), base.audit(),
+                new EvidenceInput.AnchorRef(3, java.time.LocalDate.parse("2026-09-22"), "a".repeat(64), 0, 41));
+        byte[] zip = EvidencePackageBuilder.build(anchored).zip();
+        ObjectNode m = (ObjectNode) Canonicalizer.parseStrict(new String(EvidencePackageReader.entries(zip).get("manifest.json"), StandardCharsets.UTF_8));
+
+        assertThat(EvidenceManifestSchema.validateManifest(m)).isEmpty();
+        assertThat(m.get("anchor").toString()).isEqualTo("{\"anchorDate\":\"2026-09-22\",\"anchorSeq\":3,\"auditSeq\":41,\"leafHash\":\""
+                + "a".repeat(64) + "\",\"sealChainSeq\":0}");
+        assertThat(manifest().get("anchor").isNull()).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "/extra|1",
             "/manifestVersion|2",
             "/anchor|{\"ref\":\"x\"}",
+            "/anchor|{\"anchorSeq\":3,\"anchorDate\":\"2026-09-22\",\"leafHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sealChainSeq\":0,\"auditSeq\":41,\"root\":\"x\"}",
+            "/anchor|{\"anchorSeq\":3,\"anchorDate\":\"2026-09-22\",\"leafHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sealChainSeq\":0}",
+            "/anchor|{\"anchorSeq\":0,\"anchorDate\":\"2026-09-22\",\"leafHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sealChainSeq\":0,\"auditSeq\":41}",
+            "/anchor|{\"anchorSeq\":3,\"anchorDate\":\"2026-9-22\",\"leafHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sealChainSeq\":0,\"auditSeq\":41}",
+            "/anchor|{\"anchorSeq\":3,\"anchorDate\":\"2026-09-22\",\"leafHash\":\"ABC\",\"sealChainSeq\":0,\"auditSeq\":41}",
             "/hashes/pdf|\"ABC\"",
             "/hashes/extra|1",
             "/disclosureNo|\"demo1-2026-1\"",

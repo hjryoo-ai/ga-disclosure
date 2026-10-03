@@ -108,7 +108,13 @@ public final class EvidencePackageBuilder {
         List<EvidenceInput.AuditRow> audit = in.audit();
         manifest.putObject("audit").put("file", AUDIT).put("fromSeq", audit.getFirst().seq()).put("toSeq", audit.getLast().seq())
                 .put("rows", audit.size()).put("lastEntryHash", audit.getLast().entryHash());
-        manifest.putNull("anchor");
+        EvidenceInput.AnchorRef anchor = in.anchor();
+        if (anchor == null) {
+            manifest.putNull("anchor");
+        } else {
+            manifest.putObject("anchor").put("anchorSeq", anchor.anchorSeq()).put("anchorDate", anchor.anchorDate().toString())
+                    .put("leafHash", anchor.leafHash()).put("sealChainSeq", anchor.sealChainSeq()).put("auditSeq", anchor.auditSeq());
+        }
         ArrayNode files = manifest.putArray("files");
         entries.forEach((path, bytes) -> files.addObject().put("path", path).put("sha256", sha256(bytes)).put("bytes", bytes.length));
         requireValid(EvidenceManifestSchema.validateManifest(manifest), MANIFEST);

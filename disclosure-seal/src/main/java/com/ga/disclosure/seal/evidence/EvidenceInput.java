@@ -17,7 +17,8 @@ import java.util.Objects;
  */
 public record EvidenceInput(String tenantId, String disclosureId, String disclosureNo, int version, byte[] canonicalJson, byte[] pdf,
                             byte[] signedPdf, String chainHash, long chainSeq, Pinned pinned, Snapshot snapshot, Instant sealedAt,
-                            Instant completedAt, LocalDate retentionUntil, List<SignatureRecord> signatures, List<AuditRow> audit) {
+                            Instant completedAt, LocalDate retentionUntil, List<SignatureRecord> signatures, List<AuditRow> audit,
+                            AnchorRef anchor) {
 
     public EvidenceInput {
         Objects.requireNonNull(tenantId, "tenantId");
@@ -48,6 +49,17 @@ public record EvidenceInput(String tenantId, String disclosureId, String disclos
     @Override
     public byte[] signedPdf() {
         return signedPdf.clone();
+    }
+
+    /**
+     * 완료 시점에 이미 있던 그 테넌트의 최신 일일 앵커(없으면 매니페스트 {@code anchor = null}, 4 수용심사 결정 2). 패키지는 다시 만들지 않으므로 이후의
+     * 증명은 영수증 내보내기가 잇는다.
+     */
+    public record AnchorRef(long anchorSeq, LocalDate anchorDate, String leafHash, long sealChainSeq, long auditSeq) {
+        public AnchorRef {
+            Objects.requireNonNull(anchorDate, "anchorDate");
+            Objects.requireNonNull(leafHash, "leafHash");
+        }
     }
 
     /** 고정 버전과 그 번들 해시(TENANT 룰이 없으면 둘 다 null). */
