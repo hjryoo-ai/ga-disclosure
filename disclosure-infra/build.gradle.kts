@@ -66,6 +66,24 @@ sourceSets {
     }
 }
 
+// B3(5 계획 승인 B3): 통합 테스트가 끝나면 ElapsedRetentionScan이 쓴 파일을 판정한다 — 파일이 없거나(리스너 미실행) 위반 줄이 있으면 실패.
+val verifyElapsedRetentionScan = tasks.register("verifyElapsedRetentionScan") {
+    description = "Fails when RETENTION_ALREADY_ELAPSED appears outside the short-retention test tenants, or the scan did not run."
+    val report = layout.buildDirectory.file("reports/elapsed-retention-scan.txt")
+    outputs.upToDateWhen { false }                          // 매 실행 판정(파일이 없을 때도 이 태스크의 메시지로 실패)
+    doLast {
+        val f = report.get().asFile
+        if (!f.isFile) {
+            throw GradleException("elapsed-retention scan report is missing: ${f} — the integrationTest listener did not run")
+        }
+        val violations = f.readLines().filter { it.startsWith("VIOLATION") }
+        if (violations.isNotEmpty()) {
+            throw GradleException("elapsed-retention scan failed:\n" + violations.joinToString("\n"))
+        }
+        logger.lifecycle("elapsed-retention scan: " + f.readLines().filter { !it.startsWith("VIOLATION") }.joinToString(", "))
+    }
+}
+
 testing {
     suites {
         register<JvmTestSuite>("integrationTest") {
@@ -93,13 +111,19 @@ testing {
                     exclude(group = "software.amazon.awssdk", module = "apache5-client")
                 }
                 implementation(libs.awssdk.url.connection.client)
-                runtimeOnly(libs.junit.platform.launcher)
+                // ElapsedRetentionScan(B3)이 실행 끝 리스너로 등록된다(META-INF/services)
+                implementation(libs.junit.platform.launcher)
             }
             targets.all {
                 testTask.configure {
                     shouldRunAfter(tasks.test)
                     // 같은 JVM에서 컨테이너를 재사용한다(PostgresHarness 싱글턴).
                     maxParallelForks = 1
+                    val scanReport = layout.buildDirectory.file("reports/elapsed-retention-scan.txt")
+                    systemProperty("ga.elapsedRetentionScanReport", scanReport.get().asFile.absolutePath)
+                    outputs.file(scanReport)
+                    doFirst { scanReport.get().asFile.delete() }
+                    finalizedBy(verifyElapsedRetentionScan)
                 }
             }
         }

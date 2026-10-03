@@ -51,7 +51,10 @@ class ArchitectureRulesTest {
                     "애플리케이션 DataSource로 위 두 빈을 조립하는 자동 구성"),
             new Allowed("com.ga.platform.spring.jdbc.TenantDirectoryReader",
                     "운영자 CLI --tenants all 전용 테넌트 ID 목록 — tenant.tenant_id만 읽을 수 있는 disclosure_operator 롤로 별도 접속"
-                            + "(Phase 1 계획 D4, 설계서 §9)"));
+                            + "(Phase 1 계획 D4, 설계서 §9)"),
+            new Allowed(P + "infra.retention.DestroyerGateway",
+                    "파기 함수 3개 호출 — 호출자 트랜잭션의 연결에서 SET LOCAL ROLE disclosure_destroyer(전용 롤, 함수 EXECUTE만) → 함수 → RESET ROLE. "
+                            + "테넌트 데이터를 읽지 않는다(5 계획 승인 Q2, 설계서 §9)"));
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(

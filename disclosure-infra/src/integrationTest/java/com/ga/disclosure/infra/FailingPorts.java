@@ -31,6 +31,9 @@ final class FailingPorts {
         final ArtifactStore delegate;
         final AtomicBoolean failRetention = new AtomicBoolean();
         final AtomicBoolean legalHoldUnsupported = new AtomicBoolean();
+        /** 설정되면 {@code delete}가 이 예외를 던진다(파기 ② 중단·저장소 거부 주입). */
+        final java.util.concurrent.atomic.AtomicReference<java.util.function.Supplier<RuntimeException>> deleteFailure =
+                new java.util.concurrent.atomic.AtomicReference<>();
         final List<String> uploaded = new ArrayList<>();
         /** Object Lock 적용 호출마다 그때 DB 트랜잭션이 열려 있었는가(커밋 전 잠금 금지 — 언제나 false여야 한다). */
         final List<Boolean> retentionInsideTransaction = new ArrayList<>();
@@ -76,6 +79,10 @@ final class FailingPorts {
 
         @Override
         public void delete(String key) {
+            java.util.function.Supplier<RuntimeException> failure = deleteFailure.get();
+            if (failure != null) {
+                throw failure.get();
+            }
             delegate.delete(key);
         }
 

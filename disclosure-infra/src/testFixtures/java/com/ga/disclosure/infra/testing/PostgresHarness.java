@@ -76,6 +76,11 @@ public final class PostgresHarness {
         return instance;
     }
 
+    /** 이 JVM에서 이미 띄운 하네스(없으면 띄우지 않는다 — 실행 끝 스캔용). */
+    public static synchronized java.util.Optional<PostgresHarness> ifStarted() {
+        return java.util.Optional.ofNullable(instance);
+    }
+
     public DataSource appDataSource() {
         return app;
     }

@@ -305,6 +305,49 @@ class DestroyerRoleIT {
         assertThat(states).containsExactly("GD113", "GD113", "GD113", "GD030");
     }
 
+    /** V11: 보류 사유 텍스트는 표식이 가리키는 확인서의 해제된 보류에서만, reason_text만 NULL이 된다. */
+    @Test
+    void aHoldReasonTextIsErasedOnlyOnAReleasedHoldInsideTheBranch() {
+        Doc d = terminal("COMPLETED");
+        UUID released = UUID.randomUUID();
+        UUID active = UUID.randomUUID();
+        String place = "INSERT INTO legal_hold (tenant_id, hold_id, disclosure_id, reason_code, reason_text, placed_by, placed_at)"
+                + " VALUES (?, ?, ?, 'OTHER', '허구 메모', 'compliance@x', now())";
+        DB.seed(T, c -> {
+            SeedData.exec(c, place, T, released, d.id());
+            SeedData.exec(c, "UPDATE legal_hold SET released_at = now(), released_by = 'compliance@x', release_reason_code = 'CASE_CLOSED'"
+                    + " WHERE tenant_id = ? AND hold_id = ?", T, released);
+            SeedData.exec(c, place, T, active, d.id());
+        });
+        String erase = "UPDATE legal_hold SET reason_text = NULL WHERE tenant_id = ? AND hold_id = ?";
+        List<String> states = new ArrayList<>();
+        String[][] cases = {
+                {null, "", erase},                                                     // 표식 없음
+                {null, "disclosure:" + UUID.randomUUID(), erase},                    // 다른 확인서의 표식
+                {null, "disclosure:" + d.id(), "ACTIVE"},                             // 활성 보류
+                {"GRANT UPDATE (reason_code) ON legal_hold TO disclosure_destroy_definer", "disclosure:" + d.id(),
+                        "UPDATE legal_hold SET reason_code = 'LITIGATION', reason_text = NULL WHERE tenant_id = ? AND hold_id = ?"}};
+        for (String[] c3 : cases) {
+            UUID target = "ACTIVE".equals(c3[2]) ? active : released;
+            String sql = "ACTIVE".equals(c3[2]) ? erase : c3[2];
+            states.add(sqlStateOf(() -> asSuperuser(T, c -> {
+                if (c3[0] != null) {
+                    SeedData.exec(c, c3[0]);
+                }
+                SeedData.exec(c, "SET LOCAL ROLE disclosure_destroy_definer");
+                SeedData.call(c, "SELECT set_config('ga.destroy', ?, true)", c3[1]);
+                return SeedData.exec(c, sql, T, target);
+            })));
+        }
+        assertThat(states).containsExactly("GD112", "GD112", "GD113", "GD113");
+        int changed = asSuperuser(T, c -> {
+            SeedData.exec(c, "SET LOCAL ROLE disclosure_destroy_definer");
+            SeedData.call(c, "SELECT set_config('ga.destroy', ?, true)", "disclosure:" + d.id());
+            return SeedData.exec(c, erase, T, released);
+        });
+        assertThat(changed).isEqualTo(1);
+    }
+
     // ------------------------------------------------------------------ 함수의 판정(GD114)
 
     @Test

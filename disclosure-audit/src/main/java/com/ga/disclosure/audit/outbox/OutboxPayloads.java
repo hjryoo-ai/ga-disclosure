@@ -88,6 +88,11 @@ public final class OutboxPayloads {
                 .put("supersededById", supersededById.toString()).put("newVersion", newVersion).put("supersededAt", supersededAt.toString());
     }
 
+    /** 파기(Phase 5): 식별자·번호·시각만 — 지운 값의 해시는 감사에만 남는다. */
+    public static JsonNode disclosureDestroyed(UUID disclosureId, String disclosureNo, Instant destroyedAt) {
+        return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("destroyedAt", destroyedAt.toString());
+    }
+
     public static JsonNode policyLinked(UUID disclosureId, String disclosureNo, String policyNo, LocalDate contractDate) {
         return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("policyNo", policyNo)
                 .put("contractDate", contractDate.toString());

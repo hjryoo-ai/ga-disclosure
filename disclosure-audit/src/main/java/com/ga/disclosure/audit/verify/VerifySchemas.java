@@ -26,6 +26,7 @@ public final class VerifySchemas {
     private static final Schema SIGNATURE_FILE = REGISTRY.getSchema(SchemaLocation.of(BASE + "seal/v1/evidence-manifest.schema.json#/$defs/signatureFile"));
     private static final Schema RECEIPT_EXPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/anchor-receipt-export.schema.json"));
     private static final Schema REPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/verify-report.schema.json"));
+    private static final Schema DESTRUCTION_REPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/destruction-report.schema.json"));
 
     private VerifySchemas() {
     }
@@ -44,6 +45,11 @@ public final class VerifySchemas {
 
     public static List<String> report(JsonNode node) {
         return errors(REPORT, node);
+    }
+
+    /** 파기 실행 보고서(5 계획 §8.4). */
+    public static List<String> destructionReport(JsonNode node) {
+        return errors(DESTRUCTION_REPORT, node);
     }
 
     private static List<String> errors(Schema schema, JsonNode node) {

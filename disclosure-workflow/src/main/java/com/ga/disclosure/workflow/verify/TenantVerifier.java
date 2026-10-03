@@ -53,8 +53,8 @@ import static com.ga.disclosure.audit.verify.ReportBuilder.map;
 
 /**
  * {@code verify tenant}(지시문 §4, 5 계획 §8.4). 읽기는 REPEATABLE READ 트랜잭션 하나(한 스냅샷)에서 흘려 읽는다 — 감사·봉인 체인은 페이지 단위,
- * 앵커 대조용 머리는 checkpoint seq에서 다시 계산한 값만 기억한다. 순서: 감사 체인 → 봉인 체인 → 채번(연도별) → 객체(복호화·평문 해시, 파기 건은
- * 버전·마커 0) → 앵커(잎·두 머리) → 영수증(경로·루트·토큰) → 미고정 기간.
+ * 앵커 대조용 머리는 checkpoint seq에서 다시 계산한 값만 기억한다. 순서: 감사 체인 → 봉인 체인 → 채번(연도별) → 파기 감사({@code destroyed_at} ↔
+ * {@code DISCLOSURE_DESTROYED}) → 객체(복호화·평문 해시, 파기 건은 버전·마커 0) → 앵커(잎·두 머리) → 영수증(경로·루트·토큰) → 미고정 기간.
  *
  * <p>쓰기는 끝에 별도 트랜잭션 하나: 감사 {@code VERIFY_RUN}(보고서 해시)과, 무결성 불일치가 있으면 {@code CHAIN_BROKEN} 플래그 — 끊긴 지점의
  * 확인서마다, 확인서를 정할 수 없으면 {@code disclosure_id NULL}로 그 지점을 대상으로(감사 체인 = {@code AUDIT_LOG}·seq, 앵커·영수증 =
@@ -127,8 +127,14 @@ public final class TenantVerifier {
         ReportBuilder.CheckScope auditCheck = r.check("AUDIT_CHAIN");
         AuditChainWalker auditWalker = new AuditChainWalker(auditCheckpoints);
         long auditRows = 0;
+        Set<String> destroyedAudited = new HashSet<>();
         for (List<AuditRecord> page = audit.readAfter(0, PAGE); !page.isEmpty(); page = audit.readAfter(page.getLast().seq(), PAGE)) {
-            page.forEach(auditWalker::accept);
+            for (AuditRecord rec : page) {
+                auditWalker.accept(rec);
+                if (rec.entry().action() == AuditAction.DISCLOSURE_DESTROYED) {
+                    destroyedAudited.add(rec.entry().targetId());
+                }
+            }
             auditRows += page.size();
         }
         for (ChainBreak b : auditWalker.breaks()) {
@@ -160,6 +166,19 @@ public final class TenantVerifier {
         }
         sealCheck.counted(sealed.size()).close();
         numbering(r, tenant, sealed);
+
+        // 파기 감사: destroyed_at이 있으면 DISCLOSURE_DESTROYED 감사가 있고, 그 반대도(5 계획 §4 추가 코드)
+        ReportBuilder.CheckScope destruction = r.check("DESTRUCTION_AUDIT");
+        int destroyedCount = 0;
+        for (SealChainReader.ChainRow row : sealed) {
+            boolean destroyed = row.destroyedAtOrNull() != null;
+            destroyedCount += destroyed ? 1 : 0;
+            if (destroyed != destroyedAudited.contains(row.disclosureId().toString())) {
+                r.finding(FindingCode.DESTRUCTION_UNAUDITED, map("disclosureId", row.disclosureId().toString()),
+                        map("destroyed", destroyed, "audited", !destroyed));
+            }
+        }
+        destruction.counted(destroyedCount).close();
 
         // 4. 객체
         ReportBuilder.CheckScope objects = r.check("OBJECTS");
