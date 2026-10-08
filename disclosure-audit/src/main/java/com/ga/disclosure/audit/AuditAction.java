@@ -136,5 +136,7 @@ public enum AuditAction {
      * 준법의 확인서 조회(6A, 설계서 §9 "준법은 테넌트 전체 — 전 건 VIEW 감사"): 요청마다 1행. 상세는 대상 DISCLOSURE·{@code view: DETAIL}, 목록은 대상
      * 없음·{@code view: LIST}·행 수(행 ID는 싣지 않는다).
      */
-    DISCLOSURE_VIEW
+    DISCLOSURE_VIEW,
+    /** 이벤트 피드 ack(대상 없음, 같은 트랜잭션): 요청한 {@code upToSeq}, 이번에 발행 기록한 행 수, 이제 ack한 지점. 읽기는 감사하지 않는다(상태 불변·개인정보 없음). */
+    EVENT_FEED_ACK
 }

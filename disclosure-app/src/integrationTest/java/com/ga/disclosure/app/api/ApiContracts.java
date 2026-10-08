@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 /**
  * 시험용 OpenAPI 계약(6A 계획 §4.2, G11): 저장소 {@code contracts/api/v1}의 정본 YAML을 그대로 읽어 경로·메서드·상태별 응답 스키마로 응답을 검증한다.
  * {@link ApiTestSupport#send}가 {@code /api}·{@code /internal}·{@code /public} 응답마다 부른다 — 모든 IT 응답이 계약을 통과한다. 계약에 없는 경로(없는 라우트·체인 밖)는
- * 오류 본문 {@code Problem}으로 검증한다. {@code x-ga-phase}(6B)·{@code x-ga-pending} 경로는 아직 구현이 없으므로 대상 밖이다.
+ * 오류 본문 {@code Problem}으로 검증한다. {@code x-ga-phase}(6B) 경로는 아직 구현이 없으므로 대상 밖이다.
  */
 final class ApiContracts {
 
@@ -66,7 +66,7 @@ final class ApiContracts {
                 if (!item.has(method)) {
                     continue;
                 }
-                if (item.has("x-ga-phase") || item.has("x-ga-pending")) {
+                if (item.has("x-ga-phase")) {
                     unimplemented.add(method.toUpperCase() + " " + template);
                     continue;
                 }

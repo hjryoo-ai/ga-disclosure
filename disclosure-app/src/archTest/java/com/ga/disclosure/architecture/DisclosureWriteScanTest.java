@@ -54,6 +54,7 @@ class DisclosureWriteScanTest {
     private static final String SESSIONS = "com.ga.disclosure.infra.persistence.SignSessionRepository";
     private static final String SIGNATURES = "com.ga.disclosure.infra.persistence.SignatureRepository";
     private static final String OUTBOX = "com.ga.disclosure.infra.outbox.OutboxRepository";
+    private static final String FEED = "com.ga.disclosure.infra.outbox.EventFeedRepository";
 
     /** 허용 목록: FQN#메서드 → 허용 문장 종류(사유). */
     static final Map<String, Set<String>> ALLOWED = Map.of(
@@ -63,7 +64,8 @@ class DisclosureWriteScanTest {
             SESSIONS + "#insert", Set.of("INSERT sign_session"),     // 세션 발급(OPEN, 두 해시 고정 — GD101)
             SESSIONS + "#update", Set.of("UPDATE sign_session"),     // 상태표를 거친 가변 컬럼만(GD101이 다시 지킨다)
             SIGNATURES + "#insert", Set.of("INSERT signature"),      // 서명 1건(append-only, GD021·022·102~104)
-            OUTBOX + "#append", Set.of("INSERT outbox_event", "INSERT outbox_head", "UPDATE outbox_head"));  // 갭 없는 seq 적재(GD106)
+            OUTBOX + "#append", Set.of("INSERT outbox_event", "INSERT outbox_head", "UPDATE outbox_head"),  // 갭 없는 seq 적재(GD106)
+            FEED + "#markPublished", Set.of("UPDATE outbox_event"));  // 피드 ack — published_at을 NULL에서 값으로 한 번(GD106, 6A)
 
     private static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
 
