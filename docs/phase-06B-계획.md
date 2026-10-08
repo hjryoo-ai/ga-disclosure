@@ -1,7 +1,42 @@
-# Phase 6B 계획 — 준법 큐·계약 연결·징구율·청약 게이트·초안 폐기·보존 재계산·고객 등록 API (승인 대기)
+# Phase 6B 계획 — 준법 큐·계약 연결·징구율·청약 게이트·초안 폐기·보존 재계산·고객 등록 API (승인됨 — `docs/phase-06B-계획승인.md`)
 
 지시문 `docs/phase-06B-지시문.md` v1.0, 6A 수용심사 `docs/phase-06A-수용심사.md`(2026-10-08). 브랜치 `work/phase-6B`(PR #9 병합 `1e38bb2` 위).
 **§9(고객 등록 API)는 별도 심사 항목이다** — 나머지가 승인돼도 §9는 따로 승인받는다.
+
+---
+
+## A. 승인 반영 (2026-10-09, `docs/phase-06B-계획승인.md` — 이 절이 아래 본문보다 우선한다)
+
+1. **D2 `SUPERSEDE` 되돌림(§2 거부), `VALIDATE`는 유지.** `authz-matrix`의 `SUPERSEDE` 관리자 칸을 지운다 — 사람 칸이 하나도 남지 않으므로
+   **HTTP 경로 `POST /api/v1/disclosures/{id}/supersede`를 컨트롤러·계약에서 지운다**(모두에게 404인 경로를 두지 않는다). 정정 유스케이스는 운영자 CLI
+   대리 실행(`disclosure supersede --operator`, 그 주체가 `exceptionApproval.role`로 연결 — 6A 규약)으로만 남는다. 퇴사 설계사의 문서는 관리자가 `VOID`(ORG)하고
+   다른 설계사가 새로 작성한다. 업무 규칙(정정 행위자 = `exceptionApproval.role`)과 승인 문언(정정 버전의 `agent_id` = 서명할 설계사)의 관계·재배정은
+   §14 새 항목 #20 "정정의 행위자와 재배정"에 올린다(Phase 7 화면 전에 결정 필요). **6B 단계 1b**(첫 구현 커밋).
+2. **멱등 요청 해시 = HMAC-SHA256(서버 키, JCS{method, routeTemplate, pathVariables, body})** — 전 라우트. 키는 커서 키와 같은 규약
+   (`ga.api.request-hash-key-file`, 저장소 밖, 소유자 전용 600, 없으면 생성, 권한·길이 틀리면 기동 실패, 웹은 필수 — 기본값 없음). JCA는 `infra.crypto`만이므로
+   워크플로 포트 `RequestHashPort` + `infra.crypto.RequestHashKey`. 키가 바뀌면 진행 중 청구는 다른 해시라 재생되지 않고 새 요청으로 처리된다(부작용은 상태
+   가드). 설계서 §7에 **"6A 결함, 6B 수정"**. **단계 1b**.
+3. **징구율**: 안 A `LINKED_COMPLETED_BY_CONTRACT_DATE`가 기본 enum 값, 안 B `TARGET_INCLUDING_UNMATCHED`도 enum에. API 응답·작업 보고서·설계서에
+   `definition: "INTERNAL_METRIC_NO_REGULATORY_DEFINITION"`(문구: "내부 지표 — 규제 정의 없음")과 `formula`를 함께 싣고, 이름을 "규제 징구율"로 쓰지 않는다.
+   두 안의 근거 링크를 설계서 §6.8에 남긴다. 승인 문언의 "§14 #10"은 이 계획의 새 항목 #17(징구율 정의)로 읽는다 — #10은 실값 목록이고 지시문 오기와 같은
+   자리다. #17에 "규제 정의 발견 시 enum 추가로 반영, 기존 스냅샷은 산식 ID로 구분"을 적는다.
+4. **게이트 `POST /internal/v1/gate`** — 설계서 §4.4와 계약의 GET 경로 삭제(식별자가 액세스 로그·쿼리에 남지 않게), CHECKSUMS.
+5. **스냅샷 유일 키** `(tenant_id, period_month, org_path, rule_version_id)`. `GET /api/v1/collection-rates`의 기본값은 달마다 **그 달 마지막 날(KST)에 ACTIVE였던
+   GLOBAL 룰 버전**("그 기간에 가장 최근 ACTIVE였던 버전")의 행, `ruleVersionId` 질의로 다른 버전을 고른다. 응답 항목마다 `ruleVersionId`·`formula`·`definition`.
+   같은 키 재계산은 거부(409 `SNAPSHOT_EXISTS`).
+6. **계약 연결의 현재값**: `disclosure.policy_no`·`contract_date`는 `contract_link` 활성 행의 현재값이다. V14 가드(GD136): 이 두 컬럼의 UPDATE는 **새 값이
+   그 확인서의 활성 `contract_link`(policy_no, contract_date)와 같을 때만**(또는 파기 분기의 `policy_no` NULL) — 표식이 아니라 데이터 정합으로 막으므로 연결
+   유스케이스 밖의 UPDATE는 거부된다. 변경마다 감사 `CONTRACT_LINK_CHANGED`(이전·이후 계약일, 증권번호는 `sha256-utf8`, 링크 ID). 첫 연결도 같은 감사
+   (`CONTRACT_LINKED`는 쓰지 않는다 — 감사 이름 하나). G4가 Phase 4·5 보존·파기 경로(앵커 연장·`contractLinkWaitDays` 종료)를 재확인한다.
+7. **§9 고객 등록 — 조건부 승인 조건 6개**(하나라도 어긋나면 그 단계 전에 멈추고 묻는다):
+   - 응답은 `{customerRef, receiptId}`뿐(§9.1의 `created` 삭제 — 기존 고객 여부를 드러내지 않는다). `receiptId`는 등록 감사 행의 ID(가명이 아닌 무작위 UUID)로,
+     같은 키 재시도는 같은 영수증(멱등 재생).
+   - 한도 초과는 429가 아니라 **업무 거부 422 하나**(`REJECTED` + `{code: REGISTRATION_REJECTED}`) — 한도·그 밖의 등록 거부가 같은 바이트. 형식 오류만 400.
+   - 누출 스캔은 **실행 중 생성한 동적 센티널**(요청마다 무작위로 만든 이름·전화·생년월일 그 값 자체)로 돈다.
+   - `RegisterCustomer`(Phase 2·3A 규약 — 암호화·가명·등록 키 중복)를 그대로 쓰고, HTTP 계층은 DTO → 값객체 변환·등록 키 도출만 한다(판단 없음).
+8. **E4는 열지 않는다**(§10 그대로). **지시문 오기 3곳**은 §12 Q16대로 기록.
+
+단계 순서(§11)는 1b(SUPERSEDE 되돌림 + HMAC)를 2 앞에 끼운다. 나머지는 그대로.
 
 ---
 
