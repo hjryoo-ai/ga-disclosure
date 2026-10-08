@@ -17,6 +17,8 @@
 ./gradlew resolveAndLockAll --write-locks   # 의존성 추가 후 락 파일 갱신
 docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + 봉인 산출물 저장소(SeaweedFS, digest 고정, 허구 S3 키)
 disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정 + 서명·완료·만료(운영자 CLI, 멱등)
+disclosure-demo/scripts/http-demo.sh   # (6A) seed.sh 뒤, 같은 DB에서 HTTP 흐름 — 데모 OIDC 토큰 → 초안~봉인 → 원격 링크·NOTIFY 작업 → 고객 공개 경로 → 서명·완료 → 피드 → VERIFY_TENANT → 거부 3종 바이트 비교(curl·jq 필요, 같은 날 두 번째 실행은 전부 재생)
+GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest   # (opt-in) 실 TSA 계약 시험 — check에 없다, 두 값이 없으면 스킵이 아니라 실패
 ```
 
 운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다 — `--role`은 6A에서 폐기, 업무 역할은 `--operator` 주체의 `identity_link`). 작업 잠금은 전용 롤 `disclosure_job_lock`으로 따로 연결한다(`DISCLOSURE_JOB_LOCK_USER`·`DISCLOSURE_JOB_LOCK_PASSWORD`, 로컬 기본값은 `init-roles.sql`의 허구 자격 증명).
@@ -33,10 +35,13 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 #     verify package --package <zip> [--receipt <json>] [--tsa-trust <pem>] (0 일치, 2 불일치, 3 입력 오류) | verify tenant [--tenants all]
 #     retention destroy [--tenants all] [--dry-run yes] | legal-hold place --tenant T1 --id <uuid> --reason-code <CODE> | legal-hold release --hold <uuid>
 # (6A) jobs list --tenant T1 [--limit 20] | jobs show --tenant T1 --id <uuid> | jobs report --tenant T1 --id <uuid> --out <json>
+#      demo token --tenant T1 --subject <sub> [--ttl PT15M] — 데모 프로파일만(--spring.profiles.active=cli,demo), JWT를 표준 출력으로(클레임 sub·tenant_id·iss·aud·exp, 역할 없음)
 #      notify dispatch [--tenants all] [--limit 100] — 원격 링크는 발급 때 아웃박스에 적재되고(sign session … queued=) 이 명령이 보낸다(링크는 …/s#{token})
 #      배치 명령(anchor run·verify tenant·retention destroy·disclosure expire·artifacts reconcile)은 작업 실행기를 지나며 테넌트마다 `JOB <id> <status>` 줄을 더한다
 # 업무 거부(봉인 조건 실패 등)·같은 종류 작업이 이미 도는 테넌트·FAILED 작업은 종료 코드 2, 인자·명령 오류는 1
 ```
+
+데모 웹 앱(`--spring.profiles.active=demo`, `application-demo.yaml`)은 데모 OIDC 발급자의 공개키로 JWT를 검증한다(발급자 `ga-demo`, 대상 `ga-disclosure`). 서명 키는 처음 `demo token`을 부를 때 **저장소 밖** `~/.ga-disclosure/demo-oidc.key`(PKCS#8, 권한 600)에 만들고, 공개키만 gitignore된 `build/demo/demo-oidc.pem`으로 내보낸다 — 웹 앱이 기동 때 그 PEM을 읽으므로 토큰을 먼저 만든다(`http-demo.sh`가 그렇게 한다). 운영 프로파일은 `ga.api.jwt.jwk-set-uri`(IdP)이고 `ga.demo.*` 키가 있으면 기동하지 않는다. 역할은 토큰이 아니라 `identity_link`에서 온다 — 데모 주체는 `phase6a-seed.json`(준법 2·스케줄러·피드).
 
 고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).
 

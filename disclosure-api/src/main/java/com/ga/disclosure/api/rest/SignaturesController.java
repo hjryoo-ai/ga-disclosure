@@ -40,7 +40,9 @@ public class SignaturesController {
     public ResponseEntity<SessionIssueReceipt> issue(Caller caller, @PathVariable("id") String id, @RequestBody SessionIssueRequest request) {
         SessionIssueReceipt receipt = SignMapper.issued(sessions.issue(caller, DisclosureMapper.id(id),
                 SignMapper.channel(request == null ? null : request.channel())), SignMapper.channel(request.channel()));
-        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(receipt);
+        // 일회용 자격(현장 기기 토큰)을 담은 응답만 no-store — 멱등 완료가 409 IDEMPOTENCY_NOT_REPLAYABLE이 된다. 원격 링크 영수증은 토큰이 없어 재생된다
+        return receipt.deviceToken() == null ? ResponseEntity.status(HttpStatus.CREATED).body(receipt)
+                : ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(receipt);
     }
 
     @PostMapping("/{id}/agent-signature")

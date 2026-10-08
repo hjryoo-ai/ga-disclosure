@@ -1,5 +1,6 @@
 package com.ga.disclosure.app.cli;
 
+import com.ga.disclosure.app.demo.DemoOidcIssuer;
 import com.ga.disclosure.compliance.rules.ActivationReport;
 import com.ga.disclosure.compliance.rules.DistributionOutcome;
 import com.ga.disclosure.compliance.rules.GovernanceRejectedException;
@@ -58,6 +59,7 @@ import com.ga.disclosure.workflow.verify.ReceiptExporter;
 import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
@@ -72,6 +74,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -89,6 +92,7 @@ import java.util.stream.Stream;
  * rules activate   [--as-of 2027-01-01] [--tenants all|T1,T2] --operator &lt;id&gt;
  * rules reconcile  [--tenants all|T1,T2] [--bundles-dir contracts/rules/bundles[,dir2]] --operator &lt;id&gt;
  * demo seed        --file &lt;seed.json&gt; --operator &lt;id&gt;
+ * demo token       --tenant T1 --subject &lt;sub&gt; [--ttl PT15M] (데모 프로파일만 — JWT를 표준 출력으로, 역할 클레임 없음)
  * catalog import   --tenant T1 --file &lt;catalog.json&gt; --operator &lt;id&gt;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
@@ -139,6 +143,7 @@ public class OperatorCli implements ApplicationRunner {
     private final RetentionCommands retention;
     private final JobCommands jobs;
     private final NotificationDispatcher dispatcher;
+    private final ObjectProvider<DemoOidcIssuer> demoOidc;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
@@ -149,7 +154,8 @@ public class OperatorCli implements ApplicationRunner {
                        SignSessionService signSessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags,
                        WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock, AnchorJob anchorJob,
                        ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds,
-                       JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications) {
+                       JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications,
+                       ObjectProvider<DemoOidcIssuer> demoOidc) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -170,6 +176,7 @@ public class OperatorCli implements ApplicationRunner {
         this.identityLinks = identityLinks;
         this.jobs = new JobCommands(jobRunner, jobQueries, out);
         this.dispatcher = notifications;
+        this.demoOidc = demoOidc;
         this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
         this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, jobs, this::tenants, clock,
@@ -198,6 +205,7 @@ public class OperatorCli implements ApplicationRunner {
             case "rules activate" -> activate(args);
             case "rules reconcile" -> reconcile(args);
             case "demo seed" -> seed(args);
+            case "demo token" -> demoToken(args);
             case "catalog import" -> importCatalog(args);
             case "customer rekey" -> rekey(args);
             case "customer import" -> importCustomers(args);
@@ -262,6 +270,21 @@ public class OperatorCli implements ApplicationRunner {
             r.drifts().forEach(d -> out.println("  RULE_DRIFT " + d.targetKind() + " " + d.targetId() + " flag=" + d.flagId() + " " + d.problems()));
         }
         out.println("RECONCILE total drift=" + drift);
+    }
+
+    /** 데모 OIDC 토큰(6A 계획 §10): 데모 프로파일만. 출력은 JWT 한 줄뿐이다. */
+    private void demoToken(CliArguments args) {
+        DemoOidcIssuer issuer = demoOidc.getIfAvailable();
+        if (issuer == null) {
+            throw new CliFailure("demo token needs the demo profile (--spring.profiles.active=cli,demo)");
+        }
+        Duration ttl;
+        try {
+            ttl = Duration.parse(args.optional("ttl").orElse("PT15M"));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new CliFailure("--ttl is an ISO-8601 duration (e.g. PT15M)");
+        }
+        out.println(issuer.token(TenantId.of(args.required("tenant")), args.required("subject"), ttl));
     }
 
     /** 데모·시드: 테넌트 행과 DRAFT 사규를 넣는다(이미 있으면 건너뛴다). 사규 승인·활성화는 별도 명령으로. */

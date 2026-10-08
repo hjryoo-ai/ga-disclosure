@@ -91,3 +91,13 @@ tasks.named("check") {
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
     workingDir = rootProject.projectDir
 }
+
+// HTTP 데모(disclosure-demo/scripts/http-demo.sh, 6A): 웹 앱을 부트 jar로 백그라운드에 띄운다(bootRun은 Gradle 데몬 아래라 스크립트가 끝낼 PID가 없다).
+// jar는 툴체인 JDK로 컴파일되므로 그 실행 파일 경로를 알려 준다(PATH의 java가 더 낮을 수 있다).
+tasks.register("demoJavaLauncher") {
+    description = "Prints the toolchain java executable that runs the boot jar (http-demo.sh)."
+    val launcher = javaToolchains.launcherFor(java.toolchain)
+    doLast {
+        println(launcher.get().executablePath.asFile.absolutePath)
+    }
+}

@@ -68,6 +68,35 @@ class SigningFlowIT {
         return "{\"strokes\":" + FlowSupport.STROKES + ",\"imagePngBase64\":\"" + Base64.getEncoder().encodeToString(FlowSupport.png()) + "\"}";
     }
 
+    /**
+     * 원격 링크 영수증에는 일회용 자격이 없다 — 컨트롤러가 no-store를 걸지 않으므로 같은 키는 같은 바이트로 재생된다(효과 1회). (응답의 캐시 헤더는 보안
+     * 체인 기본값이 모든 응답에 붙인다 — 멱등 인터셉터가 보는 것은 컨트롤러가 직접 건 no-store뿐이다.)
+     */
+    @Test
+    void aRemoteLinkIssuanceReplaysLikeAnyOtherWrite() {
+        String base = "/api/v1/disclosures/" + FlowSupport.sealed(port, T, customerRef);
+        String key = "sess-" + UUID.randomUUID();
+        ApiTestSupport.Response issued = ApiTestSupport.post(port, base + "/sign-sessions", TestJwts.token(T, "agent-1"), "{\"channel\":\"REMOTE_LINK\"}",
+                Map.of("Idempotency-Key", key));
+        assertThat(issued.status()).as(issued.text()).isEqualTo(201);
+        assertThat(json(issued).get("deviceToken").isNull()).isTrue();
+        ApiTestSupport.Response again = ApiTestSupport.post(port, base + "/sign-sessions", TestJwts.token(T, "agent-1"), "{\"channel\":\"REMOTE_LINK\"}",
+                Map.of("Idempotency-Key", key));
+        assertThat(again.status()).isEqualTo(201);
+        assertThat(again.text()).isEqualTo(issued.text());
+        assertThat(again.headers()).containsEntry("idempotency-replayed", "true");
+        long open = DB.asApp(T, c -> {
+            try (PreparedStatement ps = c.prepareStatement("SELECT count(*) FROM sign_session WHERE session_id = ?::uuid")) {
+                ps.setString(1, json(issued).get("sessionId").asString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    return rs.getLong(1);
+                }
+            }
+        });
+        assertThat(open).as("one session — the replay had no effect").isEqualTo(1);
+    }
+
     @Test
     void touchPadSessionThroughCompletion() {
         String id = FlowSupport.sealed(port, T, customerRef);
