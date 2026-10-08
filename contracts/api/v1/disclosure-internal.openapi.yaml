@@ -1,23 +1,25 @@
 openapi: 3.1.0
 info:
-  title: ga-disclosure — 내부 API(청약 게이트·증권 연결·이벤트 피드)
-  version: 1.0.0
+  title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·증권 연결)
+  version: 2.0.0
   description: |
-    설계서 §4.4·§4.5. 내부망 전용(서비스 토큰). 구현은 Phase 6.
-    본 시스템은 답만 하고, 청약 진행을 막는 것은 호출자다(D-8).
+    설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER)와 6B 게이트 — 사람 역할은 404(승인 Q15).
+    클러스터 밖에 열지 않는다. 인증은 `/api`와 같은 JWT 체인(역할은 `identity_link`). 오류·멱등·커서 규약은 `disclosure-api.openapi.yaml`과 같다.
+    `x-ga-phase: 6B`인 경로는 계약만 있고 구현은 6B다. 본 시스템은 답만 하고, 청약 진행을 막는 것은 호출자다(D-8).
 servers:
   - url: https://disclosure.internal
 paths:
   /internal/v1/disclosures/gate:
+    x-ga-phase: 6B
     get:
       operationId: getSubscriptionGate
       summary: 청약 게이트 조회 — 대상 여부와 확인서 완료 상태
       security:
-        - serviceToken: []
+        - bearerJwt: []
       parameters:
         - { name: customerRef, in: query, required: true, schema: { type: string } }
         - { name: productKey, in: query, required: true, schema: { type: string } }
-        - { name: asOf, in: query, required: true, schema: { type: string, format: date } }
+        - { name: asOf, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
       responses:
         '200':
           description: 게이트 판정
@@ -35,11 +37,12 @@ paths:
                 gateMode: BLOCK
                 ruleVersionId: DISC-2026-07
   /internal/v1/disclosures/{no}/policy-link:
+    x-ga-phase: 6B
     post:
       operationId: linkPolicy
       summary: 계약 체결 후 증권번호 연결(메타데이터 — 봉인 본문 불변과 무관)
       security:
-        - serviceToken: []
+        - bearerJwt: []
       parameters:
         - { name: no, in: path, required: true, schema: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' } }
       requestBody:
@@ -51,7 +54,7 @@ paths:
               required: [policyNo, contractDate]
               properties:
                 policyNo: { type: string, minLength: 1 }
-                contractDate: { type: string, format: date }
+                contractDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
       responses:
         '204': { description: '연결됨(PolicyLinked 이벤트 발행)' }
         '404':
@@ -61,17 +64,18 @@ paths:
           description: 이미 다른 증권번호가 연결됨 또는 COMPLETED가 아님
           content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
   /internal/v1/events:
+    x-ga-pending: 6A step 8
     get:
       operationId: getEventFeed
       summary: 아웃박스 이벤트 피드(pull). 포털 알림·CRM이 소비한다.
       description: |
         포털 설계서 v1.1 §4.1 이벤트 피드 규약과 같다.
         - 응답 순서는 seq 오름차순, 갭 없음. headSeq − nextSeq가 소비자의 지연 지표.
-        - 인증: 서비스 토큰. 사용자 토큰으로는 접근 불가. 테넌트 범위는 서비스 토큰이 정한다(발행자 = 테넌트, 인가 구현은 Phase 6).
+        - 인증: JWT(서비스 주체 FEED_CONSUMER — 역할은 `identity_link`). 사람 역할은 404. 테넌트 범위는 토큰의 `tenant_id`(RLS 바인딩).
         - 호환성: 소비자는 모르는 필드를 무시한다. 지원하는 최대 version보다 큰 이벤트를 만나면 그 테넌트의 소비를 정지하고 운영 알림.
         - seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적용, 크면(갭) 정지.
       security:
-        - serviceToken: []
+        - bearerJwt: []
       parameters:
         - { name: afterSeq, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
         - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
@@ -91,11 +95,79 @@ paths:
                   nextSeq: { type: integer, minimum: 0, description: '다음 호출의 afterSeq' }
                   headSeq: { type: integer, minimum: 0, description: '발행자의 현재 최대 seq' }
                   schemaVersion: { const: 1 }
+  /internal/v1/jobs:
+    get:
+      operationId: listJobsInternal
+      summary: 작업 목록(스케줄러)
+      parameters:
+        - $ref: 'disclosure-api.openapi.yaml#/components/parameters/Limit'
+        - $ref: 'disclosure-api.openapi.yaml#/components/parameters/After'
+      security:
+        - bearerJwt: []
+      responses:
+        '200':
+          description: 목록 한 쪽
+          content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/JobPage' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /internal/v1/jobs/{kind}:
+    parameters:
+      - $ref: 'disclosure-api.openapi.yaml#/components/parameters/JobKind'
+    post:
+      operationId: submitJobInternal
+      summary: 배치 작업 제출(스케줄러) — 같은 테넌트·같은 종류가 돌고 있으면 409 JOB_ALREADY_RUNNING. ANCHOR는 HTTP에 없다(404).
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: 'disclosure-api.openapi.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/JobParams' }
+            example: { limit: 500 }
+      responses:
+        '202':
+          description: 접수(비동기 실행) — `Location`이 작업 자원
+          headers:
+            Location: { schema: { type: string } }
+          content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Job' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /internal/v1/jobs/{jobId}:
+    parameters:
+      - $ref: 'disclosure-api.openapi.yaml#/components/parameters/JobId'
+    get:
+      operationId: getJobInternal
+      summary: 작업 한 건
+      security:
+        - bearerJwt: []
+      responses:
+        '200':
+          description: 작업
+          content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Job' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /internal/v1/jobs/{jobId}/report:
+    parameters:
+      - $ref: 'disclosure-api.openapi.yaml#/components/parameters/JobId'
+    get:
+      operationId: getJobReportInternal
+      summary: 작업 보고서(열람은 준법 칸뿐 — 서비스 주체는 404)
+      security:
+        - bearerJwt: []
+      responses:
+        '200':
+          description: 보고서 바이트
+          content: { application/json: { schema: { type: object } } }
+        default: { $ref: '#/components/responses/Problem' }
 components:
   securitySchemes:
-    serviceToken:
+    bearerJwt:
       type: http
       scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Problem:
+      description: 오류(`disclosure-api.openapi.yaml`의 Problem과 같다)
+      content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Problem' } } }
   schemas:
     GateResponse:
       type: object
@@ -110,13 +182,8 @@ components:
           type: boolean
           description: gateRequiresManager=true면 COMPLETED일 때만, false면 고객·설계사 서명 완료 시점부터 true(관리자 미완료는 LATE 플래그)
         disclosureNo: { type: [string, 'null'] }
-        completedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?Z$' }
         gateMode: { type: string, enum: [BLOCK, WARN, OFF] }
         ruleVersionId: { type: string }
     Problem:
-      type: object
-      required: [code, message]
-      properties:
-        code: { type: string }
-        message: { type: string }
-        details: { type: object }
+      $ref: 'disclosure-api.openapi.yaml#/components/schemas/Problem'

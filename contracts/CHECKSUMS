@@ -1,4 +1,5 @@
-e51c82a2149bdbfd490ae68d327235c355a753f2bb5958d843497597cea543be  api/v1/disclosure-internal.openapi.yaml
+7202e92e66cb3048303b145aa2b8d489182bfe9801719cf20612b803c2f1dfce  api/v1/disclosure-api.openapi.yaml
+fb148622594513a9017872186f34f7fb716febccb9d9fc6f69b1fc53e1fd71ff  api/v1/disclosure-internal.openapi.yaml
 58d5b45e4bd0016c41a958cf159beefd79f1a9a3a23be395cda7cc3a92b24dea  api/v1/engine-disclosure.openapi.yaml
 6bba3a1140094f03c87d6a852055b1aa90972685e8748bb19003d8b2d50f7b8c  catalog/v1/catalog-file.schema.json
 5cdc7328e9b133e2557edecd452548cbabe2caad2f36f39248d6e7d875f9a137  events/v1/defs.schema.json

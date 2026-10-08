@@ -161,7 +161,14 @@ public final class ApiTestSupport {
         }
         try {
             HttpResponse<byte[]> r = HTTP.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
-            return new Response(r.statusCode(), headers(r.headers()), r.body());
+            Response response = new Response(r.statusCode(), headers(r.headers()), r.body());
+            // G11: 모든 IT 응답이 계약 스키마를 통과한다(계약에 없는 상태·미디어 타입도 위반)
+            java.util.List<String> violations = ApiContracts.get().violations(method, path, response.status(), response.headers().get("content-type"),
+                    response.body());
+            if (!violations.isEmpty()) {
+                throw new AssertionError("response breaks the OpenAPI contract: " + violations);
+            }
+            return response;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
