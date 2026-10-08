@@ -57,15 +57,18 @@ class AuthorizationCoverageTest {
             new Allowed(WORKFLOW + ".idempotency.IdempotencyService#claim",
                     "write-path plumbing called only by the API idempotency interceptor; the use case behind it authorizes, rows live in the caller's own key space"),
             new Allowed(WORKFLOW + ".idempotency.IdempotencyService#complete",
-                    "write-path plumbing called only by the API idempotency interceptor after the use case answered; records the closed receipt tuple"));
+                    "write-path plumbing called only by the API idempotency interceptor after the use case answered; records the closed receipt tuple"),
+            new Allowed(WORKFLOW + ".sign.PublicSignLimits#perMinute",
+                    "public sign gate plumbing: reads the known tenant's rate limit before any token is checked; reads rule data only"));
 
     /**
      * 규칙 4의 예외 — {@code workflow} 밖에서 내부 단계를 부를 수 있는 (메서드, 호출 클래스) 쌍. 닫힌 FQN 열거이고 실제로 없는 쌍은 실패한다(폐기 항목).
-     * 멱등 청구·완료는 유스케이스 앞뒤에 도는 HTTP 장치라 진입점이 될 수 없다(6A 계획 §4.2).
+     * 멱등 청구·완료는 유스케이스 앞뒤에 도는 HTTP 장치라 진입점이 될 수 없다(6A 계획 §4.2). 공개 서명 한도 읽기는 토큰 검사 전의 문이 부른다(§5.4).
      */
     static final List<String> OUTSIDE_CALLERS = List.of(
             WORKFLOW + ".idempotency.IdempotencyService#claim <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
-            WORKFLOW + ".idempotency.IdempotencyService#complete <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor");
+            WORKFLOW + ".idempotency.IdempotencyService#complete <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
+            WORKFLOW + ".sign.PublicSignLimits#perMinute <- com.ga.disclosure.api.security.PublicSignGate");
 
     /** 진입점이 스스로 부를 인가 메서드: 대상 하나({@code require}) 또는 목록 범위({@code requireList} — 6A 6c, 범위로 걸러진 목록). */
     static final Set<String> AUTHORIZING = Set.of("require", "requireList");

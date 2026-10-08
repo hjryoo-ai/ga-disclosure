@@ -1,0 +1,213 @@
+openapi: 3.1.0
+info:
+  title: ga-disclosure — 고객 공개 서명 API
+  version: 1.0.0
+  description: |
+    설계서 §6.5·§7·§9, 6A 계획 §5. 비로그인 — 서명 세션 토큰만. 전부 POST.
+    - 토큰은 헤더 `X-Sign-Token`(우선) 또는 JSON 본문 `token`으로만 보낸다. 경로·질의에 두지 않는다 — 질의 문자열이 하나라도 있으면 거부.
+      고객 링크는 `https://{host}/s#{token}`(프래그먼트 — 서버·액세스 로그에 가지 않는다). 화면은 프래그먼트에서 토큰을 꺼내 헤더로 보낸다.
+    - 거부는 언제나 같은 응답이다: 404 + `SIGN_LINK_UNAVAILABLE` 상수 본문, 같은 헤더. 사유(형식·없는 테넌트·틀린 비밀·만료·취소·사용됨·
+      본인확인 실패 한도·질의/경로 토큰·한도 초과·내부 오류)를 구별하지 않는다.
+    - 업무 거부(유효 토큰 보유자 — 서명 순서·해시 변경 등)만 422 `REJECTED`.
+    - 모든 응답은 배포 설정 하한(`ga.public-sign.min-response-millis`)까지 채운 뒤 나간다. 테넌트 분당 한도는 룰 `publicSign.tenantRatePerMinute`.
+    - 응답 헤더: `Cache-Control: no-store`(보안 체인 기본), `Referrer-Policy: no-referrer`, 쿠키 없음.
+servers:
+  - url: https://sign.example
+security: []
+paths:
+  /public/v1/sign/open:
+    post:
+      operationId: openSigningDocument
+      summary: 서명 대상 봉인 PDF(열람 감사 ARTIFACT_VIEW 사유 SIGN)
+      parameters:
+        - $ref: '#/components/parameters/SignToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenOnly' }
+            example: {}
+      responses:
+        '200':
+          description: 봉인 PDF 바이트
+          content: { application/pdf: { schema: { type: string, contentMediaType: application/pdf } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /public/v1/sign/view:
+    post:
+      operationId: recordView
+      summary: 열람 증거 1회 기록(서버 시각). 끝까지 스크롤했으면 SCROLL_COMPLETE 통과.
+      parameters:
+        - $ref: '#/components/parameters/SignToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ViewRequest' }
+            example: { scrollComplete: true, viewSeconds: 42 }
+      responses:
+        '200':
+          description: 기록됨
+          content: { application/json: { schema: { $ref: '#/components/schemas/SessionStatus' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /public/v1/sign/verify-identity:
+    post:
+      operationId: verifyIdentity
+      summary: 고객 본인확인(룰이 요구하는 수단만). 남은 시도 수는 내지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/SignToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyRequest' }
+            example: { birthDate: '1900-01-01' }
+      responses:
+        '200':
+          description: 결과
+          content: { application/json: { schema: { $ref: '#/components/schemas/IdentityResult' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /public/v1/sign/capture:
+    post:
+      operationId: captureSignature
+      summary: 고객 서명(문서 해시에 귀속)
+      parameters:
+        - $ref: '#/components/parameters/SignToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CaptureRequest' }
+            example: { strokes: [ [ { x: 131, y: 57, t: 0 }, { x: 140, y: 61, t: 16 } ] ], imagePngBase64: iVBORw0KGgo= }
+      responses:
+        '200':
+          description: 서명됨
+          content: { application/json: { schema: { $ref: '#/components/schemas/CaptureReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /public/v1/sign/status:
+    post:
+      operationId: sessionStatus
+      summary: 세션 상태(읽기 전용, 열린 세션만)
+      parameters:
+        - $ref: '#/components/parameters/SignToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenOnly' }
+            example: {}
+      responses:
+        '200':
+          description: 상태
+          content: { application/json: { schema: { $ref: '#/components/schemas/StatusView' } } }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  parameters:
+    SignToken:
+      name: X-Sign-Token
+      in: header
+      required: false
+      description: 서명 세션 토큰(없으면 본문 `token`). 형식 `{tenant}~{secret}`.
+      schema: { type: string }
+  responses:
+    Problem:
+      description: 거부(404 `SIGN_LINK_UNAVAILABLE` — 사유 구별 없음) 또는 업무 거부(422 `REJECTED`)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+  schemas:
+    Instant: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?Z$' }
+    Code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+    Problem:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: { const: SIGN_LINK_UNAVAILABLE }
+            message: { const: This signing link cannot be used. }
+            details: { type: object, additionalProperties: false, maxProperties: 0 }
+        - type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: { const: REJECTED }
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: false
+              required: [rejections]
+              properties:
+                rejections:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [code]
+                    properties:
+                      code: { $ref: '#/components/schemas/Code' }
+    TokenOnly:
+      type: object
+      additionalProperties: false
+      properties:
+        token: { type: string }
+    ViewRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token: { type: string }
+        scrollComplete: { type: boolean }
+        viewSeconds: { type: integer, minimum: 0 }
+    VerifyRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token: { type: string }
+        birthDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+    CaptureRequest:
+      type: object
+      additionalProperties: false
+      required: [strokes, imagePngBase64]
+      properties:
+        token: { type: string }
+        strokes:
+          type: array
+          items:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [x, y, t]
+              properties:
+                x: { type: number }
+                y: { type: number }
+                t: { type: integer }
+        imagePngBase64: { type: string, contentEncoding: base64 }
+        deviceFingerprint: { type: string }
+    SessionStatus:
+      type: object
+      additionalProperties: false
+      required: [sessionStatus]
+      properties:
+        sessionStatus: { const: OPEN }
+    IdentityResult:
+      type: object
+      additionalProperties: false
+      required: [passed, missing]
+      properties:
+        passed: { type: boolean }
+        missing: { type: array, items: { $ref: '#/components/schemas/Code' } }
+    CaptureReceipt:
+      type: object
+      additionalProperties: false
+      required: [signatureId]
+      properties:
+        signatureId: { type: [string, 'null'], pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' }
+    StatusView:
+      type: object
+      additionalProperties: false
+      required: [sessionStatus, identityRequired, identityPassed, viewed, expiresAt]
+      properties:
+        sessionStatus: { const: OPEN }
+        identityRequired: { type: array, items: { $ref: '#/components/schemas/Code' } }
+        identityPassed: { type: array, items: { $ref: '#/components/schemas/Code' } }
+        viewed: { type: boolean }
+        expiresAt: { $ref: '#/components/schemas/Instant' }

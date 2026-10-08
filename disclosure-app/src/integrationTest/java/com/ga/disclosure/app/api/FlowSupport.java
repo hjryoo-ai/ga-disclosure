@@ -32,6 +32,13 @@ final class FlowSupport {
 
     /** 링크(agent-1·manager-1 같은 조직, agent-x 다른 조직, compliance-1)·번들·카탈로그·가상 고객. 고객 C03의 가명 참조를 돌려준다. */
     static String prepare(String tenant) {
+        return prepare(tenant, null);
+    }
+
+    /**
+     * {@link #prepare(String)}과 같되 GLOBAL 룰 파일을 바꿀 수 있다({@code ruleBundleOrNull} — 저장소 밖 임시 파일, 예: 변형 번들).
+     */
+    static String prepare(String tenant, java.nio.file.Path ruleBundleOrNull) {
         DB.seed(tenant, c -> {
             SeedData.tenant(c, tenant);
             SeedData.identityLink(c, tenant, "agent-1", "DEMO-AGENT-1", "AGENT");
@@ -39,9 +46,10 @@ final class FlowSupport {
             SeedData.orgLink(c, tenant, "agent-x", "DEMO-AGENT-X", "AGENT", "/HQ/B9");
             SeedData.roleLink(c, tenant, "compliance-1", "COMPLIANCE");
         });
-        for (String bundle : new String[] {"rules/DISC-2026-07.bundle.json", "templates/STANDARD-v1.bundle.json"}) {
-            ApiTestSupport.cli("rules", "distribute", "--bundle", ROOT.resolve("contracts/rules/bundles").resolve(bundle).toString(), "--tenants", tenant,
-                    "--operator", "flow-it");
+        java.nio.file.Path bundles = ROOT.resolve("contracts/rules/bundles");
+        for (java.nio.file.Path bundle : new java.nio.file.Path[] {ruleBundleOrNull == null ? bundles.resolve("rules/DISC-2026-07.bundle.json") : ruleBundleOrNull,
+                bundles.resolve("templates/STANDARD-v1.bundle.json")}) {
+            ApiTestSupport.cli("rules", "distribute", "--bundle", bundle.toString(), "--tenants", tenant, "--operator", "flow-it");
         }
         ApiTestSupport.cli("rules", "activate", "--as-of", "2026-09-23", "--tenants", tenant, "--operator", "flow-it");
         for (String file : new String[] {"product-groups.json", "insurer-panel.json", "products.json"}) {
@@ -49,9 +57,14 @@ final class FlowSupport {
                     "flow-it");
         }
         ApiTestSupport.cli("customer", "import", "--tenant", tenant, "--file", DEMO.resolve("customers.json").toString(), "--operator", "flow-it");
+        return customerRef(tenant, "C03");
+    }
+
+    /** 가상 고객 파일의 고객 ID(C01·C02·C03)로 가명 참조를 찾는다(C01은 번호·생년월일이 있다 — 원격 링크·본인확인). */
+    static String customerRef(String tenant, String id) {
         return DB.asApp(tenant, c -> {
             try (PreparedStatement ps = c.prepareStatement("SELECT customer_ref FROM customer_ref WHERE registration_key = ?")) {
-                ps.setString(1, "demo:customers.json#C03");
+                ps.setString(1, "demo:customers.json#" + id);
                 try (ResultSet rs = ps.executeQuery()) {
                     assertThat(rs.next()).isTrue();
                     return rs.getString(1);
@@ -76,6 +89,35 @@ final class FlowSupport {
             assertThat(r.status()).as(step[0] + " " + r.text()).isEqualTo(200);
         }
         return id;
+    }
+
+    /** 표준 GLOBAL 번들을 고친 변형(새 룰 버전 ID — 같은 ID로 내용이 다른 번들은 없다)을 임시 파일로. */
+    static java.nio.file.Path variantBundle(String ruleVersionId, java.util.function.Consumer<tools.jackson.databind.node.ObjectNode> edit) {
+        try {
+            tools.jackson.databind.node.ObjectNode bundle = (tools.jackson.databind.node.ObjectNode) Canonicalizer.parseStrict(
+                    java.nio.file.Files.readString(ROOT.resolve("contracts/rules/bundles/rules/DISC-2026-07.bundle.json")));
+            tools.jackson.databind.node.ObjectNode body = (tools.jackson.databind.node.ObjectNode) bundle.get("body");
+            edit.accept(body);
+            bundle.put("ruleVersionId", ruleVersionId);
+            bundle.put("bundleId", ruleVersionId + "@" + com.ga.platform.canonical.Sha256.of(Canonicalizer.canonicalize(body)).substring(0, 12));
+            java.nio.file.Path file = java.nio.file.Files.createTempDirectory("ga-variant").resolve(ruleVersionId + ".bundle.json");
+            java.nio.file.Files.writeString(file, bundle.toString());
+            return file;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** 설계사가 현장 기기 세션을 발급받아 토큰을 돌려준다. */
+    static String deviceToken(int port, String tenant, String disclosureId, String channel) {
+        ApiTestSupport.Response r = post(port, tenant, "agent-1", "/api/v1/disclosures/" + disclosureId + "/sign-sessions", "{\"channel\":\"" + channel + "\"}");
+        assertThat(r.status()).as(r.text()).isEqualTo(201);
+        return Canonicalizer.parseStrict(r.text()).get("deviceToken").asString();
+    }
+
+    /** 고객 공개 경로 호출(토큰은 헤더 — {@code null}이면 보내지 않는다). */
+    static ApiTestSupport.Response publicPost(int port, String path, String tokenOrNull, String json) {
+        return ApiTestSupport.send(port, "POST", path, null, json, tokenOrNull == null ? Map.of() : Map.of("X-Sign-Token", tokenOrNull));
     }
 
     /** 작은 서명 PNG(검은 획 하나). */

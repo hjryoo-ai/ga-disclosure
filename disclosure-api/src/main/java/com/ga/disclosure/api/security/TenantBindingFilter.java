@@ -41,6 +41,14 @@ public final class TenantBindingFilter extends OncePerRequestFilter {
         this.tenants = Objects.requireNonNull(tenants, "tenants");
     }
 
+    /**
+     * JWT → 인증 변환: 권한을 하나도 만들지 않는다({@code scope}·{@code roles} 클레임이 권한이 될 길이 없다 — 역할은 {@code identity_link}, 6A 계획 §5.1).
+     */
+    public static org.springframework.core.convert.converter.Converter<Jwt, org.springframework.security.authentication.AbstractAuthenticationToken>
+            noAuthorities() {
+        return jwt -> new JwtAuthenticationToken(jwt, java.util.List.of());
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {

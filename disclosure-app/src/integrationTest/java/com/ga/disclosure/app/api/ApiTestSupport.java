@@ -53,22 +53,30 @@ public final class ApiTestSupport {
     }
 
     public static void properties(DynamicPropertyRegistry registry) {
+        propertyMap().forEach(registry::add);
+    }
+
+    /** 웹 앱 시험 설정(이름 → 값 공급자). {@link #properties}와 직접 기동하는 시험(기동 실패 단언)이 같이 쓴다. */
+    public static java.util.Map<String, java.util.function.Supplier<Object>> propertyMap() {
         SeaweedHarness s3 = SeaweedHarness.get();
-        registry.add("spring.datasource.url", DB::jdbcUrl);
-        registry.add("spring.flyway.url", DB::jdbcUrl);
-        registry.add("ga.tenant-directory.url", DB::jdbcUrl);
-        registry.add("ga.job-lock.url", DB::jdbcUrl);
-        registry.add("ga.api.jwt.issuer", () -> TestJwts.ISSUER);
-        registry.add("ga.api.jwt.audience", () -> TestJwts.AUDIENCE);
-        registry.add("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
-        registry.add("ga.crypto.local-kek-file", KEK::toString);
-        registry.add("ga.api.cursor-key-file", CURSOR_KEY::toString);
-        registry.add("ga.engine.mode", () -> "stub");
-        registry.add("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());
-        registry.add("ga.storage.s3.endpoint", s3::endpoint);
-        registry.add("ga.storage.s3.bucket", s3::freshBucket);
-        registry.add("ga.storage.s3.access-key-id", () -> SeaweedHarness.ACCESS_KEY);
-        registry.add("ga.storage.s3.secret-access-key", () -> SeaweedHarness.SECRET_KEY);
+        java.util.Map<String, java.util.function.Supplier<Object>> p = new java.util.LinkedHashMap<>();
+        p.put("spring.datasource.url", DB::jdbcUrl);
+        p.put("spring.flyway.url", DB::jdbcUrl);
+        p.put("ga.tenant-directory.url", DB::jdbcUrl);
+        p.put("ga.job-lock.url", DB::jdbcUrl);
+        p.put("ga.api.jwt.issuer", () -> TestJwts.ISSUER);
+        p.put("ga.api.jwt.audience", () -> TestJwts.AUDIENCE);
+        p.put("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
+        p.put("ga.crypto.local-kek-file", KEK::toString);
+        p.put("ga.api.cursor-key-file", CURSOR_KEY::toString);
+        p.put("ga.public-sign.min-response-millis", () -> "30");
+        p.put("ga.engine.mode", () -> "stub");
+        p.put("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());
+        p.put("ga.storage.s3.endpoint", s3::endpoint);
+        p.put("ga.storage.s3.bucket", s3::freshBucket);
+        p.put("ga.storage.s3.access-key-id", () -> SeaweedHarness.ACCESS_KEY);
+        p.put("ga.storage.s3.secret-access-key", () -> SeaweedHarness.SECRET_KEY);
+        return p;
     }
 
     /**

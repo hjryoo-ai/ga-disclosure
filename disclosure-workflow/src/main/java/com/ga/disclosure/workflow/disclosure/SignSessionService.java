@@ -300,6 +300,37 @@ public final class SignSessionService {
         return (IdentityOutcome) result;
     }
 
+    /** 고객 화면용 세션 상태(읽기 전용, 열린 세션만 — 그 밖은 토큰 거부): 룰이 요구하는 본인확인 수단과 통과한 수단(선언 순서), 열람 여부, 기한. */
+    public record StatusView(List<IdentityMethod> identityRequired, List<IdentityMethod> identityPassed, boolean viewed, Instant expiresAt) {
+        public StatusView {
+            identityRequired = List.copyOf(identityRequired);
+            identityPassed = List.copyOf(identityPassed);
+        }
+    }
+
+    /** 세션 상태(6A 계획 §5.1 {@code /public/v1/sign/status}). 상태를 바꾸지 않는다 — 감사는 거부 때만(다른 토큰 경로와 같다). */
+    @UseCaseEntry(Action.SIGN_STATUS)
+    public StatusView status(String rawToken) {
+        SignToken token = SignSupport.parse(rawToken);
+        TenantId tenant = token.tenant();
+        Object result = runner.inTransaction(SignSupport.anonymous(token), "SIGN_SESSION_STATUS", null, attempt -> {
+            Access a = support.access(tenant, token, clock.instant());
+            if (!(a instanceof Access.Granted g)) {
+                return a;
+            }
+            attempt.granted(authz.require(SignSupport.customerCaller(token, g.session()), Action.SIGN_STATUS,
+                    new Target.Session(g.session().sessionId())));
+            SignSession s = g.session();
+            List<IdentityMethod> required = g.loaded().rule().identityMethods(s.channel());
+            List<IdentityMethod> passed = java.util.Arrays.stream(IdentityMethod.values()).filter(s.state().identityPassed()::contains).toList();
+            return new StatusView(required, passed, s.view().isPresent(), s.expiresAt());
+        });
+        if (result instanceof Access.Denied denied) {
+            throw support.deny(tenant, "STATUS", denied);
+        }
+        return (StatusView) result;
+    }
+
     /** 설계사 대면 확인(AGENT_FACE_TO_FACE): 담당 설계사가 자기 계정으로 기록한다. 담당이 아니면 업무 거부(고객 실패 횟수가 아니다). */
     @UseCaseEntry(Action.FACE_TO_FACE_CONFIRM)
     public IdentityOutcome confirmFaceToFace(Caller caller, String rawToken) {

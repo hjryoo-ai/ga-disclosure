@@ -2,6 +2,7 @@ package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.infra.crypto.CursorCodec;
+import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
@@ -9,6 +10,7 @@ import com.ga.disclosure.workflow.disclosure.DisclosureQueryService;
 import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.retention.LegalHoldQueryService;
 import com.ga.disclosure.workflow.retention.LegalHoldStore;
+import com.ga.disclosure.workflow.sign.PublicSignLimits;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnNotWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -41,6 +43,12 @@ public class QueryConfiguration {
     public DisclosureQueryService disclosureQueryService(DisclosureLookup lookup, AuditPort audit, WorkflowTransactions tx, Clock clock,
                                                          AuthorizationPort authz, CursorPort cursors) {
         return new DisclosureQueryService(lookup, audit, tx, clock, authz, cursors);
+    }
+
+    /** 공개 서명 경로의 테넌트 분당 한도(룰 {@code publicSign.tenantRatePerMinute}, 6A 계획 §5.4). */
+    @Bean
+    public PublicSignLimits publicSignLimits(RuleResolver rules, WorkflowTransactions tx, Clock clock) {
+        return new PublicSignLimits(rules, tx, clock);
     }
 
     @Bean

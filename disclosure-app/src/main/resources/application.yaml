@@ -43,6 +43,18 @@ ga:
   seal:
     transaction-timeout: PT60S
 
+# 오류 응답(6A 계획 §5.5): 화이트라벨 끔, 예외·메시지·스택·바인딩 오류를 응답에 싣지 않는다, 요청 상세(헤더·질의)를 로그에 남기지 않는다.
+# 공개 서명 응답 하한 ga.public-sign.min-response-millis는 기본값이 없다(승인 Q6) — 웹 모드 배포 설정이 정한다.
+server:
+  error:
+    whitelabel:
+      enabled: false
+    include-exception: false
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+spring.mvc.log-request-details: false
+
 management:
   endpoints:
     web:

@@ -1,6 +1,7 @@
 package com.ga.disclosure.api.security;
 
 import com.ga.disclosure.workflow.authz.TenantRegistry;
+import com.ga.disclosure.workflow.sign.PublicSignLimits;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -19,6 +20,8 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.HeaderWriterFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -27,6 +30,8 @@ import java.nio.file.Path;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Collection;
 
@@ -80,6 +85,52 @@ public class ApiSecurityConfiguration {
     }
 
     @Bean
+    public Sleeper publicSignSleeper() {
+        return Sleeper.threadSleeper();
+    }
+
+    /** 공개 응답 하한(승인 Q6): 배포 설정, 기본값 없음 — 없거나 1 미만이면 기동 실패. */
+    @Bean
+    public ResponsePadding publicSignPadding(@Value("${ga.public-sign.min-response-millis}") long floorMillis, Clock clock, Sleeper sleeper) {
+        return new ResponsePadding(Duration.ofMillis(floorMillis), clock, sleeper);
+    }
+
+    @Bean
+    public RateWindow publicSignRateWindow() {
+        return new RateWindow();
+    }
+
+    /** 액세스 로그(로거 {@code ga.access}): 장벽 바로 뒤 — 모든 경로, 템플릿만. */
+    @Bean
+    public FilterRegistrationBean<AccessLogFilter> accessLogFilter(Clock clock) {
+        FilterRegistrationBean<AccessLogFilter> registration = new FilterRegistrationBean<>(new AccessLogFilter(clock));
+        registration.setOrder(BARRIER_ORDER + 5);
+        return registration;
+    }
+
+    /**
+     * 고객 공개 서명 체인(6A 계획 §5.1): 인증 없음, 세션·요청 캐시·CSRF 없음, 리퍼러 없음. 문({@link PublicSignGate})은 헤더 필터 뒤 하나 — 모든 공개 응답이 같은
+     * 체인·같은 헤더를 지난다.
+     */
+    @Bean
+    @Order(0)
+    public SecurityFilterChain publicSignSecurityFilterChain(HttpSecurity http, Clock clock, TenantRegistry tenants, PublicSignLimits limits,
+                                                            RateWindow rates, ResponsePadding padding) throws Exception {
+        http.securityMatcher("/public/**")
+                .csrf(c -> c.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(r -> r.disable())
+                .securityContext(c -> c.disable())
+                .formLogin(f -> f.disable())
+                .httpBasic(b -> b.disable())
+                .logout(l -> l.disable())
+                .headers(h -> h.referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll())
+                .addFilterAfter(new PublicSignGate(clock, tenants, limits, rates, padding), HeaderWriterFilter.class);
+        return http.build();
+    }
+
+    @Bean
     @Order(1)
     public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http, JwtDecoder apiJwtDecoder, TenantRegistry tenants) throws Exception {
         ApiAuthenticationEntryPoint entryPoint = new ApiAuthenticationEntryPoint();
@@ -92,7 +143,8 @@ public class ApiSecurityConfiguration {
                 .httpBasic(b -> b.disable())
                 .logout(l -> l.disable())
                 .authorizeHttpRequests(a -> a.anyRequest().authenticated())
-                .oauth2ResourceServer(o -> o.jwt(j -> j.decoder(apiJwtDecoder)).authenticationEntryPoint(entryPoint))
+                .oauth2ResourceServer(o -> o.jwt(j -> j.decoder(apiJwtDecoder).jwtAuthenticationConverter(TenantBindingFilter.noAuthorities()))
+                        .authenticationEntryPoint(entryPoint))
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
                 .addFilterAfter(new TenantBindingFilter(tenants), BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(new IdempotencyCaptureFilter(), TenantBindingFilter.class);
