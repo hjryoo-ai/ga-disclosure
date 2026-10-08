@@ -131,5 +131,10 @@ public enum AuditAction {
     /** 통지 소진(대상 NOTIFICATION): 세션 ID, 오류 코드(소진 코드 또는 NO_PHONE), 시도 수, 룰 버전, 올린 플래그 ID. */
     NOTIFY_DEAD,
     /** 통지 취소(대상 NOTIFICATION): 세션이 닫혔거나 만료됐다(SESSION_CLOSED·SESSION_EXPIRED). */
-    NOTIFY_CANCELLED
+    NOTIFY_CANCELLED,
+    /**
+     * 준법의 확인서 조회(6A, 설계서 §9 "준법은 테넌트 전체 — 전 건 VIEW 감사"): 요청마다 1행. 상세는 대상 DISCLOSURE·{@code view: DETAIL}, 목록은 대상
+     * 없음·{@code view: LIST}·행 수(행 ID는 싣지 않는다).
+     */
+    DISCLOSURE_VIEW
 }

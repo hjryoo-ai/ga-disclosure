@@ -10,4 +10,10 @@ import com.ga.disclosure.workflow.Actor;
 public interface AuthorizationPort {
 
     Actor require(Caller caller, Action action, Target target);
+
+    /**
+     * 목록 인가(대상 없음): 행위를 허가하는 첫 역할과 그 범위를 목록 조건({@link ListScope})으로 돌려준다. 범위에 필요한 연결(조직·설계사)이 없는 역할은
+     * 건너뛴다. 아무 역할도 없으면 {@link AuthorizationDenied}(거부 감사는 {@link #require}와 같다).
+     */
+    ListGrant requireList(Caller caller, Action action);
 }

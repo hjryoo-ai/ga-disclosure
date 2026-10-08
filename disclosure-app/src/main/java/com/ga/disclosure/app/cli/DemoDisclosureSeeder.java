@@ -1,6 +1,6 @@
 package com.ga.disclosure.app.cli;
 
-import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.compliance.rules.TenantTransactions;
 import com.ga.disclosure.domain.disclosure.AgentReason;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.domain.vo.CustomerRef;
@@ -9,8 +9,9 @@ import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.InsurerCode;
 import com.ga.disclosure.domain.vo.ProductKey;
 import com.ga.disclosure.domain.vo.ReasonCode;
+import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.workflow.Actor;
-import com.ga.disclosure.compliance.rules.TenantTransactions;
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.customer.CustomerVault;
 import com.ga.disclosure.workflow.customer.RegistrationKey;
 import com.ga.disclosure.workflow.disclosure.CommandResult;
@@ -20,7 +21,6 @@ import com.ga.disclosure.workflow.disclosure.ItemInput;
 import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
-import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;

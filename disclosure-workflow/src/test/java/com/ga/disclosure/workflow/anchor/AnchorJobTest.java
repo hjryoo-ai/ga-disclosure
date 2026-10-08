@@ -10,11 +10,11 @@ import com.ga.disclosure.audit.tsa.TimestampClient;
 import com.ga.disclosure.audit.tsa.stub.LocalStubTsa;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
+import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.rules.testing.Bundles;
 import com.ga.disclosure.rules.version.RuleVersion;
 import com.ga.disclosure.rules.version.RuleVersionPort;
-import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.ConcurrentWriteConflict;
 import com.ga.disclosure.workflow.WorkflowTransactions;
@@ -69,7 +69,19 @@ class AnchorJobTest {
             }
         };
         return new AnchorJob(anchors, audit, tx, new RuleResolver(rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), CLOCK,
-                (caller, action, target) -> new Actor(caller.subject(), "OPERATOR"));
+                new com.ga.disclosure.workflow.authz.AuthorizationPort() {
+                    @Override
+                    public Actor require(com.ga.disclosure.workflow.authz.Caller caller, com.ga.disclosure.workflow.authz.Action action,
+                                         com.ga.disclosure.workflow.authz.Target target) {
+                        return new Actor(caller.subject(), "OPERATOR");
+                    }
+
+                    @Override
+                    public com.ga.disclosure.workflow.authz.ListGrant requireList(com.ga.disclosure.workflow.authz.Caller caller,
+                                                                                 com.ga.disclosure.workflow.authz.Action action) {
+                        throw new UnsupportedOperationException("the anchor job lists nothing");
+                    }
+                });
     }
 
     static RuleVersion withDepth(int depth) {

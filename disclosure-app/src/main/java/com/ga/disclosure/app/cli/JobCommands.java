@@ -100,7 +100,7 @@ final class JobCommands {
 
     private void list(CliArguments args) {
         int limit = Integer.parseInt(args.optional("limit").orElse("20"));
-        queries.list(caller(args), limit, Optional.empty()).forEach(this::print);
+        queries.list(caller(args), limit, Optional.empty()).items().forEach(this::print);
     }
 
     private void show(CliArguments args) {

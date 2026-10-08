@@ -2,9 +2,9 @@ package com.ga.disclosure.rules.resolve;
 
 import com.ga.disclosure.domain.enums.IdentityMethod;
 import com.ga.disclosure.domain.enums.RetentionAnchor;
-import com.ga.disclosure.domain.vo.RetentionPeriod;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.enums.SignatureMethod;
+import com.ga.disclosure.domain.vo.RetentionPeriod;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.rules.testing.Bundles;
 import org.junit.jupiter.api.Test;

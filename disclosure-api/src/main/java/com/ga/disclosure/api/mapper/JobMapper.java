@@ -1,10 +1,11 @@
 package com.ga.disclosure.api.mapper;
 
+import com.ga.disclosure.api.dto.JobPage;
 import com.ga.disclosure.api.dto.JobView;
-import com.ga.disclosure.api.error.MalformedRequestException;
 import com.ga.disclosure.api.error.NotFoundException;
 import com.ga.disclosure.workflow.job.JobKind;
 import com.ga.disclosure.workflow.job.JobRecord;
+import com.ga.disclosure.workflow.page.Page;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -40,12 +41,8 @@ public final class JobMapper {
         return bodyOrNull == null ? JSON.createObjectNode() : bodyOrNull;
     }
 
-    public static int limit(Integer limitOrNull) {
-        int limit = limitOrNull == null ? 50 : limitOrNull;
-        if (limit < 1 || limit > 100) {
-            throw new MalformedRequestException("limit");
-        }
-        return limit;
+    public static JobPage page(Page<JobRecord> page) {
+        return new JobPage(page.items().stream().map(JobMapper::view).toList(), page.next().orElse(null));
     }
 
     public static JobView view(JobRecord j) {

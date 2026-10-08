@@ -1,9 +1,7 @@
 package com.ga.disclosure.app.config;
 
-import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.audit.outbox.OutboxPort;
-import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.infra.crypto.DocumentCipher;
 import com.ga.disclosure.infra.storage.S3StorageSettings;
 import com.ga.disclosure.infra.storage.VerifiedArtifactStore;
@@ -15,6 +13,7 @@ import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.catalog.InsurerPanelPort;
 import com.ga.disclosure.workflow.catalog.ProductCatalogPort;
 import com.ga.disclosure.workflow.customer.CustomerVault;
@@ -28,6 +27,7 @@ import com.ga.disclosure.workflow.disclosure.ReviewStore;
 import com.ga.disclosure.workflow.disclosure.SealLedgerPort;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.TenantProfilePort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;

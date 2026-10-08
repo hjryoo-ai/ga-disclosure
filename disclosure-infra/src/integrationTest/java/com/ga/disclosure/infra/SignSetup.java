@@ -23,7 +23,6 @@ import com.ga.disclosure.workflow.sign.NotifyPort;
 import com.ga.disclosure.workflow.sign.SignatureCapture;
 import com.ga.disclosure.workflow.sign.StoredSignature;
 
-import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -38,6 +37,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.imageio.ImageIO;
 
 /**
  * Phase 4 통합 테스트 조립: {@link SealSetup}(봉인까지 실제 어댑터) 위에 서명 세션·서명 저장소({@link SignSessionRepository}·

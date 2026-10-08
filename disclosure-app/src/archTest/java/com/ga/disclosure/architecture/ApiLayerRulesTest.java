@@ -2,7 +2,6 @@ package com.ga.disclosure.architecture;
 
 import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.tngtech.archunit.core.domain.Dependency;
-import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaMethod;

@@ -23,6 +23,7 @@ import com.ga.disclosure.workflow.job.JobStore;
 import com.ga.disclosure.workflow.job.JobWork;
 import com.ga.disclosure.workflow.job.ReportCryptoPort;
 import com.ga.disclosure.workflow.job.StandardJobs;
+import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.verify.TenantVerifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -137,7 +138,7 @@ public class JobConfiguration {
 
     @Bean
     public JobQueryService jobQueryService(JobStore store, ReportCryptoPort crypto, ArtifactStore storage, AuditPort audit, WorkflowTransactions tx,
-                                           Clock clock, AuthorizationPort authz) {
-        return new JobQueryService(store, crypto, storage, audit, tx, clock, authz);
+                                           Clock clock, AuthorizationPort authz, CursorPort cursors) {
+        return new JobQueryService(store, crypto, storage, audit, tx, clock, authz, cursors);
     }
 }

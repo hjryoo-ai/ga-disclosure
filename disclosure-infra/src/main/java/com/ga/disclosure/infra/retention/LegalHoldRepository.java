@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -58,6 +59,20 @@ public class LegalHoldRepository extends TenantScopedRepository implements Legal
                    SET released_by = :by, released_at = :at, release_reason_code = :code
                  WHERE tenant_id = :tenantId AND hold_id = :holdId AND released_at IS NULL
                 """, Map.of("by", by, "at", Timestamp.from(at), "code", reasonCode, "holdId", holdId)) == 1;
+    }
+
+    @Override
+    public List<Hold> page(Optional<Position> after, int limit) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("limit", limit);
+        String keyset = "";
+        if (after.isPresent()) {
+            keyset = " AND (placed_at, hold_id) < (:afterAt, :afterId)";
+            p.put("afterAt", java.sql.Timestamp.from(after.get().placedAt()));
+            p.put("afterId", after.get().holdId());
+        }
+        return query("SELECT " + COLUMNS + " FROM legal_hold WHERE tenant_id = :tenantId" + keyset
+                + " ORDER BY placed_at DESC, hold_id DESC LIMIT :limit", p, MAPPER);
     }
 
     @Override

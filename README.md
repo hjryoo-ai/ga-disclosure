@@ -115,7 +115,7 @@ dependencyResolutionManagement {
 | `disclosure-compliance` | 룰 거버넌스(번들 배포·사규 승인·활성화 배치·번들 대사, Phase 1), 대상 판정·징구율·큐·리포트(Phase 6) | |
 | `disclosure-api` | 내부 REST(`/api/v1` 사람 역할·`/internal/v1` 서비스 주체 — 6A): JWT 체인·테넌트 바인딩·오류 본문, 컨트롤러·DTO 매퍼 | 컨트롤러는 유스케이스 진입점만 부른다 |
 | `disclosure-infra` | Flyway(스키마·RLS·불변 트리거·배타 제약), 저장소, 컬럼 암호화(`crypto`, Phase 2), (Phase 3~) 엔진 클라이언트·S3 | app만 의존 가능 |
-| `disclosure-app` | Spring Boot 조립, `/actuator/health`, 운영자 CLI(`cli` 프로파일), 아키텍처 테스트(`archTest`) | 웹 모드는 `ga.api.jwt.issuer`·`ga.api.jwt.audience`와 `ga.api.jwt.jwk-set-uri` 또는 `ga.api.jwt.public-key-location` 중 하나가 없으면 기동하지 않는다(기본값 없음) |
+| `disclosure-app` | Spring Boot 조립, `/actuator/health`, 운영자 CLI(`cli` 프로파일), 아키텍처 테스트(`archTest`) | 웹 모드는 `ga.api.jwt.issuer`·`ga.api.jwt.audience`와 `ga.api.jwt.jwk-set-uri` 또는 `ga.api.jwt.public-key-location` 중 하나, 목록 커서 키 `ga.api.cursor-key-file`(저장소 밖, 없으면 소유자 전용으로 생성)이 없으면 기동하지 않는다(기본값 없음) |
 | `disclosure-demo` | 데모 테넌트·사규 시드와 시드 스크립트(Phase 1), 가상 카탈로그 파일(Phase 2), 확인서·엔진 스텁(Phase 8) | 어떤 모듈도 의존하지 않음 |
 | `contracts/` | 엔진·내부 OpenAPI, 이벤트 스키마(v1, 포털 §4.1 Envelope), 룰·서식·번들 스키마, 규제 번들, `CHECKSUMS` | |
 | `web/` | 프론트(Phase 7) | |

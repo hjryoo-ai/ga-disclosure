@@ -1,6 +1,5 @@
 package com.ga.disclosure.app.config;
 
-import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.audit.tsa.NonceSource;
@@ -17,6 +16,7 @@ import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.disclosure.workflow.retention.DestroyerPort;

@@ -7,6 +7,7 @@ import com.ga.disclosure.workflow.disclosure.CommandRejectedException;
 import com.ga.disclosure.workflow.disclosure.DisclosureNotFoundException;
 import com.ga.disclosure.workflow.job.JobAlreadyRunningException;
 import com.ga.disclosure.workflow.job.JobQueryService;
+import com.ga.disclosure.workflow.page.InvalidCursorException;
 import com.ga.disclosure.workflow.retention.LegalHoldRejectedException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -77,6 +78,11 @@ public class ApiErrorAdvice {
     @ExceptionHandler(JobQueryService.ReportNotAvailableException.class)
     ResponseEntity<byte[]> noReport(JobQueryService.ReportNotAvailableException e) {
         return Problem.of(HttpStatus.CONFLICT, "REPORT_NOT_AVAILABLE");
+    }
+
+    @ExceptionHandler(InvalidCursorException.class)
+    ResponseEntity<byte[]> invalidCursor(InvalidCursorException e) {
+        return Problem.of(HttpStatus.BAD_REQUEST, "INVALID_CURSOR");
     }
 
     @ExceptionHandler(MalformedRequestException.class)

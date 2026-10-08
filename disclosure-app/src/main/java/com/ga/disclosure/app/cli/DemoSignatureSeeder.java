@@ -1,6 +1,5 @@
 package com.ga.disclosure.app.cli;
 
-import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.enums.SignerRole;
@@ -9,6 +8,7 @@ import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.customer.CustomerVault;
 import com.ga.disclosure.workflow.customer.RegistrationKey;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;

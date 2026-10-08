@@ -1,8 +1,5 @@
 package com.ga.disclosure.infra;
 
-import com.ga.disclosure.workflow.customer.RegistrationKey;
-import com.ga.disclosure.workflow.customer.RegisterCustomer;
-import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
@@ -16,8 +13,11 @@ import com.ga.disclosure.infra.json.SensitiveGuardModule;
 import com.ga.disclosure.infra.testing.PiiSentinels;
 import com.ga.disclosure.infra.testing.PostgresHarness;
 import com.ga.disclosure.workflow.customer.Customer;
+import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import com.ga.disclosure.workflow.customer.NewCustomer;
 import com.ga.disclosure.workflow.customer.NotificationPurpose;
+import com.ga.disclosure.workflow.customer.RegisterCustomer;
+import com.ga.disclosure.workflow.customer.RegistrationKey;
 import com.ga.platform.core.tenant.TenantId;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;

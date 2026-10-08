@@ -4,8 +4,8 @@ import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.audit.AuditRecord;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.vo.DisclosureId;
-import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.SealService.Rejection;
+import com.ga.disclosure.workflow.disclosure.SealService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

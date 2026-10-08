@@ -134,4 +134,23 @@ class ScopePolicyTest {
         assertThat(ScopePolicy.matrix().get(Action.SUPERSEDE)).containsOnlyKeys(Role.MANAGER, Role.OPERATOR);
         assertThat(ScopePolicy.permits(agent(), Channel.API, Action.SUPERSEDE, MINE)).isEmpty();
     }
+
+    /** 목록 범위(6A 6c): 대상 판정 범위를 목록 조건으로 — 준법 테넌트, 관리자 조직, 설계사 자기 것. 범위에 필요한 연결이 없는 역할은 건너뛴다. */
+    @Test
+    void listScopesFollowTheSameCells() {
+        assertThat(ScopePolicy.listScope(agent(), Channel.API, Action.DISCLOSURE_READ))
+                .contains(new ScopePolicy.RoleScope(Role.AGENT, new ListScope.OwnedBy(A1)));
+        assertThat(ScopePolicy.listScope(manager("/HQ"), Channel.API, Action.DISCLOSURE_READ))
+                .contains(new ScopePolicy.RoleScope(Role.MANAGER, new ListScope.UnderOrg(OrgPath.of("/HQ"))));
+        assertThat(ScopePolicy.listScope(only(Role.COMPLIANCE), Channel.API, Action.DISCLOSURE_READ))
+                .contains(new ScopePolicy.RoleScope(Role.COMPLIANCE, new ListScope.WholeTenant()));
+        assertThat(ScopePolicy.listScope(only(Role.OPERATOR), Channel.CLI, Action.DISCLOSURE_READ))
+                .contains(new ScopePolicy.RoleScope(Role.OPERATOR, new ListScope.WholeTenant()));
+        // 관리자 칸이 있어도 조직 연결이 없으면 목록 범위가 없다(빈 목록이 아니라 거부)
+        assertThat(ScopePolicy.listScope(new Principal("m", java.util.Set.of(Role.MANAGER), Optional.empty(), Optional.empty()), Channel.API,
+                Action.DISCLOSURE_READ)).isEmpty();
+        assertThat(ScopePolicy.listScope(only(Role.SCHEDULER), Channel.INTERNAL, Action.DISCLOSURE_READ)).isEmpty();
+        assertThat(ScopePolicy.listScope(only(Role.COMPLIANCE), Channel.INTERNAL, Action.DISCLOSURE_READ)).as("wrong channel").isEmpty();
+        assertThat(ScopePolicy.listScope(agent(), Channel.API, Action.LEGAL_HOLD_READ)).isEmpty();
+    }
 }

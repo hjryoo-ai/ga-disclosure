@@ -1,14 +1,11 @@
 package com.ga.disclosure.app.api;
 
 import com.ga.disclosure.app.DisclosureApplication;
-import com.ga.disclosure.compliance.rules.Operator;
 import com.ga.disclosure.compliance.rules.RuleActivationJob;
 import com.ga.disclosure.compliance.rules.RuleDistributionService;
 import com.ga.disclosure.infra.testing.SeedData;
-import com.ga.disclosure.rules.bundle.BundleLoader;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.canonical.Sha256;
-import com.ga.platform.core.tenant.TenantId;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,11 +14,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -42,7 +35,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class IdempotencyIT {
 
-    static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
     static final String SCHEDULER = "scheduler-1";
     static final String COMPLIANCE = "compliance-1";
 
@@ -60,10 +52,7 @@ class IdempotencyIT {
     @Autowired
     RuleActivationJob activation;
 
-    /**
-     * 링크 둘과 GLOBAL 룰이 오늘 ACTIVE인 새 테넌트. 본문을 고친 변형은 새 룰 버전 ID({@code variantId})다 — 같은 ID로 내용이 다른 번들은 없다(번들 계약).
-     * 같은 ID를 쓰면 같은 컨테이너의 {@code --tenants all} 배포(OperatorCliIT)가 이 테넌트에서 충돌로 거부된다.
-     */
+    /** 링크 둘과 GLOBAL 룰이 오늘 ACTIVE인 새 테넌트({@link ApiTestSupport#activateRules}). */
     String tenant(String variantIdOrNull, Consumer<ObjectNode> edit) {
         String t = SeedData.uniqueTenant("IDEM");
         DB.seed(t, c -> {
@@ -71,30 +60,13 @@ class IdempotencyIT {
             SeedData.roleLink(c, t, SCHEDULER, "SCHEDULER");
             SeedData.roleLink(c, t, COMPLIANCE, "COMPLIANCE");
         });
-        ObjectNode bundle = (ObjectNode) Canonicalizer.parseStrict(read(ROOT.resolve("contracts/rules/bundles/rules/DISC-2026-07.bundle.json")));
-        ObjectNode body = (ObjectNode) bundle.get("body");
-        edit.accept(body);
-        if (variantIdOrNull != null) {
-            bundle.put("ruleVersionId", variantIdOrNull);
-        }
-        bundle.put("bundleId", bundle.get("ruleVersionId").asString() + "@" + Sha256.of(Canonicalizer.canonicalize(body)).substring(0, 12));
-        Operator operator = new Operator("idem-it");
-        distribution.distribute(BundleLoader.parse("variant", bundle.toString()), TenantId.of(t), operator);
-        activation.run(TenantId.of(t), operator);
+        ApiTestSupport.activateRules(distribution, activation, t, variantIdOrNull, edit);
         return t;
     }
 
     String tenant() {
         return tenant(null, body -> {
         });
-    }
-
-    static String read(Path p) {
-        try {
-            return Files.readString(p);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     static String key() {

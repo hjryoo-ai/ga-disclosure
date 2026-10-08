@@ -8,7 +8,6 @@ import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.platform.core.arch.ArchRules.Allowed;
 import com.ga.platform.core.tenant.TenantId;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
-import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMethod;
@@ -37,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>표식 전수</b>: 테넌트({@link TenantId})·호출자({@link Caller})·테넌트 목록을 받거나 {@code rawToken} 인자가 있으면 {@link UseCaseEntry}
  *       또는 {@link NotAnEntry}가 있어야 한다(둘 다는 안 된다).</li>
  *   <li><b>진입점은 스스로 인가한다</b>: {@link UseCaseEntry} 메서드는 자기 몸통이나 자기 람다({@code lambda$이름$N})에서
- *       {@link AuthorizationPort#require}를 부르고, 거기서 읽는 {@link Action} 상수 집합이 표식의 행위 집합과 같다.</li>
+ *       {@link AuthorizationPort#require} 또는 {@link AuthorizationPort#requireList}(목록 범위)를 부르고, 거기서 읽는 {@link Action} 상수 집합이 표식의 행위 집합과 같다.</li>
  *   <li><b>컨트롤러는 진입점만 부른다</b>(계획 §3.4 규칙 3): {@code disclosure-api}의 클래스가 유스케이스 클래스(진입점이 하나라도 있는
  *       {@code workflow} 클래스)에서 부르는 메서드는 {@link UseCaseEntry}뿐이다. 결과 레코드의 접근자 등 유스케이스 클래스가 아닌 타입은 대상이 아니다.</li>
  *   <li><b>내부 단계는 밖에서 부를 수 없다</b>: {@link NotAnEntry} 메서드 목록은 아래 닫힌 FQN 열거와 같고, {@code workflow} 밖(컨트롤러·CLI)에서
@@ -67,6 +66,9 @@ class AuthorizationCoverageTest {
     static final List<String> OUTSIDE_CALLERS = List.of(
             WORKFLOW + ".idempotency.IdempotencyService#claim <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
             WORKFLOW + ".idempotency.IdempotencyService#complete <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor");
+
+    /** 진입점이 스스로 부를 인가 메서드: 대상 하나({@code require}) 또는 목록 범위({@code requireList} — 6A 6c, 범위로 걸러진 목록). */
+    static final Set<String> AUTHORIZING = Set.of("require", "requireList");
 
     static JavaClasses classes;
 
@@ -134,9 +136,9 @@ class AuthorizationCoverageTest {
         candidates().filter(m -> m.isAnnotatedWith(UseCaseEntry.class)).forEach(m -> {
             List<JavaMethod> body = withLambdas(m);
             boolean requires = body.stream().flatMap(b -> b.getMethodCallsFromSelf().stream())
-                    .anyMatch(c -> c.getTargetOwner().isEquivalentTo(AuthorizationPort.class) && c.getName().equals("require"));
+                    .anyMatch(c -> c.getTargetOwner().isEquivalentTo(AuthorizationPort.class) && AUTHORIZING.contains(c.getName()));
             if (!requires) {
-                violations.add(m.getFullName() + " never calls AuthorizationPort.require");
+                violations.add(m.getFullName() + " never calls AuthorizationPort.require/requireList");
             }
             Set<String> read = body.stream().flatMap(b -> b.getFieldAccesses().stream())
                     .filter(a -> a.getTargetOwner().isEquivalentTo(Action.class) && a.getAccessType() == JavaFieldAccess.AccessType.GET)

@@ -6,8 +6,8 @@ import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.ReasonCode;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
-import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.SealService.Rejection;
+import com.ga.disclosure.workflow.disclosure.SealService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

@@ -3,6 +3,7 @@ package com.ga.disclosure.api.internal;
 import com.ga.disclosure.api.dto.JobPage;
 import com.ga.disclosure.api.dto.JobView;
 import com.ga.disclosure.api.mapper.JobMapper;
+import com.ga.disclosure.api.mapper.PageMapper;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.job.JobQueryService;
 import com.ga.disclosure.workflow.job.JobRecord;
@@ -19,7 +20,6 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
-import java.util.Optional;
 
 /** 작업(서비스 주체 — 스케줄러의 배치 제출·조회·보고서, 6A 계획 §4.1). 앵커는 없다(승인 Q7). 인가는 유스케이스가 한다. */
 @RestController
@@ -46,8 +46,9 @@ public class InternalJobsController {
     }
 
     @GetMapping
-    public JobPage list(Caller caller, @RequestParam(name = "limit", required = false) Integer limit) {
-        return new JobPage(queries.list(caller, JobMapper.limit(limit), Optional.empty()).stream().map(JobMapper::view).toList(), null);
+    public JobPage list(Caller caller, @RequestParam(name = "limit", required = false) Integer limit,
+                        @RequestParam(name = "after", required = false) String after) {
+        return JobMapper.page(queries.list(caller, PageMapper.limit(limit), PageMapper.after(after)));
     }
 
     @GetMapping(value = "/{jobId}/report", produces = MediaType.APPLICATION_JSON_VALUE)

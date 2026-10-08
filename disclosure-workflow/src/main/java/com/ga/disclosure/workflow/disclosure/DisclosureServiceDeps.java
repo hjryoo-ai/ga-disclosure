@@ -2,7 +2,6 @@ package com.ga.disclosure.workflow.disclosure;
 
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.audit.outbox.OutboxPort;
-import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.rules.validation.ValidationRegistry;
@@ -11,6 +10,7 @@ import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.catalog.InsurerPanelPort;
 import com.ga.disclosure.workflow.catalog.ProductCatalogPort;
 import com.ga.disclosure.workflow.customer.CustomerVault;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 
 import java.time.Clock;
 import java.util.Objects;

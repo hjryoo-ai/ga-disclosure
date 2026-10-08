@@ -6,13 +6,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
-import javax.sql.DataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import javax.sql.DataSource;
 
 /**
  * 통합 테스트용 PostgreSQL 18 하네스. JVM당 1회 기동·재사용(싱글턴).

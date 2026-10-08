@@ -113,6 +113,29 @@ public final class ScopePolicy {
         return Optional.empty();
     }
 
+    /** 목록 범위를 주는 역할과 범위(대상 없는 목록 — {@link AuthorizationPort#requireList}). 없으면 빈 값. */
+    public static Optional<RoleScope> listScope(Principal principal, Channel channel, Action action) {
+        Map<Role, Scope> row = MATRIX.get(action);
+        for (Role role : Role.values()) {
+            if (!principal.roles().contains(role) || role.channel() != channel || !row.containsKey(role)) {
+                continue;
+            }
+            Optional<ListScope> scope = switch (row.get(role)) {
+                case TENANT, ANY -> Optional.of(new ListScope.WholeTenant());
+                case ORG -> principal.orgPath().map(ListScope.UnderOrg::new);
+                case OWN -> principal.agentId().map(ListScope.OwnedBy::new);
+                case SELF, SESSION -> Optional.empty();
+            };
+            if (scope.isPresent()) {
+                return Optional.of(new RoleScope(role, scope.get()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    public record RoleScope(Role role, ListScope scope) {
+    }
+
     /** 거부 사유(감사용): 채널에 닿는 역할이 없으면 CHANNEL, 행위를 허가하는 역할이 없으면 ROLE, 대상이 없으면 NOT_FOUND, 나머지는 SCOPE. */
     public static AuthorizationDenied.Reason whyDenied(Principal principal, Channel channel, Action action, TargetFacts facts) {
         if (facts instanceof TargetFacts.Missing) {

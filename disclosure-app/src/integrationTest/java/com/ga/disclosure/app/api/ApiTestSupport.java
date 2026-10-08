@@ -24,6 +24,8 @@ public final class ApiTestSupport {
 
     public static final PostgresHarness DB = PostgresHarness.get();
     private static final Path KEK = kek();
+    /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
+    public static final Path CURSOR_KEY = tempPath("ga-api-cursor", "cursor.key");
     private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     private ApiTestSupport() {
@@ -39,6 +41,14 @@ public final class ApiTestSupport {
         }
     }
 
+    private static Path tempPath(String prefix, String name) {
+        try {
+            return Files.createTempDirectory(prefix).resolve(name);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     public static void properties(DynamicPropertyRegistry registry) {
         SeaweedHarness s3 = SeaweedHarness.get();
         registry.add("spring.datasource.url", DB::jdbcUrl);
@@ -49,10 +59,40 @@ public final class ApiTestSupport {
         registry.add("ga.api.jwt.audience", () -> TestJwts.AUDIENCE);
         registry.add("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
         registry.add("ga.crypto.local-kek-file", KEK::toString);
+        registry.add("ga.api.cursor-key-file", CURSOR_KEY::toString);
         registry.add("ga.storage.s3.endpoint", s3::endpoint);
         registry.add("ga.storage.s3.bucket", s3::freshBucket);
         registry.add("ga.storage.s3.access-key-id", () -> SeaweedHarness.ACCESS_KEY);
         registry.add("ga.storage.s3.secret-access-key", () -> SeaweedHarness.SECRET_KEY);
+    }
+
+    /**
+     * GLOBAL 룰(표준 번들 {@code DISC-2026-07}, 또는 본문을 {@code edit}로 고친 변형)을 배포하고 오늘 기준으로 활성화한다. 변형은 새 룰 버전 ID
+     * ({@code variantIdOrNull})다 — 같은 ID로 내용이 다른 번들은 없다(번들 계약). 같은 ID를 쓰면 같은 컨테이너의 {@code --tenants all} 배포(OperatorCliIT)가
+     * 그 테넌트에서 충돌로 거부된다.
+     */
+    public static void activateRules(com.ga.disclosure.compliance.rules.RuleDistributionService distribution,
+                                     com.ga.disclosure.compliance.rules.RuleActivationJob activation, String tenant, String variantIdOrNull,
+                                     java.util.function.Consumer<tools.jackson.databind.node.ObjectNode> edit) {
+        Path root = Path.of(System.getProperty("ga.repoRoot"));
+        tools.jackson.databind.node.ObjectNode bundle;
+        try {
+            bundle = (tools.jackson.databind.node.ObjectNode) com.ga.platform.canonical.Canonicalizer.parseStrict(
+                    Files.readString(root.resolve("contracts/rules/bundles/rules/DISC-2026-07.bundle.json")));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        tools.jackson.databind.node.ObjectNode body = (tools.jackson.databind.node.ObjectNode) bundle.get("body");
+        edit.accept(body);
+        if (variantIdOrNull != null) {
+            bundle.put("ruleVersionId", variantIdOrNull);
+        }
+        bundle.put("bundleId", bundle.get("ruleVersionId").asString() + "@"
+                + com.ga.platform.canonical.Sha256.of(com.ga.platform.canonical.Canonicalizer.canonicalize(body)).substring(0, 12));
+        com.ga.disclosure.compliance.rules.Operator operator = new com.ga.disclosure.compliance.rules.Operator("api-it");
+        com.ga.platform.core.tenant.TenantId id = com.ga.platform.core.tenant.TenantId.of(tenant);
+        distribution.distribute(com.ga.disclosure.rules.bundle.BundleLoader.parse("variant", bundle.toString()), id, operator);
+        activation.run(id, operator);
     }
 
     /** 응답 한 건(헤더는 소문자 이름 정렬, Date 제외 비교용). */

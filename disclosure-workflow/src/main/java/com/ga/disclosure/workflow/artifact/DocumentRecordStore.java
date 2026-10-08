@@ -1,6 +1,5 @@
 package com.ga.disclosure.workflow.artifact;
 
-import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.vo.DisclosureId;
 
 import java.time.Instant;

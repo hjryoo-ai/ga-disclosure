@@ -12,10 +12,14 @@ import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.authz.Target;
 import com.ga.disclosure.workflow.authz.UseCaseEntry;
+import com.ga.disclosure.workflow.page.CursorPort;
+import com.ga.disclosure.workflow.page.InvalidCursorException;
+import com.ga.disclosure.workflow.page.Page;
 import com.ga.platform.canonical.Sha256;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,9 +41,10 @@ public final class JobQueryService {
     private final WorkflowTransactions transactions;
     private final Clock clock;
     private final AuthorizationPort authz;
+    private final CursorPort cursors;
 
     public JobQueryService(JobStore store, ReportCryptoPort crypto, ArtifactStore storage, AuditPort audit, WorkflowTransactions transactions,
-                           Clock clock, AuthorizationPort authz) {
+                           Clock clock, AuthorizationPort authz, CursorPort cursors) {
         this.store = Objects.requireNonNull(store, "store");
         this.crypto = Objects.requireNonNull(crypto, "crypto");
         this.storage = Objects.requireNonNull(storage, "storage");
@@ -47,6 +52,7 @@ public final class JobQueryService {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.authz = Objects.requireNonNull(authz, "authz");
+        this.cursors = Objects.requireNonNull(cursors, "cursors");
     }
 
     /** 보고서가 아직 없다(SUCCEEDED가 아니다) — 상태를 함께 돌려준다. */
@@ -71,17 +77,38 @@ public final class JobQueryService {
         }
     }
 
-    /** 최근 순 목록(1..{@value #MAX_PAGE}). */
+    /** 커서 목록 종류. */
+    static final String STREAM = "jobs";
+
+    /**
+     * 최근 순 목록(1..{@value #MAX_PAGE}). {@code after}는 앞 쪽의 {@link Page#next()}다(서명된 커서 — 다른 테넌트·다른 목록이면
+     * {@link InvalidCursorException}).
+     */
     @UseCaseEntry(Action.JOB_READ)
-    public List<JobRecord> list(Caller caller, int limit, Optional<JobStore.Position> before) {
+    public Page<JobRecord> list(Caller caller, int limit, Optional<String> after) {
         Objects.requireNonNull(caller, "caller");
         if (limit < 1 || limit > MAX_PAGE) {
             throw new IllegalArgumentException("limit must be 1.." + MAX_PAGE);
         }
+        Optional<JobStore.Position> before = after.map(c -> position(cursors.open(caller.tenant(), STREAM, c)));
         return transactions.inTenant(caller.tenant(), () -> {
             authz.require(caller, Action.JOB_READ, Target.none());
-            return store.recent(limit, before);
+            List<JobRecord> rows = store.recent(limit + 1, before);
+            if (rows.size() <= limit) {
+                return new Page<>(rows, Optional.empty());
+            }
+            JobRecord last = rows.get(limit - 1);
+            return new Page<>(rows.subList(0, limit), Optional.of(cursors.seal(caller.tenant(), STREAM, last.requestedAt() + "|" + last.jobId())));
         });
+    }
+
+    private static JobStore.Position position(String q) {
+        int bar = q.indexOf('|');
+        try {
+            return new JobStore.Position(Instant.parse(q.substring(0, bar)), UUID.fromString(q.substring(bar + 1)));
+        } catch (RuntimeException e) {
+            throw new InvalidCursorException();
+        }
     }
 
     /** 한 건. 없는 작업(다른 테넌트 포함)은 인가 거부(404)다. */

@@ -1,10 +1,10 @@
 package com.ga.disclosure.app.config;
 
-import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.json.SensitiveGuardModule;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.catalog.CatalogImportService;
 import com.ga.disclosure.workflow.catalog.CatalogStore;
 import com.ga.disclosure.workflow.customer.CustomerRefService;

@@ -1,7 +1,7 @@
 package com.ga.disclosure.workflow.sign;
 
-import com.ga.disclosure.domain.pii.Sensitive;
 import com.ga.disclosure.domain.pii.PhoneNumber;
+import com.ga.disclosure.domain.pii.Sensitive;
 
 /**
  * 원격 서명 링크 통지 포트(설계서 §6.5, 6A 계획 §7). 번호는 언제나 {@code customer_ref.phone_enc}를 복호화한 값이다(감사 {@code CUSTOMER_PHONE_READ}) —

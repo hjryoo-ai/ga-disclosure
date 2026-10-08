@@ -1,13 +1,13 @@
 package com.ga.disclosure.infra;
 
 import com.ga.disclosure.audit.AuditAction;
+import com.ga.disclosure.domain.enums.RetentionAnchor;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.workflow.artifact.ObjectLockedException;
 import com.ga.disclosure.workflow.retention.DestroyerPort;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.retention.DestructionRefusedException;
-import com.ga.disclosure.domain.enums.RetentionAnchor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

@@ -50,7 +50,8 @@ final class JobSetup implements AutoCloseable {
         PostgresHarness db = s.w.db;
         this.locks = new JobLockGateway(db.jdbcUrl(), PostgresHarness.JOB_LOCK, PostgresHarness.JOB_LOCK_PASSWORD);
         this.cipher = new ReportCipher(s.w.keys);
-        this.queries = new JobQueryService(jobs, cipher, s.bucket, s.w.audit, s.w.tx, s.w.clock, Callers.authz(s.w.clock));
+        this.queries = new JobQueryService(jobs, cipher, s.bucket, s.w.audit, s.w.tx, s.w.clock, Callers.authz(s.w.clock),
+                com.ga.disclosure.infra.crypto.CursorCodec.ephemeral());
     }
 
     TenantId tenant() {

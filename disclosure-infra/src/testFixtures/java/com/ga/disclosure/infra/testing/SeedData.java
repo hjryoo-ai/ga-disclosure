@@ -47,6 +47,23 @@ public final class SeedData {
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, ?, NULL, ARRAY[?], NULL)", tenant, subject, role);
     }
 
+    /** 조직을 지정한 연결(설계사·관리자 — 6A 범위 시험: {@code /HQ}는 {@code /HQX}를 덮지 않는다). */
+    public static void orgLink(Connection c, String tenant, String subject, String agentIdOrNull, String role, String orgPath) throws SQLException {
+        exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, ?, ?, ARRAY[?], ?)",
+                tenant, subject, agentIdOrNull, role, orgPath);
+    }
+
+    /** 작성 설계사·작성 시점 조직(없으면 V12 이전 행처럼 NULL)·상담일을 지정한 초안 1건. */
+    public static UUID draftBy(Connection c, String tenant, String agentId, String orgPathOrNull, String consultDate) throws SQLException {
+        UUID id = UUID.randomUUID();
+        exec(c, """
+                INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version,
+                                        rule_version_id, issuer_mode, status, consult_date)
+                VALUES (?, ?, ?, ?, 'C-0001', 'PG-HEALTH', 'STANDARD', 1, 'DISC-2026-07', 'SELF', 'DRAFT', CAST(? AS date))
+                """, tenant, id, orgPathOrNull, agentId, consultDate);
+        return id;
+    }
+
     public static void tenant(Connection c, String tenant) throws SQLException {
         exec(c, "INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga) VALUES (?, ?, ?, 'ACTIVE', true)",
                 tenant, "GA " + tenant, "http://engine.invalid/" + tenant);

@@ -11,6 +11,7 @@ import com.ga.disclosure.workflow.authz.AuthorizationDenied;
 import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.authz.Channel;
+import com.ga.disclosure.workflow.authz.ListGrant;
 import com.ga.disclosure.workflow.authz.Principal;
 import com.ga.disclosure.workflow.authz.Role;
 import com.ga.disclosure.workflow.authz.ScopePolicy;
@@ -98,6 +99,26 @@ public final class IdentityLinkAuthorization implements AuthorizationPort, Tenan
             throw denied(caller, action, target, ScopePolicy.whyDenied(principal, caller.channel(), action, targetFacts));
         }
         return new Actor(caller.subject(), granted.get().name());
+    }
+
+    @Override
+    public ListGrant requireList(Caller caller, Action action) {
+        Objects.requireNonNull(caller, "caller");
+        Objects.requireNonNull(action, "action");
+        if (!caller.tenant().equals(TenantContext.current())) {
+            throw new IllegalStateException("authorization runs inside the caller's tenant transaction");
+        }
+        Principal principal = switch (caller.channel()) {
+            case CLI -> new Principal(caller.subject(), Set.of(Role.OPERATOR), Optional.empty(), Optional.empty());
+            case SIGN_TOKEN -> new Principal(caller.subject(), Set.of(Role.CUSTOMER), Optional.empty(), Optional.empty());
+            case API, INTERNAL -> principal(links.find(caller.subject())
+                    .orElseThrow(() -> denied(caller, action, Target.none(), AuthorizationDenied.Reason.NO_LINK)));
+        };
+        Optional<ScopePolicy.RoleScope> granted = ScopePolicy.listScope(principal, caller.channel(), action);
+        if (granted.isEmpty()) {
+            throw denied(caller, action, Target.none(), ScopePolicy.whyDenied(principal, caller.channel(), action, new TargetFacts.Tenant()));
+        }
+        return new ListGrant(new Actor(caller.subject(), granted.get().role().name()), granted.get().scope());
     }
 
     private static Principal principal(AgentDirectory.LinkedIdentity link) {
