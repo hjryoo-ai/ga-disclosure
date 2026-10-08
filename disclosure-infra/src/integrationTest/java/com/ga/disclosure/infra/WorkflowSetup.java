@@ -203,7 +203,7 @@ final class WorkflowSetup implements AutoCloseable {
 
     /** 그 고객의 확인서로 봉인 직전(REASONED)까지(Phase 4: 연락처·생년월일이 있는 고객). */
     DisclosureId reasoned(CustomerRef who) {
-        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, CONSULT, TemplateType.STANDARD);
+        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, CONSULT, TemplateType.STANDARD, java.util.Optional.empty());
         service.replaceItems(Callers.of(tenant, AGENT), id, threeItems());
         service.compare(Callers.of(tenant, AGENT), id);
         service.requestGrades(Callers.of(tenant, AGENT), id);
@@ -214,7 +214,7 @@ final class WorkflowSetup implements AutoCloseable {
     }
 
     DisclosureId draft() {
-        return service.createDraft(Callers.of(tenant, AGENT), customer, GROUP, CONSULT, TemplateType.STANDARD);
+        return service.createDraft(Callers.of(tenant, AGENT), customer, GROUP, CONSULT, TemplateType.STANDARD, java.util.Optional.empty());
     }
 
     /** 초안 → 항목 3건 → 비교까지. */

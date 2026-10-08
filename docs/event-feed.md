@@ -56,6 +56,14 @@ POST /internal/v1/events/ack     Idempotency-Key: <16~128자>
 봉인 전 초안을 설계사가 폐기하거나 룰 기간이 지나 배치가 폐기하면 `DisclosureAbandoned`가 발행된다(`aggregate.kind = DISCLOSURE`, payload
 `{disclosureId, abandonedAt}`). 번호는 없다(봉인 전). 소비자는 그 초안에 대해 자기 쪽에 복제해 둔 자유 텍스트가 있으면 지운다.
 
+## 추가 공지 — `PolicyLinked` v2 (6B)
+
+6B부터 계약 연결(`contract_link`)마다 `PolicyLinked` **version 2**가 발행된다(`aggregate.kind = DISCLOSURE`, payload
+`{disclosureId, disclosureNo, linkId, contractDate, insurerCode, corrected, supersededLinkId}`). v1과 달리 **증권번호·청약번호를 싣지 않는다** —
+아웃박스는 append-only라 보존기간이 끝나 확인서를 파기해도 이벤트 안의 번호를 지울 수 없기 때문이다(2026-10-09 결정). 정정(같은 확인서의 연결
+대체)은 `corrected = true`와 이전 `linkId`. v1 payload 스키마는 계약에 남지만 이 시스템은 v1을 발행한 적이 없고 앞으로도 발행하지 않는다. 소비자는
+envelope `version`으로 고르고, 지원하는 최대 버전보다 큰 이벤트를 만나면 규약대로 그 테넌트의 소비를 멈춘다.
+
 ## 추가 공지 — `DisclosureDestroyed` (Phase 5, v1)
 
 보존기간이 끝나 확인서의 개인정보 컬럼을 파기하면 `DisclosureDestroyed`가 발행된다(`aggregate.kind = DISCLOSURE`, payload

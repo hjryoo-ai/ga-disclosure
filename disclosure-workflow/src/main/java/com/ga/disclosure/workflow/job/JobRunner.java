@@ -110,7 +110,8 @@ public final class JobRunner {
      * 본체가 예외면 잡은 작업 전부 {@code FAILED(EXECUTION_FAILED)}로 닫고 예외를 다시 던진다.
      */
     @UseCaseEntry({Action.ANCHOR_RUN, Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN,
-            Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP})
+            Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_IMPORT,
+            Action.CONTRACT_LINK_UNMATCHED_PURGE})
     public <R> Run<R> run(List<Caller> callers, JobKind kind, ObjectNode params, JobWork<R> work) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(params, "params");
@@ -125,6 +126,8 @@ public final class JobRunner {
             case NOTIFY -> Action.NOTIFY_DISPATCH;
             case IDEMPOTENCY_PURGE -> Action.IDEMPOTENCY_PURGE;
             case FLAG_SLA_SWEEP -> Action.FLAG_SLA_SWEEP;
+            case CONTRACT_LINK_IMPORT -> Action.CONTRACT_LINK_IMPORT;
+            case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
         };
         List<Caller> sorted = callers.stream().sorted(Comparator.comparing(c -> c.tenant().value())).toList();
         if (sorted.stream().map(Caller::tenant).distinct().count() != sorted.size()) {
@@ -159,7 +162,7 @@ public final class JobRunner {
      * {@code QUEUED→FAILED(REJECTED)}로 닫고 {@link RejectedExecutionException}을 다시 던진다. 앵커는 HTTP가 아니다(승인 Q7).
      */
     @UseCaseEntry({Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN, Action.VERIFY_TENANT,
-            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP})
+            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_UNMATCHED_PURGE})
     public JobRecord submit(Caller caller, JobKind kind, ObjectNode params) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(params, "params");
@@ -173,10 +176,40 @@ public final class JobRunner {
             case NOTIFY -> Action.NOTIFY_DISPATCH;
             case IDEMPOTENCY_PURGE -> Action.IDEMPOTENCY_PURGE;
             case FLAG_SLA_SWEEP -> Action.FLAG_SLA_SWEEP;
+            case CONTRACT_LINK_IMPORT -> throw new IllegalArgumentException("CONTRACT_LINK_IMPORT carries its batch in the request body");
+            case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
         };
         Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, action, Target.none()));
         JobWork<?> work = handlers.work(kind, params)
                 .orElseThrow(() -> new IllegalArgumentException("job kind " + kind + " is not available over HTTP"));
+        return queue(caller, actor, kind, params, work);
+    }
+
+    /** 본문이 입력인 작업: 작업 행에 남길 요약 매개변수와 본체(입력을 메모리로 잡는다). */
+    public record BodyJob(ObjectNode summaryParams, JobWork<?> work) {
+        public BodyJob {
+            Objects.requireNonNull(summaryParams, "summaryParams");
+            Objects.requireNonNull(work, "work");
+        }
+    }
+
+    /**
+     * 본문이 입력인 작업의 HTTP 제출(6B 계약 연결 배치): 인가 → 본문 해석({@code prepare} — 형식 오류는 400, 인가 뒤라 권한 없는 주체에게는 같은 404) →
+     * 잠금 → QUEUED 행 → 실행기. 작업 행의 {@code params}에는 번호 없는 요약(출처·배치 ID·건수·해시)만 남긴다.
+     */
+    @UseCaseEntry(Action.CONTRACT_LINK_IMPORT)
+    public JobRecord submitWithBody(Caller caller, JobKind kind, java.util.function.Supplier<BodyJob> prepare) {
+        Objects.requireNonNull(caller, "caller");
+        Objects.requireNonNull(prepare, "prepare");
+        if (kind != JobKind.CONTRACT_LINK_IMPORT) {
+            throw new IllegalArgumentException("only CONTRACT_LINK_IMPORT takes its input from the request body");
+        }
+        Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, Action.CONTRACT_LINK_IMPORT, Target.none()));
+        BodyJob job = prepare.get();
+        return queue(caller, actor, kind, job.summaryParams(), job.work());
+    }
+
+    private JobRecord queue(Caller caller, Actor actor, JobKind kind, ObjectNode params, JobWork<?> work) {
         JobLockPort.Held lock = locks.tryAcquire(caller.tenant(), kind.lockKind()).orElseThrow(() -> new JobAlreadyRunningException(kind));
         Started started;
         try {

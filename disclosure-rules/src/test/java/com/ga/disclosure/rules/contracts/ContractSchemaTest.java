@@ -109,6 +109,53 @@ class ContractSchemaTest {
         assertThat(schema("events/v1/payloads/" + type + ".schema.json").validate(sample.path("payload"))).isEmpty();
     }
 
+    /** 6B: PolicyLinked v2는 증권·청약 번호를 싣지 않는다(append-only 아웃박스 — 파기 불가), envelope이 version으로 v1·v2를 고른다. */
+    @Test
+    void policyLinkedV2CarriesNoPolicyNumber() {
+        ObjectNode v2 = (ObjectNode) read("events/v1/samples/PolicyLinked.v2.json");
+        assertThat(schema("events/v1/envelope.schema.json").validate(v2)).isEmpty();
+        assertThat(schema("events/v1/payloads/PolicyLinked.v2.schema.json").validate(v2.path("payload"))).isEmpty();
+        for (String number : List.of("policyNo", "applicationNo")) {
+            ObjectNode leaking = v2.deepCopy();
+            ((ObjectNode) leaking.get("payload")).put(number, "POL-0000000001");
+            assertThat(schema("events/v1/envelope.schema.json").validate(leaking)).as(number).isNotEmpty();
+        }
+        for (String field : required(read("events/v1/payloads/PolicyLinked.v2.schema.json"))) {
+            ObjectNode missing = v2.deepCopy();
+            ((ObjectNode) missing.get("payload")).remove(field);
+            assertThat(schema("events/v1/envelope.schema.json").validate(missing)).as(field).isNotEmpty();
+        }
+        ObjectNode v1Shape = (ObjectNode) read("events/v1/samples/PolicyLinked.json");
+        v1Shape.put("version", 2);
+        assertThat(schema("events/v1/envelope.schema.json").validate(v1Shape)).as("a v1 payload is not a v2 event").isNotEmpty();
+    }
+
+    /** 6B 계약 연결 배치(인바운드): 샘플 통과, 필수 필드·모르는 필드·고객 개인정보·형식 위반은 거부(값은 pattern만, 실제 피드 형식은 어댑터). */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"missing:schemaVersion", "missing:source", "missing:batchId", "missing:items", "item-missing:policyNo",
+            "item-missing:contractDate", "item-missing:insurerCode", "extra:customerName", "extra:phone", "insurer-underscore", "policy-space",
+            "date-shape", "empty-items", "version-2"})
+    void contractLinkBatchIsClosed(String change) {
+        String path = "contract-link/v1/contract-link-batch.schema.json";
+        ObjectNode ok = (ObjectNode) read("contract-link/v1/samples/contract-link-batch.json");
+        assertThat(schema(path).validate(ok)).isEmpty();
+        ObjectNode batch = ok.deepCopy();
+        ObjectNode item = (ObjectNode) batch.at("/items/0");
+        String[] c = change.split(":");
+        switch (c[0]) {
+            case "missing" -> batch.remove(c[1]);
+            case "item-missing" -> item.remove(c[1]);
+            case "extra" -> item.put(c[1], "가상");
+            case "insurer-underscore" -> item.put("insurerCode", "INS_A");
+            case "policy-space" -> item.put("policyNo", "POL 1");
+            case "date-shape" -> item.put("contractDate", "2026/09/30");
+            case "empty-items" -> batch.putArray("items");
+            case "version-2" -> batch.put("schemaVersion", 2);
+            default -> throw new IllegalArgumentException(change);
+        }
+        assertThat(schema(path).validate(batch)).isNotEmpty();
+    }
+
     static Stream<Arguments> eventRequiredFieldRemovals() {
         List<String> envelopeRequired = required(read("events/v1/envelope.schema.json"));
         return EVENT_TYPES.stream().flatMap(type -> Stream.concat(
@@ -521,7 +568,9 @@ class ContractSchemaTest {
         assertThat(engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/operationId").asString())
                 .isEqualTo("getCommissionGradesSnapshot");
         assertThat(internal.path("paths").has("/internal/v1/disclosures/gate")).isTrue();
-        assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isTrue();
+        // 6B(계획 Q3): 번호로 직접 붙이는 경로는 없앴다 — 계약 연결은 배치 하나의 입구
+        assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isFalse();
+        assertThat(internal.at("/paths/~1internal~1v1~1contract-links/post/operationId").asString()).isEqualTo("importContractLinks");
         assertThat(internal.path("paths").has("/internal/v1/events")).isTrue();
 
         // 1.1.0: 토큰·테넌트 불일치·스냅샷 미발급 명시 오류(Phase E3 계획 Q3)

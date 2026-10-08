@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·증권 연결)
-  version: 2.1.0
+  title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·계약 연결)
+  version: 3.0.0
   description: |
-    설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER)와 6B 게이트 — 사람 역할은 404(승인 Q15).
+    설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER·(6B) CONTRACT_FEED·GATE_CLIENT) — 사람 역할은 404(승인 Q15).
     클러스터 밖에 열지 않는다. 인증은 `/api`와 같은 JWT 체인(역할은 `identity_link`). 오류·멱등·커서 규약은 `disclosure-api.openapi.yaml`과 같다.
     `x-ga-phase: 6B`인 경로는 계약만 있고 구현은 6B다. 본 시스템은 답만 하고, 청약 진행을 막는 것은 호출자다(D-8).
 servers:
@@ -36,33 +36,30 @@ paths:
                 completedAt: null
                 gateMode: BLOCK
                 ruleVersionId: DISC-2026-07
-  /internal/v1/disclosures/{no}/policy-link:
-    x-ga-phase: 6B
+  /internal/v1/contract-links:
     post:
-      operationId: linkPolicy
-      summary: 계약 체결 후 증권번호 연결(메타데이터 — 봉인 본문 불변과 무관)
+      operationId: importContractLinks
+      summary: >-
+        (6B) 계약 연결 배치(서비스 주체 CONTRACT_FEED) — 본문은 계약 contracts/contract-link/v1/contract-link-batch.schema.json. 인가 뒤 해석하며 스키마
+        위반은 400 MALFORMED_REQUEST(위치를 싣지 않는다). 통과하면 202 + 작업 CONTRACT_LINK_IMPORT(작업 행에는 번호 없는 요약만). 매칭·결과는 작업
+        보고서(준법 열람). 옛 `POST /internal/v1/disclosures/{no}/policy-link`는 없앴다(6B 계획 Q3 — 단건은 항목 1개짜리 배치).
       security:
         - bearerJwt: []
       parameters:
-        - { name: no, in: path, required: true, schema: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' } }
+        - $ref: 'disclosure-api.openapi.yaml#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [policyNo, contractDate]
-              properties:
-                policyNo: { type: string, minLength: 1 }
-                contractDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+            schema: { type: object, description: 'contracts/contract-link/v1/contract-link-batch.schema.json' }
+            example: { schemaVersion: 1, source: INS_FEED_A, batchId: '2026-10-09.001', items: [ { policyNo: POL-0000000001, contractDate: '2026-09-30', insurerCode: INS-A } ] }
       responses:
-        '204': { description: '연결됨(PolicyLinked 이벤트 발행)' }
-        '404':
-          description: 확인서 없음
-          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
-        '409':
-          description: 이미 다른 증권번호가 연결됨 또는 COMPLETED가 아님
-          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '202':
+          description: 접수(비동기 실행) — `Location`이 작업 자원
+          headers:
+            Location: { schema: { type: string } }
+          content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Job' } } }
+        default: { $ref: '#/components/responses/Problem' }
   /internal/v1/events:
     get:
       operationId: getEventFeed

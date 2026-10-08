@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.1.0
+  version: 2.2.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -569,7 +569,7 @@ components:
       enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED]
     JobKind:
       type: string
-      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP]
+      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE]
       description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
     Problem:
       type: object
@@ -610,7 +610,7 @@ components:
       required: [jobId, kind, status, channel, requestedBy, requestedAt, startedAt, finishedAt, errorCode, reportSha256]
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
-        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP] }
+        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }
@@ -629,7 +629,7 @@ components:
     JobParams:
       type: object
       additionalProperties: false
-      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP는 limit, VERIFY_TENANT는 없음.
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음.
       properties:
         asOf: { $ref: '#/components/schemas/Instant' }
         limit: { type: integer, minimum: 1 }
@@ -768,6 +768,7 @@ components:
         groupCode: { type: string, minLength: 1 }
         consultDate: { $ref: '#/components/schemas/Date' }
         templateType: { type: string, enum: [STANDARD, AUTO] }
+        applicationNo: { type: string, pattern: '^\S{1,64}$', description: '(6B) 선택 청약번호 — 계약 연결의 첫 매칭 키, 작성 뒤 변경 불가' }
     ItemsRequest:
       type: object
       additionalProperties: false

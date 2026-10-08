@@ -98,9 +98,17 @@ public final class OutboxPayloads {
         return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("abandonedAt", abandonedAt.toString());
     }
 
-    public static JsonNode policyLinked(UUID disclosureId, String disclosureNo, String policyNo, LocalDate contractDate) {
-        return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("policyNo", policyNo)
-                .put("contractDate", contractDate.toString());
+    /** PolicyLinked v2(6B): 증권·청약 번호를 싣지 않는다 — append-only 아웃박스에 남으면 파기할 수 없다. */
+    public static JsonNode policyLinked(UUID disclosureId, String disclosureNo, UUID linkId, LocalDate contractDate, String insurerCode,
+                                        UUID supersededLinkIdOrNull) {
+        ObjectNode p = JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("linkId", linkId.toString())
+                .put("contractDate", contractDate.toString()).put("insurerCode", insurerCode).put("corrected", supersededLinkIdOrNull != null);
+        if (supersededLinkIdOrNull == null) {
+            p.putNull("supersededLinkId");
+        } else {
+            p.put("supersededLinkId", supersededLinkIdOrNull.toString());
+        }
+        return p;
     }
 
     public static JsonNode complianceFlagRaised(UUID flagId, String flagType, String severity, UUID disclosureIdOrNull, String policyNoOrNull,

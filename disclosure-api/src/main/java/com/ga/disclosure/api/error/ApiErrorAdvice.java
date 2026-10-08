@@ -4,6 +4,7 @@ import com.ga.disclosure.domain.disclosure.IllegalTransition;
 import com.ga.disclosure.workflow.ConcurrentWriteConflict;
 import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.authz.AuthorizationDenied;
+import com.ga.disclosure.workflow.contract.InvalidContractLinkBatchException;
 import com.ga.disclosure.workflow.disclosure.CommandRejectedException;
 import com.ga.disclosure.workflow.disclosure.DisclosureNotFoundException;
 import com.ga.disclosure.workflow.flag.FlagRejectedException;
@@ -104,6 +105,12 @@ public class ApiErrorAdvice {
     @ExceptionHandler(InvalidCursorException.class)
     ResponseEntity<byte[]> invalidCursor(InvalidCursorException e) {
         return Problem.of(HttpStatus.BAD_REQUEST, "INVALID_CURSOR");
+    }
+
+    /** 계약 연결 배치의 스키마 위반(위치·규칙 이름은 응답에 싣지 않는다 — 값이 번호일 수 있다). */
+    @ExceptionHandler(InvalidContractLinkBatchException.class)
+    ResponseEntity<byte[]> invalidBatch(InvalidContractLinkBatchException e) {
+        return Problem.field(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", null);
     }
 
     @ExceptionHandler(MalformedRequestException.class)

@@ -34,6 +34,7 @@
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureAbandoned" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureAbandoned.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureSuperseded" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSuperseded.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "PolicyLinked" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/PolicyLinked.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "PolicyLinked" }, "version": { "const": 2 } } }, "then": { "properties": { "payload": { "$ref": "payloads/PolicyLinked.v2.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "ComplianceFlagRaised" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/ComplianceFlagRaised.schema.json" } } } }
   ]
 }

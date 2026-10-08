@@ -562,7 +562,7 @@ public final class SeedData {
         exec(c, """
                 INSERT INTO contract_link_unmatched (tenant_id, unmatched_id, policy_no, contract_date, insurer_code, reason, source, source_ref,
                                                      received_at)
-                VALUES (?, ?, 'POL-UNMATCHED', DATE '2026-10-01', 'INS_A', 'UNMATCHED', 'SEED', 'seed#1', TIMESTAMPTZ '2026-10-02 00:00:00+09')
+                VALUES (?, ?, 'POL-UNMATCHED', DATE '2026-10-01', 'INS-A', 'UNMATCHED', 'SEED', 'seed#1', TIMESTAMPTZ '2026-10-02 00:00:00+09')
                 """, tenant, UUID.randomUUID());
         exec(c, """
                 INSERT INTO collection_rate_snapshot (tenant_id, snapshot_id, period_month, org_path, formula, denominator, numerator, rate_bp,
@@ -636,7 +636,7 @@ public final class SeedData {
         exec(c, """
                 INSERT INTO contract_link (tenant_id, link_id, disclosure_id, policy_no, application_no, contract_date, insurer_code, source,
                                            source_ref, received_at, linked_by)
-                VALUES (?, ?, ?, ?, ?, CAST(? AS date), 'INS_A', 'SEED', ?, now(), 'seed')
+                VALUES (?, ?, ?, ?, ?, CAST(? AS date), 'INS-A', 'SEED', ?, now(), 'seed')
                 """, tenant, id, disclosure, policyNo, applicationNoOrNull, contractDate, id.toString());
         exec(c, "UPDATE disclosure SET policy_no = ?, contract_date = CAST(? AS date) WHERE tenant_id = ? AND disclosure_id = ?",
                 policyNo, contractDate, tenant, disclosure);

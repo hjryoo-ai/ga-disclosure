@@ -14,7 +14,11 @@ public enum JobKind {
     NOTIFY,
     IDEMPOTENCY_PURGE,
     /** 6B: 준법 플래그 SLA 경과 표시(스케줄은 Phase 8). */
-    FLAG_SLA_SWEEP;
+    FLAG_SLA_SWEEP,
+    /** 6B: 계약 연결 배치(입력은 요청 본문 — 작업 행에는 번호 없는 요약만). */
+    CONTRACT_LINK_IMPORT,
+    /** 6B: 룰 기간이 지난 미매칭 보고 행 삭제. */
+    CONTRACT_LINK_UNMATCHED_PURGE;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

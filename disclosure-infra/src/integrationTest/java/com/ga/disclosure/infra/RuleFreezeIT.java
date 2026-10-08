@@ -43,7 +43,7 @@ class RuleFreezeIT {
     }
 
     private DisclosureId draftOn(LocalDate consult) {
-        return s.service.createDraft(Callers.of(s.tenant, WorkflowSetup.AGENT), s.customer, WorkflowSetup.GROUP, consult, TemplateType.STANDARD);
+        return s.service.createDraft(Callers.of(s.tenant, WorkflowSetup.AGENT), s.customer, WorkflowSetup.GROUP, consult, TemplateType.STANDARD, java.util.Optional.empty());
     }
 
     private String pinned(DisclosureId id) {

@@ -45,7 +45,7 @@ class V15GuardIT {
     private static void bareLink(Connection c, UUID id, UUID disclosure, String policy, String date) throws SQLException {
         SeedData.exec(c, """
                 INSERT INTO contract_link (tenant_id, link_id, disclosure_id, policy_no, contract_date, insurer_code, source, source_ref, received_at, linked_by)
-                VALUES (?, ?, ?, ?, CAST(? AS date), 'INS_A', 'SEED', ?, now(), 'seed')
+                VALUES (?, ?, ?, ?, CAST(? AS date), 'INS-A', 'SEED', ?, now(), 'seed')
                 """, T, id, disclosure, policy, date, id.toString());
     }
 

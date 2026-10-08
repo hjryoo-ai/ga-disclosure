@@ -81,6 +81,14 @@ public class QueryConfiguration {
         return new FlagQueryService(flags, tx, authz, cursors);
     }
 
+    /** 계약 연결 가져오기·미매칭 정리(6B 계획 §4) — HTTP·CLI 공용. */
+    @Bean
+    public com.ga.disclosure.workflow.contract.ContractLinkService contractLinkService(com.ga.disclosure.workflow.contract.ContractLinkStore store,
+            com.ga.disclosure.rules.resolve.RuleResolver rules, com.ga.disclosure.audit.AuditPort audit, com.ga.disclosure.audit.outbox.OutboxPort outbox,
+            WorkflowTransactions tx, AuthorizationPort authz, java.time.Clock clock) {
+        return new com.ga.disclosure.workflow.contract.ContractLinkService(store, rules, audit, outbox, tx, authz, clock, java.util.UUID::randomUUID);
+    }
+
     /** 준법 큐 명령(6B 계획 §7): 배정·수동 해소·SLA 경과 표시 — 해소 코드·근거 필요 여부는 해소 시점의 룰. */
     @Bean
     public com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService(FlagLookup flags,

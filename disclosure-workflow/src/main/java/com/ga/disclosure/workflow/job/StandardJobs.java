@@ -5,6 +5,8 @@ import com.ga.disclosure.workflow.anchor.AnchorJob;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.contract.ContractLinkBatch;
+import com.ga.disclosure.workflow.contract.ContractLinkService;
 import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.flag.FlagCommandService;
 import com.ga.disclosure.workflow.idempotency.IdempotencyPurge;
@@ -89,6 +91,31 @@ public final class StandardJobs {
     public static JobWork<IdempotencyPurge.Report> idempotencyPurge(IdempotencyPurge purge, int limit) {
         return single(c -> purge.run(c, limit), r -> Canonicalizer.canonicalize(JSON.createObjectNode().put("kind", JobKind.IDEMPOTENCY_PURGE.name())
                 .put("asOf", r.asOf().toString()).put("purged", r.purged())));
+    }
+
+    /** 계약 연결 배치(6B 계획 §4): 보고서는 항목별 결과·확인서·링크 ID(증권·청약 번호 없음). */
+    public static JobWork<ContractLinkService.Report> contractLinkImport(ContractLinkService links, ContractLinkBatch batch) {
+        return single(c -> links.importBatch(c, batch), r -> Canonicalizer.canonicalize(r.toJson()));
+    }
+
+    /** 작업 행에 남길 배치 요약(번호 없음): 출처·배치 ID·항목 수·입력 해시. */
+    public static ObjectNode contractLinkSummary(ContractLinkBatch batch) {
+        return JSON.createObjectNode().put("source", batch.source()).put("batchId", batch.batchId()).put("items", batch.items().size())
+                .put("sha256", batch.sha256());
+    }
+
+    /** 미매칭 보고 행 정리: 보고서는 기준 시각·지운 수·룰 일수. */
+    public static JobWork<ContractLinkService.PurgeReport> contractLinkUnmatchedPurge(ContractLinkService links, int limit) {
+        return single(c -> links.purgeUnmatched(c, limit), r -> {
+            ObjectNode o = JSON.createObjectNode().put("kind", JobKind.CONTRACT_LINK_UNMATCHED_PURGE.name()).put("receivedBefore", r.receivedBefore().toString())
+                    .put("purged", r.purged());
+            if (r.retentionDays().isPresent()) {
+                o.put("retentionDays", r.retentionDays().getAsInt());
+            } else {
+                o.putNull("retentionDays");
+            }
+            return Canonicalizer.canonicalize(o);
+        });
     }
 
     /** SLA 경과 표시(6B 계획 §7): 보고서는 표시한 플래그 ID·유형·기한(개인정보 없음). */

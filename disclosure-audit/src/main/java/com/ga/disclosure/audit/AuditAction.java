@@ -67,6 +67,15 @@ public enum AuditAction {
     FLAG_COMMAND_REJECTED,
     /** (6B) SLA 경과 표시(대상 FLAG, 배치): 유형·기한. 새 플래그를 만들지 않는다. */
     FLAG_SLA_BREACHED,
+    /**
+     * (6B) 확인서의 계약 연결이 생기거나 바뀌었다(대상 DISCLOSURE — 첫 연결도 이 이름 하나, 계획 §A-6): 결과(LINKED·CORRECTED)·링크 ID·이전 링크 ID·출처
+     * 참조, 증권번호의 SHA-256(원문 없음), 이전·이후 계약일, 이전·이후 보존기한과 연장 여부, 고정 룰 버전.
+     */
+    CONTRACT_LINK_CHANGED,
+    /** (6B) 계약 연결 배치 요약(대상 TENANT, 배치 끝): 출처·배치 ID·입력 SHA-256·항목 수·결과별 수(번호 없음). */
+    CONTRACT_LINK_IMPORT,
+    /** (6B) 미매칭 보고 행 정리(대상 TENANT): 기준 시각·지운 수·룰 일수·룰 버전. */
+    CONTRACT_LINK_UNMATCHED_PURGE,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

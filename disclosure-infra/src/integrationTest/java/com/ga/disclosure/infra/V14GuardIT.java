@@ -87,7 +87,7 @@ class V14GuardIT {
         assertRejected(DB, T, "GD130", """
                 INSERT INTO contract_link (tenant_id, link_id, disclosure_id, policy_no, contract_date, insurer_code, source, source_ref, received_at,
                                            linked_by, superseded_by, superseded_at)
-                VALUES (?, gen_random_uuid(), ?, 'POL-Z', DATE '2026-10-01', 'INS_A', 'SEED', 'x-1', now(), 'seed', gen_random_uuid(), now())
+                VALUES (?, gen_random_uuid(), ?, 'POL-Z', DATE '2026-10-01', 'INS-A', 'SEED', 'x-1', now(), 'seed', gen_random_uuid(), now())
                 """, T, other);
         // 정정: 이전 행에 대체를 먼저 쓰고 새 활성 행 — 같은 확인서의 연결만 가리킨다(지연 외래키는 커밋 때)
         UUID next = UUID.randomUUID();
@@ -111,7 +111,7 @@ class V14GuardIT {
     private static void insertLink(Connection c, UUID id, UUID disclosure, String policy, String date) throws SQLException {
         SeedData.exec(c, """
                 INSERT INTO contract_link (tenant_id, link_id, disclosure_id, policy_no, contract_date, insurer_code, source, source_ref, received_at, linked_by)
-                VALUES (?, ?, ?, ?, CAST(? AS date), 'INS_A', 'SEED', ?, now(), 'seed')
+                VALUES (?, ?, ?, ?, CAST(? AS date), 'INS-A', 'SEED', ?, now(), 'seed')
                 """, T, id, disclosure, policy, date, id.toString());
     }
 
@@ -130,7 +130,7 @@ class V14GuardIT {
     void unmatchedReportRowsAreNeverChangedButMayBeDeleted() {
         String insert = """
                 INSERT INTO contract_link_unmatched (tenant_id, unmatched_id, policy_no, contract_date, insurer_code, reason, source, source_ref, received_at)
-                VALUES (?, ?, 'POL-U', DATE '2026-10-01', 'INS_A', ?, 'SEED', ?, now())""";
+                VALUES (?, ?, 'POL-U', DATE '2026-10-01', 'INS-A', ?, 'SEED', ?, now())""";
         UUID id = UUID.randomUUID();
         commit(insert, T, id, "UNMATCHED", "u-" + id);
         assertRejected(DB, T, "23514", insert, T, UUID.randomUUID(), "SOMETHING_ELSE", "u-x");

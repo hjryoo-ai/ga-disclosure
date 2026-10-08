@@ -57,7 +57,8 @@ public class DisclosureCommandsController {
     @PostMapping
     public ResponseEntity<DisclosureReceipt> create(Caller caller, @RequestBody CreateDisclosureRequest request) {
         DisclosureReceipt receipt = CommandMapper.created(disclosures.createDraft(caller, CommandMapper.customerRef(request),
-                CommandMapper.groupCode(request), CommandMapper.consultDate(request), CommandMapper.templateType(request)));
+                CommandMapper.groupCode(request), CommandMapper.consultDate(request), CommandMapper.templateType(request),
+                CommandMapper.applicationNo(request)));
         return ResponseEntity.created(URI.create("/api/v1/disclosures/" + receipt.disclosureId())).body(receipt);
     }
 

@@ -23,6 +23,10 @@ val contractResources = tasks.register<Sync>("contractResources") {
     from(rootProject.layout.projectDirectory.dir("contracts/catalog")) {
         into("ga-contracts/catalog")
     }
+    // 6B: 계약 연결 배치(인바운드) — 파서가 같은 스키마로 검증한다
+    from(rootProject.layout.projectDirectory.dir("contracts/contract-link")) {
+        into("ga-contracts/contract-link")
+    }
     into(layout.buildDirectory.dir("generated/contract-resources"))
 }
 

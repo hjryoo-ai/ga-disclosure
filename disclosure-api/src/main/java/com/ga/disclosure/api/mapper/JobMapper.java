@@ -22,7 +22,7 @@ public final class JobMapper {
 
     public static JobKind httpKind(String path) {
         for (JobKind k : JobKind.values()) {
-            if (k.name().equals(path) && k != JobKind.ANCHOR) {
+            if (k.name().equals(path) && k != JobKind.ANCHOR && k != JobKind.CONTRACT_LINK_IMPORT) {   // 배치는 /internal/v1/contract-links로만
                 return k;
             }
         }

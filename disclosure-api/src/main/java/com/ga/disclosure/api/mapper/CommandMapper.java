@@ -54,6 +54,17 @@ public final class CommandMapper {
 
     // ------------------------------------------------------------------ 요청
 
+    /** (6B) 선택 청약번호 — 형식(공백 없는 1~64자)이 틀리면 400(값은 응답에 싣지 않는다). */
+    public static java.util.Optional<String> applicationNo(CreateDisclosureRequest r) {
+        if (r.applicationNo() == null) {
+            return java.util.Optional.empty();
+        }
+        if (!r.applicationNo().matches("\\S{1,64}")) {
+            throw new MalformedRequestException("applicationNo");
+        }
+        return java.util.Optional.of(r.applicationNo());
+    }
+
     public static CustomerRef customerRef(CreateDisclosureRequest r) {
         return parse("customerRef", () -> CustomerRef.of(required("customerRef", r == null ? null : r.customerRef())));
     }

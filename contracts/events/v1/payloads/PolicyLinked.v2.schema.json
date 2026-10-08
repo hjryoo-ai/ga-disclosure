@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/PolicyLinked.v2.schema.json",
+  "title": "PolicyLinked payload (v2)",
+  "description": "계약 체결 후 확인서와 계약의 연결(6B — contract_link). v1과 달리 증권번호·청약번호를 싣지 않는다: 아웃박스는 append-only라 보존기간 뒤 확인서를 파기해도 지울 수 없기 때문이다(2026-10-09 결정, docs/event-feed.md). 소비자는 linkId와 확인서 번호로 대조한다. corrected = 같은 확인서의 이전 연결을 대체했다(supersededLinkId).",
+  "type": "object",
+  "required": ["disclosureId", "disclosureNo", "linkId", "contractDate", "insurerCode", "corrected", "supersededLinkId"],
+  "not": { "anyOf": [ { "required": ["policyNo"] }, { "required": ["applicationNo"] } ] },
+  "properties": {
+    "disclosureId": { "$ref": "../defs.schema.json#/$defs/uuid" },
+    "disclosureNo": { "$ref": "../defs.schema.json#/$defs/disclosureNo" },
+    "linkId": { "$ref": "../defs.schema.json#/$defs/uuid" },
+    "contractDate": { "$ref": "../defs.schema.json#/$defs/date" },
+    "insurerCode": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9-]{0,7}$" },
+    "corrected": { "type": "boolean" },
+    "supersededLinkId": { "oneOf": [ { "type": "null" }, { "$ref": "../defs.schema.json#/$defs/uuid" } ] }
+  }
+}

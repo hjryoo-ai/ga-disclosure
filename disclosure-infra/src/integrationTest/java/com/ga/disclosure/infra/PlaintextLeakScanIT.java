@@ -139,7 +139,7 @@ class PlaintextLeakScanIT {
             com.ga.disclosure.domain.vo.DisclosureId id;
             try {
                 id = w.service.createDraft(Callers.of(w.tenant, WorkflowSetup.AGENT), sentinel, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
-                        com.ga.disclosure.domain.enums.TemplateType.STANDARD);
+                        com.ga.disclosure.domain.enums.TemplateType.STANDARD, java.util.Optional.empty());
                 w.service.replaceItems(Callers.of(w.tenant, WorkflowSetup.AGENT), id, WorkflowSetup.threeItems());
                 w.service.compare(Callers.of(w.tenant, WorkflowSetup.AGENT), id);
                 w.service.requestGrades(Callers.of(w.tenant, WorkflowSetup.AGENT), id);

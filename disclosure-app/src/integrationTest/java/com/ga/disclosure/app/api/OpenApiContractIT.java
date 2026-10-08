@@ -53,8 +53,9 @@ class OpenApiContractIT {
         Set<String> contract = new TreeSet<>();
         ApiContracts.get().operations.forEach(o -> contract.add(o.method().toUpperCase() + " " + normalize(o.template())));
         assertThat(routes).as("MVC routes").isNotEmpty().isEqualTo(contract);
-        // 6B 표시 경로는 계약에만 있다(구현 없음)
-        assertThat(ApiContracts.get().unimplemented).contains("GET /internal/v1/disclosures/gate", "POST /internal/v1/disclosures/{no}/policy-link");
+        // 6B 표시 경로는 계약에만 있다(구현 없음) — 옛 policy-link는 계약에서도 없앴다(6B 계획 Q3), 계약 연결은 구현됐다
+        assertThat(ApiContracts.get().unimplemented).containsExactly("GET /internal/v1/disclosures/gate");
+        assertThat(routes).contains("POST /internal/v1/contract-links");
     }
 
     @Test

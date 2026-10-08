@@ -1,6 +1,9 @@
 package com.ga.disclosure.audit.outbox;
 
-/** 계약 이벤트 타입(contracts/events/v1 envelope {@code type}, V8 CHECK). 지금 쓰는 payload 버전은 전부 1이다. */
+/**
+ * 계약 이벤트 타입(contracts/events/v1 envelope {@code type}, V8 CHECK). 지금 쓰는 payload 버전은 {@link #PolicyLinked}만 2(증권번호 없음 — 6B
+ * 결정, docs/event-feed.md)이고 나머지는 1이다.
+ */
 public enum EventType {
     DisclosureCreated,
     DisclosureSealed,
@@ -16,7 +19,7 @@ public enum EventType {
     DisclosureAbandoned;
 
     public int version() {
-        return 1;
+        return this == PolicyLinked ? 2 : 1;
     }
 
     /** envelope {@code aggregate.kind}. */

@@ -87,7 +87,7 @@ final class DemoDisclosureSeeder {
             voidIfAsked(tenant, manager, id, c, existing.getFirst().id(), existing);
             return;
         }
-        DisclosureId d = disclosures.createDraft(Caller.cli(tenant, agent.subject()), customer, group, consult, TemplateType.STANDARD);
+        DisclosureId d = disclosures.createDraft(Caller.cli(tenant, agent.subject()), customer, group, consult, TemplateType.STANDARD, java.util.Optional.empty());
         List<ItemInput> items = new ArrayList<>();
         c.get("items").forEach(i -> items.add(item(i)));
         step(id, "replace", disclosures.replaceItems(Caller.cli(tenant, agent.subject()), d, items));

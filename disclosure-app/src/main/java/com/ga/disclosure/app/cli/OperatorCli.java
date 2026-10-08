@@ -140,6 +140,7 @@ public class OperatorCli implements ApplicationRunner {
     private final IdentityLinkRepository identityLinks;
     private final SignCommands sign;
     private final DemoSignatureSeeder demoSignatures;
+    private final ContractLinkCommands contractLinks;
     private final RetentionCommands retention;
     private final JobCommands jobs;
     private final NotificationDispatcher dispatcher;
@@ -155,7 +156,7 @@ public class OperatorCli implements ApplicationRunner {
                        WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock, AnchorJob anchorJob,
                        ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds,
                        JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications,
-                       ObjectProvider<DemoOidcIssuer> demoOidc) {
+                       ObjectProvider<DemoOidcIssuer> demoOidc, com.ga.disclosure.workflow.contract.ContractLinkService contractLinks) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -181,6 +182,7 @@ public class OperatorCli implements ApplicationRunner {
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
         this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, jobs, this::tenants, clock,
                 out);
+        this.contractLinks = new ContractLinkCommands(contractLinks, jobs, out);
     }
 
     @Override
@@ -196,6 +198,10 @@ public class OperatorCli implements ApplicationRunner {
         }
         if (jobs.handles(args.command())) {
             jobs.run(args);
+            return;
+        }
+        if (contractLinks.handles(args.command())) {
+            contractLinks.run(args);
             return;
         }
         switch (args.command()) {

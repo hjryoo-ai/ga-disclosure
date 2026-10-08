@@ -54,6 +54,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -68,6 +69,9 @@ import java.util.UUID;
  * 판정은 3B SEAL 조건이다(계획 승인 B1).
  */
 public final class DisclosureService {
+
+    /** 청약번호 형식(V14 CHECK와 같다 — §14 #19, 공백 없는 1~64자). */
+    static final java.util.regex.Pattern APPLICATION_NO = java.util.regex.Pattern.compile("\\S{1,64}");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String SEVERITY_HIGH = "HIGH";
@@ -123,11 +127,16 @@ public final class DisclosureService {
      * 초안 생성: 상담일로 GLOBAL·TENANT 룰과 서식을 <b>한 번</b> 해석해 버전 ID를 고정한다. 룰의 검증 목록이 전부 등록된 규칙인지도
      * 여기서 확인한다(오타가 봉인 단계까지 숨지 않게). 상담일은 이후 바뀌지 않는다. 확인서의 설계사는 행위자를 {@code identity_link}로 해석한
      * {@code agent_id}다(절대 규칙 5, Phase 4 — 연결이 없거나 AGENT 역할이 아니면 {@code AGENT_NOT_LINKED}). 같은 트랜잭션에서 아웃박스
-     * {@code DisclosureCreated}를 적재한다(승인 Q13).
+     * {@code DisclosureCreated}를 적재한다(승인 Q13). (6B) 청약번호(선택)는 계약 연결의 첫 매칭 키다(계획 §2·§4) — 형식은 공백 없는 1~64자(§14 #19)이고
+     * 작성 뒤에는 바꿀 수 없다(V14 GD132). 감사에는 SHA-256만 남긴다.
      */
     @UseCaseEntry(Action.DISCLOSURE_CREATE)
     public DisclosureId createDraft(Caller caller, CustomerRef customerRef, GroupCode group, LocalDate consultDate,
-                                    TemplateType templateType) {
+                                    TemplateType templateType, Optional<String> applicationNo) {
+        Objects.requireNonNull(applicationNo, "applicationNo");
+        if (applicationNo.isPresent() && !APPLICATION_NO.matcher(applicationNo.get()).matches()) {
+            throw new IllegalArgumentException("applicationNo must be 1..64 non-space characters");
+        }
         TenantId tenant = caller.tenant();
         return runner.inTransaction(caller, "CREATE_DRAFT", null, attempt -> {
             Actor agent = attempt.granted(authz.require(caller, Action.DISCLOSURE_CREATE, Target.none()));
@@ -151,7 +160,7 @@ public final class DisclosureService {
             Disclosure d = Disclosure.draft(id, agentId.value(), customerRef, group, consultDate, rule.globalRuleVersionId(),
                     rule.tenantRuleVersion().orElse(null), template.ref(), profile.issuerMode(),
                     loader.context(tenant, rule, template, group, consultDate));
-            store.insert(d, orgPath);
+            store.insert(d, orgPath, applicationNo);
             ObjectNode detail = JSON.createObjectNode()
                     .put("customerRef", customerRef.value())
                     .put("groupCode", group.value())
@@ -160,6 +169,7 @@ public final class DisclosureService {
                     .put("ruleBodyHash", rule.bodyHash())
                     .put("templateId", template.ref().templateId())
                     .put("templateVersion", template.ref().version());
+            applicationNo.ifPresent(a -> detail.put("applicationNoSha256", com.ga.platform.canonical.Sha256.of(a.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
             rule.tenantRuleVersion().ifPresentOrElse(v -> detail.put("tenantRuleVersionId", v.value()),
                     () -> detail.putNull("tenantRuleVersionId"));
             record(agent, AuditAction.DISCLOSURE_CREATE, id, detail);

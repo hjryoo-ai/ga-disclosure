@@ -147,7 +147,8 @@ class OutboxEventsIT {
         int before = envelopes().size();
         assertThatThrownBy(() -> s.w.in(() -> {
             s.w.outbox.append(EventType.PolicyLinked, id.toString(), Instant.parse("2026-09-24T00:00:00Z"),
-                    OutboxPayloads.policyLinked(id.value(), s.w.tenant.value() + "-2026-000001", "POL-1", java.time.LocalDate.parse("2026-09-24")));
+                    OutboxPayloads.policyLinked(id.value(), s.w.tenant.value() + "-2026-000001", java.util.UUID.randomUUID(),
+                    java.time.LocalDate.parse("2026-09-24"), "INS-A", null));
             throw new IllegalStateException("injected after append");
         })).hasMessageContaining("injected");
         assertThat(envelopes()).hasSize(before);
@@ -172,11 +173,11 @@ class OutboxEventsIT {
     void createDraftNeedsAnAgentLinkedInIdentityLink() {
         int before = envelopes().size();
         assertThatThrownBy(() -> s.w.service.createDraft(com.ga.disclosure.workflow.authz.Caller.api(s.w.tenant, "stranger@test"), s.w.customer,
-                WorkflowSetup.GROUP, WorkflowSetup.CONSULT, com.ga.disclosure.domain.enums.TemplateType.STANDARD))
+                WorkflowSetup.GROUP, WorkflowSetup.CONSULT, com.ga.disclosure.domain.enums.TemplateType.STANDARD, java.util.Optional.empty()))
                 .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class)      // 6A: 연결 없음 = NO_LINK
                 .hasMessageNotContaining("stranger");
         assertThatThrownBy(() -> s.w.service.createDraft(Callers.of(s.w.tenant, WorkflowSetup.MANAGER), s.w.customer, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
-                com.ga.disclosure.domain.enums.TemplateType.STANDARD)).as("linked, but not as an agent")
+                com.ga.disclosure.domain.enums.TemplateType.STANDARD, java.util.Optional.empty())).as("linked, but not as an agent")
                 .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);                // 관리자에게 초안 작성 칸이 없다 = ROLE
         assertThat(envelopes()).hasSize(before);
         DisclosureId id = s.w.draft();
