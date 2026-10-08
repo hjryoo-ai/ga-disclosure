@@ -33,7 +33,9 @@ public interface DisclosureFlagPort {
          * {@code verify tenant}가 무결성 불일치를 찾았다(대상 = 끊긴 지점의 확인서, 정할 수 없으면 테넌트 — 5 계획 §8.4). 문서 상태로 닫지 않는다 — 준법이
          * 조사해 해소한다.
          */
-        CHAIN_BROKEN
+        CHAIN_BROKEN,
+        /** 원격 서명 링크 통지가 소진됐다 — 재시도 한도 또는 번호 없음(대상 = 세션, 6A 계획 §7.2). 고객에게 링크가 가지 않았다. */
+        NOTIFY_FAILED
     }
 
     /** 해소 사유. */

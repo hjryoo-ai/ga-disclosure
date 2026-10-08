@@ -230,9 +230,10 @@ class OperatorCliIT {
                 .contains("A-4-SCAN id=", "PAPER_SCAN -> COMPLETED");
 
         String first = run(with(storage, "demo", "signatures", "--tenant", tenant, "--file", demo.resolve("demo/signatures.json").toString()));
-        assertThat(first).contains("A-2 id=", "TOUCH_PAD -> COMPLETED", "A-3-REMOTE id=", "REMOTE_LINK sent=true")
-                .contains("SIGN LINK https://sign.example.invalid/sign/" + tenant + "~");
-        String token = first.lines().filter(l -> l.startsWith("SIGN LINK ")).findFirst().orElseThrow().replaceFirst("^SIGN LINK .*/sign/", "");
+        // 6A: 원격 링크는 발급 때 아웃박스에 적재되고(queued=) 같은 명령 끝의 통지 발송(작업 NOTIFY)이 보낸다 — 토큰은 프래그먼트(/s#)
+        assertThat(first).contains("A-2 id=", "TOUCH_PAD -> COMPLETED", "A-3-REMOTE id=", "REMOTE_LINK queued=", "NOTIFY " + tenant + " sent=1")
+                .contains("SIGN LINK https://sign.example.invalid/s#" + tenant + "~");
+        String token = first.lines().filter(l -> l.startsWith("SIGN LINK ")).findFirst().orElseThrow().replaceFirst("^SIGN LINK .*/s#", "");
         String remoteId = first.lines().filter(l -> l.startsWith("DEMO_SIGN " + tenant + " A-3-REMOTE id=")).findFirst().orElseThrow()
                 .replaceFirst("^.* id=([0-9a-f-]+) .*$", "$1");
 

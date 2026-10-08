@@ -33,6 +33,7 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 #     verify package --package <zip> [--receipt <json>] [--tsa-trust <pem>] (0 일치, 2 불일치, 3 입력 오류) | verify tenant [--tenants all]
 #     retention destroy [--tenants all] [--dry-run yes] | legal-hold place --tenant T1 --id <uuid> --reason-code <CODE> | legal-hold release --hold <uuid>
 # (6A) jobs list --tenant T1 [--limit 20] | jobs show --tenant T1 --id <uuid> | jobs report --tenant T1 --id <uuid> --out <json>
+#      notify dispatch [--tenants all] [--limit 100] — 원격 링크는 발급 때 아웃박스에 적재되고(sign session … queued=) 이 명령이 보낸다(링크는 …/s#{token})
 #      배치 명령(anchor run·verify tenant·retention destroy·disclosure expire·artifacts reconcile)은 작업 실행기를 지나며 테넌트마다 `JOB <id> <status>` 줄을 더한다
 # 업무 거부(봉인 조건 실패 등)·같은 종류 작업이 이미 도는 테넌트·FAILED 작업은 종료 코드 2, 인자·명령 오류는 1
 ```

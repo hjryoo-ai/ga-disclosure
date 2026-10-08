@@ -63,7 +63,7 @@ cli demo disclosures --tenant DEMO1 --file "$DEMO/demo/disclosures.json" --opera
 SIGN="$DEMO/demo/sign"
 SIGN_OUT="$(cli demo signatures --tenant DEMO1 --file "$DEMO/demo/signatures.json" --operator "$OPERATOR" $LOCAL_BUCKET)"
 echo "$SIGN_OUT"
-TOKEN="$(printf '%s\n' "$SIGN_OUT" | sed -n 's|^SIGN LINK .*/sign/||p' | tail -n 1)"
+TOKEN="$(printf '%s\n' "$SIGN_OUT" | sed -n 's|^SIGN LINK .*/s#||p' | tail -n 1)"
 REMOTE_ID="$(printf '%s\n' "$SIGN_OUT" | sed -n 's/^DEMO_SIGN DEMO1 A-3-REMOTE id=\([0-9a-f-]*\) .*/\1/p' | tail -n 1)"
 if [ -n "$TOKEN" ]; then
   cli sign open --token "$TOKEN" --view-file "$SIGN/view.json" $LOCAL_BUCKET

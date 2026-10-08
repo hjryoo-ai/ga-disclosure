@@ -126,8 +126,8 @@ final class DemoSignatureSeeder {
                     if (!o.issued()) {
                         throw new CliFailure("case " + name + " session rejected: " + o.rejections());
                     }
-                    out.println(head + " REMOTE_LINK sent=" + o.sent() + " — continue with: sign verify / sign capture (token from the SIGN LINK line),"
-                            + " then sign agent / sign manager");
+                    out.println(head + " REMOTE_LINK queued=" + o.notificationId().orElseThrow() + " — the link goes out with the notify dispatch"
+                            + " below; continue with: sign verify / sign capture (token from the SIGN LINK line), then sign agent / sign manager");
                     return;
                 }
                 default -> throw new CliFailure("case " + name + ": unknown demo flow " + flow);

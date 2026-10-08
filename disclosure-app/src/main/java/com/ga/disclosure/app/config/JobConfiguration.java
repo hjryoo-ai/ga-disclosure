@@ -9,6 +9,7 @@ import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.customer.KeyProviderPort;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.job.JobHandlers;
 import com.ga.disclosure.workflow.job.JobKind;
 import com.ga.disclosure.workflow.job.JobLockPort;
@@ -40,8 +41,7 @@ import java.util.function.Function;
 
 /**
  * 6A 작업 조립(계획 §6): 잠금은 전용 롤 {@code disclosure_job_lock}(설정 {@code ga.job-lock.*}, 풀 없음), 보고서는 테넌트 저장소 {@code reports/}에 보고서별
- * DEK로 암호화, HTTP 제출은 가상 스레드 실행기. HTTP 처리기는 앵커를 등록하지 않는다(승인 Q7). 통지(NOTIFY)·멱등 키 정리(IDEMPOTENCY_PURGE) 처리기는 해당
- * 단계가 더한다.
+ * DEK로 암호화, HTTP 제출은 가상 스레드 실행기. HTTP 처리기는 앵커를 등록하지 않는다(승인 Q7). 멱등 키 정리(IDEMPOTENCY_PURGE) 처리기는 6단계가 더한다.
  */
 @Configuration
 public class JobConfiguration {
@@ -49,6 +49,7 @@ public class JobConfiguration {
     static final int MAX_EXPIRE_LIMIT = 10_000;
     static final int MAX_RECONCILE_LIMIT = 10_000;
     static final int MAX_DESTROY_LIMIT = 1_000;
+    static final int MAX_NOTIFY_LIMIT = 1_000;
 
     @Bean
     public JobLockPort jobLockGateway(@Value("${ga.job-lock.url}") String url, @Value("${ga.job-lock.username}") String username,
@@ -67,7 +68,8 @@ public class JobConfiguration {
     }
 
     @Bean
-    public JobHandlers jobHandlers(ExpireService expiry, ArtifactService artifacts, DestructionJob destruction, TenantVerifier verifier, Clock clock,
+    public JobHandlers jobHandlers(ExpireService expiry, ArtifactService artifacts, DestructionJob destruction, TenantVerifier verifier,
+                                   NotificationDispatcher dispatcher, Clock clock,
                                    @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String trustPem) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
         h.put(JobKind.EXPIRE, p -> {
@@ -86,6 +88,10 @@ public class JobConfiguration {
                         StandardJobs.limit(p, StandardJobs.DEFAULT_DESTROY_LIMIT, MAX_DESTROY_LIMIT));
             });
         }
+        h.put(JobKind.NOTIFY, p -> {
+            StandardJobs.only(p, Set.of("limit"));
+            return StandardJobs.notify(dispatcher, StandardJobs.limit(p, StandardJobs.DEFAULT_NOTIFY_LIMIT, MAX_NOTIFY_LIMIT));
+        });
         h.put(JobKind.VERIFY_TENANT, p -> {
             StandardJobs.only(p, Set.of());
             return StandardJobs.verifyTenant(verifier, readIfPresent(Path.of(trustPem)));

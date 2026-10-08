@@ -125,5 +125,11 @@ public enum AuditAction {
     /** 작업 종단(대상 JOB): 상태, 성공이면 보고서 평문 SHA-256, 실패면 오류 코드와 예외 클래스 이름(메시지 없음). */
     JOB_FINISHED,
     /** 작업 보고서 열람(대상 JOB): 보고서 평문 SHA-256(행의 값과 대조한 뒤). */
-    JOB_REPORT_VIEW
+    JOB_REPORT_VIEW,
+    /** 통지 발송 실패 1회(대상 NOTIFICATION): 세션 ID, 닫힌 오류 코드, 시도 수, 다음 시도 시각, 적용 룰 버전. */
+    NOTIFY_RETRY,
+    /** 통지 소진(대상 NOTIFICATION): 세션 ID, 오류 코드(소진 코드 또는 NO_PHONE), 시도 수, 룰 버전, 올린 플래그 ID. */
+    NOTIFY_DEAD,
+    /** 통지 취소(대상 NOTIFICATION): 세션이 닫혔거나 만료됐다(SESSION_CLOSED·SESSION_EXPIRED). */
+    NOTIFY_CANCELLED
 }

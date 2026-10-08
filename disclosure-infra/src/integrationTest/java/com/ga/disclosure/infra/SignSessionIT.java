@@ -130,12 +130,15 @@ class SignSessionIT {
         DisclosureId id = x.sealed();
         SignSessionService.IssueOutcome o = x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.REMOTE_LINK);
         assertThat(o.token()).as("the agent never holds a remote link token").isEmpty();
-        assertThat(o.sent()).isTrue();
-        assertThat(x.notify.sent).hasSize(1);
+        assertThat(o.notificationId()).as("queued in the issuing transaction (6A plan §7.1)").isPresent();
+        assertThat(sessionColumn("token_hash", o.sessionId().orElseThrow().toString())).as("no token until it is sent").isNull();
+        assertThat(x.notify.links).isEmpty();
+        assertThat(x.dispatch().sent()).containsExactly(o.notificationId().orElseThrow());
+        assertThat(x.notify.links).singleElement().satisfies(l -> assertThat(l).startsWith(SignSetup.LINK_BASE));
         assertThat(sessionColumn("sent_at", o.sessionId().orElseThrow().toString())).isNotNull();
         assertThat(x.s.audit()).anyMatch(r -> r.entry().action() == AuditAction.CUSTOMER_PHONE_READ
                 && r.entry().detail().path("purpose").asString().equals("REMOTE_LINK"));
-        String token = x.notify.last().reveal();
+        String token = x.notify.lastToken();
 
         SignService.Outcome early = x.signService.capture(token, SignSetup.capture("phone-1", "203.0.113.5"));
         assertThat(early.rejections()).containsExactly(SignRejection.IDENTITY_INCOMPLETE);

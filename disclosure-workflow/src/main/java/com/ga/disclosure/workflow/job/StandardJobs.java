@@ -5,6 +5,7 @@ import com.ga.disclosure.workflow.anchor.AnchorJob;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.platform.canonical.Canonicalizer;
@@ -30,6 +31,7 @@ public final class StandardJobs {
     public static final int DEFAULT_EXPIRE_LIMIT = 500;
     public static final int DEFAULT_RECONCILE_LIMIT = 500;
     public static final int DEFAULT_DESTROY_LIMIT = 100;
+    public static final int DEFAULT_NOTIFY_LIMIT = 100;
 
     private StandardJobs() {
     }
@@ -72,6 +74,11 @@ public final class StandardJobs {
     /** 파기·dry-run: 보고서는 계약 스키마({@code destruction-report.schema.json}) 그대로. */
     public static JobWork<DestructionJob.Report> destroy(DestructionJob job, Instant asOf, boolean dryRun, int limit) {
         return single(c -> job.run(c, asOf, dryRun, limit), r -> Canonicalizer.canonicalize(r.toJson()));
+    }
+
+    /** 서명 링크 통지(6A 계획 §7.2): 보고서는 통지 ID 목록(번호·토큰 없음). */
+    public static JobWork<NotificationDispatcher.Report> notify(NotificationDispatcher dispatcher, int limit) {
+        return single(c -> dispatcher.run(c, limit), r -> Canonicalizer.canonicalize(r.toJson().put("kind", JobKind.NOTIFY.name())));
     }
 
     /** 검증: 보고서는 계약 스키마({@code verify-report.schema.json}) 그대로. */

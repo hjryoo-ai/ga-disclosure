@@ -43,6 +43,7 @@ import com.ga.disclosure.workflow.disclosure.DisclosureService;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
 import com.ga.disclosure.workflow.disclosure.LifecycleReason;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
+import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.SignService;
 import com.ga.disclosure.workflow.disclosure.SignSessionService;
@@ -137,6 +138,7 @@ public class OperatorCli implements ApplicationRunner {
     private final DemoSignatureSeeder demoSignatures;
     private final RetentionCommands retention;
     private final JobCommands jobs;
+    private final NotificationDispatcher dispatcher;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
@@ -147,7 +149,7 @@ public class OperatorCli implements ApplicationRunner {
                        SignSessionService signSessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags,
                        WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock, AnchorJob anchorJob,
                        ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds,
-                       JobRunner jobRunner, JobQueryService jobQueries) {
+                       JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -167,7 +169,8 @@ public class OperatorCli implements ApplicationRunner {
         this.artifacts = artifacts;
         this.identityLinks = identityLinks;
         this.jobs = new JobCommands(jobRunner, jobQueries, out);
-        this.sign = new SignCommands(signSessions, signing, expiry, jobs, flags, workflowTransactions, this::tenants, clock, out);
+        this.dispatcher = notifications;
+        this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
         this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, jobs, this::tenants, clock,
                 out);
@@ -359,12 +362,20 @@ public class OperatorCli implements ApplicationRunner {
         out.println("KEK_INIT " + kekId + " " + file.toAbsolutePath() + " (owner read/write only; keep it outside the repository)");
     }
 
-    /** Phase 4 데모 서명(3자 터치·종이 스캔 완료, 원격 링크 발송 — 고객 경로는 스크립트가 콘솔 토큰으로 잇는다). 파일 경로는 서명 파일 기준. */
+    /**
+     * Phase 4 데모 서명(3자 터치·종이 스캔 완료, 원격 링크 발급 — 고객 경로는 스크립트가 콘솔 토큰으로 잇는다). 파일 경로는 서명 파일 기준. 6A: 원격 링크는
+     * 아웃박스에 적재되므로 끝에 그 테넌트의 통지 발송(작업 NOTIFY)을 한 번 돌린다 — 콘솔 통지가 {@code SIGN LINK} 줄을 찍는다.
+     */
     private void demoSignatures(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         Path file = Path.of(args.required("file"));
         demoSignatures.seed(tenant, new Actor(args.optional("agent").orElse("demo-agent"), "AGENT"),
                 new Actor(args.optional("manager").orElse("demo-manager"), "MANAGER"), read(file), file.toAbsolutePath().getParent());
+        int limit = StandardJobs.DEFAULT_NOTIFY_LIMIT;
+        jobs.one(Caller.cli(tenant, args.optional("operator").orElse("demo-seeder")), JobKind.NOTIFY,
+                tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode().put("limit", limit), StandardJobs.notify(dispatcher, limit))
+                .ifPresent(r -> out.println("NOTIFY " + tenant + " sent=" + r.sent().size() + " dead=" + r.dead().size()));
+        jobs.failIfIncomplete();
     }
 
     // ------------------------------------------------------------------ 3B: 봉인·정정·무효·재기준·산출물

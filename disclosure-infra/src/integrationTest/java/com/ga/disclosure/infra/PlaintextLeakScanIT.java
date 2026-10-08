@@ -214,7 +214,8 @@ class PlaintextLeakScanIT {
                 id = x.sealedFor(sentinel);
                 capture(() -> x.sessionService.issue(Callers.of(w.tenant, SignSetup.AGENT), id,
                         com.ga.disclosure.domain.enums.SignatureChannel.REMOTE_LINK));
-                String token = x.notify.last().reveal();
+                capture(x::dispatch);                                          // 6A: 링크는 통지 디스패처가 보낸다
+                String token = x.notify.lastToken();
                 secret = token.substring(token.indexOf('~') + 1);
                 capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate(" " + PiiSentinels.BIRTH_DATE + "x")));
                 capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate("1931-07-20")));

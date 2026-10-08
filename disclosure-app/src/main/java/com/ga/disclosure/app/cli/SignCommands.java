@@ -4,11 +4,11 @@ import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.sign.token.SignToken;
 import com.ga.disclosure.sign.token.SignTokenRejected;
-import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.disclosure.SignService;
 import com.ga.disclosure.workflow.disclosure.SignSessionService;
 import com.ga.disclosure.workflow.job.JobKind;
@@ -57,7 +57,9 @@ import java.util.function.Function;
  * sign review-scan --tenant T --id &lt;uuid&gt; --operator &lt;exceptionApproval.role 연결 주체&gt;
  * disclosure complete --tenant T --id &lt;uuid&gt; --operator &lt;id&gt;
  * disclosure expire   [--tenants all|T1,T2] [--as-of &lt;instant&gt;|&lt;ISO duration from now, e.g. P30D&gt;] [--limit 500] --operator &lt;id&gt;
+ * notify dispatch     [--tenants all|T1,T2] [--limit 100] --operator &lt;id&gt;   (6A — 원격 링크 통지 아웃박스 발송, 작업 NOTIFY)
  * </pre>
+ * 원격 링크 세션은 발급 때 토큰이 없고 통지 아웃박스에 적재된다({@code queued=}) — 링크는 {@code notify dispatch}가 보낸다(6A 계획 §7).
  * {@code --face-to-face}는 값이 있는 옵션 형식({@code --face-to-face yes})이다.
  */
 final class SignCommands {
@@ -65,6 +67,7 @@ final class SignCommands {
     private final SignSessionService sessions;
     private final SignService signing;
     private final ExpireService expiry;
+    private final NotificationDispatcher dispatcher;
     private final JobCommands jobs;
     private final DisclosureFlagPort flags;
     private final WorkflowTransactions transactions;
@@ -72,12 +75,14 @@ final class SignCommands {
     private final Clock clock;
     private final PrintStream out;
 
-    SignCommands(SignSessionService sessions, SignService signing, ExpireService expiry, JobCommands jobs, DisclosureFlagPort flags,
+    SignCommands(SignSessionService sessions, SignService signing, ExpireService expiry, NotificationDispatcher dispatcher, JobCommands jobs,
+                 DisclosureFlagPort flags,
                  WorkflowTransactions transactions,
                  Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.signing = Objects.requireNonNull(signing, "signing");
         this.expiry = Objects.requireNonNull(expiry, "expiry");
+        this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
         this.jobs = Objects.requireNonNull(jobs, "jobs");
         this.flags = Objects.requireNonNull(flags, "flags");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
@@ -87,7 +92,8 @@ final class SignCommands {
     }
 
     boolean handles(String command) {
-        return command.startsWith("sign ") || command.equals("disclosure complete") || command.equals("disclosure expire");
+        return command.startsWith("sign ") || command.equals("disclosure complete") || command.equals("disclosure expire")
+                || command.equals("notify dispatch");
     }
 
     void run(CliArguments args) {
@@ -103,6 +109,7 @@ final class SignCommands {
                 case "sign review-scan" -> reviewScan(args);
                 case "disclosure complete" -> complete(args);
                 case "disclosure expire" -> expire(args);
+                case "notify dispatch" -> dispatch(args);
                 default -> throw new CliFailure("unknown command '" + args.command() + "' — see SignCommands javadoc");
             }
         } catch (SignTokenRejected e) {
@@ -119,8 +126,8 @@ final class SignCommands {
             rejected("SIGN_SESSION " + tenant + " " + o.id(), o.rejections());
         }
         out.println("SIGN_SESSION " + tenant + " " + o.id() + " session=" + o.sessionId().orElseThrow() + " channel=" + channel + " expires="
-                + o.expiresAt().orElseThrow() + (channel == SignatureChannel.REMOTE_LINK ? " sent=" + o.sent()
-                : " token=" + o.token().orElseThrow().reveal()));
+                + o.expiresAt().orElseThrow() + (channel == SignatureChannel.REMOTE_LINK ? " queued=" + o.notificationId().orElseThrow()
+                + " (sent by notify dispatch)" : " token=" + o.token().orElseThrow().reveal()));
     }
 
     private void open(CliArguments args) {
@@ -211,6 +218,18 @@ final class SignCommands {
             ExpireService.Report r = ran.get();
             out.println("EXPIRE " + tenant + " asOf=" + asOf + " expired=" + r.expired().size() + " stillOpen=" + r.stillOpen() + " sessionsExpired="
                     + r.sessionsExpired() + (r.expired().isEmpty() ? " NOOP" : " " + r.expired()));
+        }
+        jobs.failIfIncomplete();
+    }
+
+    /** 원격 링크 통지 발송(작업 NOTIFY). 링크는 통지 어댑터(콘솔 구현은 {@code SIGN LINK} 줄)로만 나가고 이 출력에는 통지 ID뿐이다. */
+    private void dispatch(CliArguments args) {
+        int limit = Integer.parseInt(args.optional("limit").orElse(String.valueOf(StandardJobs.DEFAULT_NOTIFY_LIMIT)));
+        ObjectNode params = JsonMapper.builder().build().createObjectNode().put("limit", limit);
+        for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
+            jobs.one(caller(args, tenant), JobKind.NOTIFY, params, StandardJobs.notify(dispatcher, limit)).ifPresent(r -> out.println("NOTIFY "
+                    + tenant + " sent=" + r.sent().size() + " retried=" + r.retried().size() + " dead=" + r.dead().size() + " cancelled="
+                    + r.cancelled().size() + " skipped=" + r.skipped()));
         }
         jobs.failIfIncomplete();
     }
