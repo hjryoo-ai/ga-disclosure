@@ -29,6 +29,7 @@ public final class ApiTestSupport {
     public static final Path DEMO = ROOT.resolve("disclosure-demo/src/main/resources");
     /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
     public static final Path CURSOR_KEY = tempPath("ga-api-cursor", "cursor.key");
+    public static final Path REQUEST_HASH_KEY = tempPath("ga-api-request-hash", "request-hash.key");
     private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     private ApiTestSupport() {
@@ -73,6 +74,7 @@ public final class ApiTestSupport {
         p.put("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
         p.put("ga.crypto.local-kek-file", KEK::toString);
         p.put("ga.api.cursor-key-file", CURSOR_KEY::toString);
+        p.put("ga.api.request-hash-key-file", REQUEST_HASH_KEY::toString);
         p.put("ga.public-sign.min-response-millis", () -> "30");
         p.put("ga.engine.mode", () -> "stub");
         p.put("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());

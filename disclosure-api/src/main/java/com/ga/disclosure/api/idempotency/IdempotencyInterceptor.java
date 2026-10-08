@@ -5,6 +5,7 @@ import com.ga.disclosure.api.security.IdempotencyCaptureFilter;
 import com.ga.disclosure.api.security.TenantBindingFilter;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.idempotency.IdempotencyService;
+import com.ga.disclosure.workflow.idempotency.RequestHashPort;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.canonical.Sha256;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,7 +35,8 @@ import java.util.TreeMap;
  * 무관하게 404다.
  * <ol>
  *   <li>키 없음 428 {@code IDEMPOTENCY_KEY_REQUIRED}, 형식 오류 400. 본문이 JSON이 아니면 400(청구 전).</li>
- *   <li>요청 해시 = SHA-256(JCS{@code {method, routeTemplate, pathVariables, body}}) — 원문은 저장하지 않는다.</li>
+ *   <li>요청 해시 = HMAC-SHA256(서버 키, JCS{@code {method, routeTemplate, pathVariables, body}}) — 원문은 저장하지 않는다. 키 없는 SHA-256은 정의역이 작은
+ *       본문(고객 등록)을 사전 대입으로 되돌린다(6A 결함, 6B 계획 §A-2).</li>
  *   <li>청구(별도 트랜잭션): 진행 → 컨트롤러, 재생 → 저장 튜플로 바이트를 다시 만들어 응답 해시와 대조한 뒤 보낸다(다르면 500, 다른 본문을 내지 않는다),
  *       다른 요청 422 {@code IDEMPOTENCY_KEY_REUSED}, 진행 중 409 {@code IDEMPOTENCY_IN_PROGRESS}.</li>
  *   <li>완료(별도 트랜잭션): 2xx·409·422만 — 영수증 튜플 {@code {body, location?}}와 응답 바이트 해시. 그 밖(400·401·404·5xx)은 저장하지 않고 청구를
@@ -51,9 +53,11 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final IdempotencyService service;
+    private final RequestHashPort requestHashes;
 
-    public IdempotencyInterceptor(IdempotencyService service) {
+    public IdempotencyInterceptor(IdempotencyService service, RequestHashPort requestHashes) {
         this.service = Objects.requireNonNull(service, "service");
+        this.requestHashes = Objects.requireNonNull(requestHashes, "requestHashes");
     }
 
     private record Pending(Caller caller, String key, int claimSeq) {
@@ -84,7 +88,7 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
         ObjectNode variables = input.putObject("pathVariables");
         new TreeMap<>(pathVariables(request)).forEach(variables::put);
         input.set("body", bodyNode);
-        String requestHash = Sha256.of(Canonicalizer.canonicalize(input));
+        String requestHash = requestHashes.hash(Canonicalizer.canonicalize(input));
         return switch (service.claim(caller, key, requestHash)) {
             case IdempotencyService.Claim.Proceed p -> {
                 request.setAttribute(PENDING, new Pending(caller, key, p.claimSeq()));

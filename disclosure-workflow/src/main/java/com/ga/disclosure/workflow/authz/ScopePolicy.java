@@ -42,8 +42,8 @@ public final class ScopePolicy {
             grant(m, a, Role.AGENT, Scope.OWN);
         }
         grant(m, Action.VOID, Role.MANAGER, Scope.ORG, Role.AGENT, Scope.OWN);
-        // 정정은 업무 규칙이 예외 승인 역할(룰 exceptionApproval.role)을 요구한다 — 설계사 칸은 열어도 업무 거부뿐이라 두지 않는다
-        grant(m, Action.SUPERSEDE, Role.MANAGER, Scope.ORG);
+        // 정정은 사람 칸이 없다(운영자 CLI 대리 실행만): 업무 규칙이 예외 승인 역할(룰 exceptionApproval.role)을 요구해 설계사 칸은 업무 거부뿐이고,
+        // 관리자 칸은 6B 승인 §2가 거부했다 — 정정 버전의 agent_id는 서명할 설계사여야 하는데 관리자 정정·재배정은 설계되지 않았다(§14 #20)
         grant(m, Action.EXCEPTION_APPROVE, Role.MANAGER, Scope.ORG);
         grant(m, Action.MANAGER_CONFIRM, Role.MANAGER, Scope.ORG);
         grant(m, Action.PAPER_SCAN_REVIEW, Role.MANAGER, Scope.ORG);

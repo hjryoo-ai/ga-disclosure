@@ -128,11 +128,16 @@ class ScopePolicyTest {
                 Action.SUPERSEDE, SIBLING)).contains(Role.OPERATOR);
     }
 
-    /** 정정은 관리자 칸만(업무 규칙이 exceptionApproval.role을 요구한다 — 계획 §3.3의 설계사 칸을 고침). */
+    /**
+     * 정정은 사람 칸이 없다(6B 승인 §2): 업무 규칙이 exceptionApproval.role을 요구해 설계사 칸은 업무 거부뿐이고, 관리자 칸은 승인이 거부했다(정정 버전의 agent_id는
+     * 서명할 설계사여야 한다). 운영자 CLI 대리 실행만 남는다.
+     */
     @Test
-    void supersedeIsAManagerCell() {
-        assertThat(ScopePolicy.matrix().get(Action.SUPERSEDE)).containsOnlyKeys(Role.MANAGER, Role.OPERATOR);
+    void supersedeHasNoHumanCell() {
+        assertThat(ScopePolicy.matrix().get(Action.SUPERSEDE)).containsOnlyKeys(Role.OPERATOR);
         assertThat(ScopePolicy.permits(agent(), Channel.API, Action.SUPERSEDE, MINE)).isEmpty();
+        assertThat(ScopePolicy.permits(manager("/HQ"), Channel.API, Action.SUPERSEDE, MINE)).isEmpty();
+        assertThat(ScopePolicy.matrix().get(Action.VALIDATE)).as("VALIDATE keeps its manager cell").containsKey(Role.MANAGER);
     }
 
     /** 목록 범위(6A 6c): 대상 판정 범위를 목록 조건으로 — 준법 테넌트, 관리자 조직, 설계사 자기 것. 범위에 필요한 연결이 없는 역할은 건너뛴다. */

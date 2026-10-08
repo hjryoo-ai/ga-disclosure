@@ -8,21 +8,14 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Objects;
-import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -59,46 +52,9 @@ public final class CursorCodec implements CursorPort {
         return new CursorCodec(key);
     }
 
-    /** 키 파일을 읽는다(없으면 소유자 전용으로 만든다). */
+    /** 키 파일을 읽는다(없으면 소유자 전용으로 만든다 — {@link OwnerOnlyKeyFile}). */
     public static CursorCodec fromKeyFile(Path file) {
-        Objects.requireNonNull(file, "file");
-        try {
-            if (!Files.exists(file)) {
-                create(file);
-            }
-            if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                for (PosixFilePermission p : Files.getPosixFilePermissions(file)) {
-                    if (p.name().startsWith("GROUP_") || p.name().startsWith("OTHERS_")) {
-                        throw new IllegalStateException("cursor key file " + file + " must be readable by its owner only (chmod 600)");
-                    }
-                }
-            }
-            byte[] key = Base64.getDecoder().decode(Files.readString(file).strip());
-            if (key.length != KEY_BYTES) {
-                throw new IllegalStateException("cursor key file " + file + " does not hold a " + KEY_BYTES + "-byte key");
-            }
-            return new CursorCodec(key);
-        } catch (IOException e) {
-            throw new UncheckedIOException("cannot read cursor key file " + file, e);
-        }
-    }
-
-    private static void create(Path file) throws IOException {
-        byte[] key = new byte[KEY_BYTES];
-        new SecureRandom().nextBytes(key);
-        if (file.getParent() != null) {
-            Files.createDirectories(file.getParent());
-        }
-        try {
-            if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                Files.createFile(file, PosixFilePermissions.asFileAttribute(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
-            } else {
-                Files.createFile(file);
-            }
-        } catch (FileAlreadyExistsException raced) {
-            return;
-        }
-        Files.writeString(file, Base64.getEncoder().encodeToString(key));
+        return new CursorCodec(OwnerOnlyKeyFile.loadOrCreate(file, KEY_BYTES, "cursor"));
     }
 
     @Override

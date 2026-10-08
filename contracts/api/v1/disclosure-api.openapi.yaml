@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 1.1.0
+  version: 2.0.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -163,23 +163,6 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LifecycleRequest' }
             example: { reasonCode: DUPLICATE }
-      responses:
-        '200': { $ref: '#/components/responses/LifecycleReceipt' }
-        default: { $ref: '#/components/responses/Problem' }
-  /api/v1/disclosures/{disclosureId}/supersede:
-    parameters:
-      - $ref: '#/components/parameters/DisclosureId'
-    post:
-      operationId: supersede
-      summary: 정정(새 버전, 관리자)
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/LifecycleRequest' }
-            example: { reasonCode: CONTENT_ERROR }
       responses:
         '200': { $ref: '#/components/responses/LifecycleReceipt' }
         default: { $ref: '#/components/responses/Problem' }

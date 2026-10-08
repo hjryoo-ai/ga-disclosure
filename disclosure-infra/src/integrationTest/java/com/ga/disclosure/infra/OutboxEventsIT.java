@@ -74,7 +74,7 @@ class OutboxEventsIT {
     @Test
     void lifecycleEventsAreGaplessContractValidAndFreeOfPersonalData() {
         DisclosureId id = s.sealReasoned().id();
-        LifecycleService.Outcome superseded = s.lifecycle.supersede(Callers.of(s.w.tenant, SealSetup.MANAGER), id, new LifecycleReason("CONTENT_ERROR", "(가상) 오기"));
+        LifecycleService.Outcome superseded = s.lifecycle.supersede(Callers.cli(s.w.tenant, SealSetup.MANAGER), id, new LifecycleReason("CONTENT_ERROR", "(가상) 오기"));
         DisclosureId next = superseded.newVersion().orElseThrow();
         s.lifecycle.voidDisclosure(Callers.of(s.w.tenant, WorkflowSetup.AGENT), next, new LifecycleReason("OTHER", "(가상) 상담 철회 메모"));
 

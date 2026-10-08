@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ({@code api.idempotencyTtlHours} — 코드 변경 없이 {@code expires_at}이 바뀐다), 404·400은 저장하지 않고 청구를 해제한다(같은 키로 고친 요청이 처리된다 —
  * 6A 수용심사 §2 ②), 재생 해시가 어긋나면 500(다른 본문 없음),
  * 작업 IDEMPOTENCY_PURGE는 만료 행만 지운다.
- * 요청 해시 식(SHA-256(JCS{method, routeTemplate, pathVariables, body}))은 이 클래스가 따로 계산해 진행 중 행을 심는 것으로 고정한다.
+ * 요청 해시 식(HMAC-SHA256(서버 키, JCS{method, routeTemplate, pathVariables, body}) — 6B 계획 §A-2)은 이 클래스가 따로 계산해 진행 중 행을 심는 것으로 고정한다.
  */
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class IdempotencyIT {
@@ -90,7 +90,19 @@ class IdempotencyIT {
         ObjectNode vars = input.putObject("pathVariables");
         pathVariables.forEach(vars::put);
         input.set("body", Canonicalizer.parseStrict(json));
-        return Sha256.of(Canonicalizer.canonicalize(input));
+        return hmac(Canonicalizer.canonicalize(input));
+    }
+
+    /** 요청 해시 = HMAC-SHA256(서버 키 파일, 입력) — 6B 계획 §A-2(키 파일은 앱이 기동 때 만든다). */
+    static String hmac(byte[] input) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(java.util.Base64.getDecoder().decode(
+                    java.nio.file.Files.readString(ApiTestSupport.REQUEST_HASH_KEY).strip()), "HmacSHA256"));
+            return java.util.HexFormat.of().formatHex(mac.doFinal(input));
+        } catch (java.io.IOException | java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     static long count(String tenant, String sql) {
@@ -161,6 +173,21 @@ class IdempotencyIT {
         assertThat(row.get("hash")).isEqualTo(Sha256.of(first.body()));
         assertThat(count(t, "SELECT count(*) FROM idempotency_key WHERE response_ref::text LIKE '%limit%'"))
                 .as("request body is not stored").isZero();
+    }
+
+    /** 6A 결함·6B 수정(계획 §A-2): 저장된 요청 해시는 키 없는 SHA-256이 아니라 서버 키 HMAC이다 — 본문을 사전 대입으로 되돌릴 수 없다. */
+    @Test
+    void theStoredRequestHashIsKeyed() {
+        String t = tenant();
+        String k = key();
+        assertThat(post(t, SCHEDULER, "/internal/v1/jobs/NOTIFY", "{\"limit\":7}", k).status()).isEqualTo(202);
+        ObjectNode input = (ObjectNode) Canonicalizer.parseStrict("{}");
+        input.put("method", "POST").put("routeTemplate", "/internal/v1/jobs/{kind}");
+        input.putObject("pathVariables").put("kind", "NOTIFY");
+        input.set("body", Canonicalizer.parseStrict("{\"limit\":7}"));
+        byte[] canonical = Canonicalizer.canonicalize(input);
+        String stored = DB.asApp(t, c -> SeedData.call(c, "SELECT request_hash FROM idempotency_key WHERE idem_key = ?", k));
+        assertThat(stored).isEqualTo(hmac(canonical)).isNotEqualTo(Sha256.of(canonical));
     }
 
     @Test

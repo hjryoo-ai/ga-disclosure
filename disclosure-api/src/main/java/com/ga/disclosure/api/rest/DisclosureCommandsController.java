@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 
 /**
- * 확인서 쓰기(6A 계획 §4.1): 초안·항목·비교·산출·추천사유·검증 미리보기·봉인·무효·정정·재기준·예외 승인, 산출물·앵커 영수증 내보내기. 결과는 닫힌 영수증 200
+ * 확인서 쓰기(6A 계획 §4.1): 초안·항목·비교·산출·추천사유·검증 미리보기·봉인·무효·재기준·예외 승인(정정은 HTTP에 없다 — 6B 승인 §2), 산출물·앵커 영수증 내보내기. 결과는 닫힌 영수증 200
  * (생성 201), 업무 거부는 범주로 409·422. 인가는 유스케이스가 한다.
  */
 @RestController
@@ -95,11 +95,6 @@ public class DisclosureCommandsController {
     @PostMapping("/{id}/void")
     public LifecycleReceipt voidDisclosure(Caller caller, @PathVariable("id") String id, @RequestBody LifecycleRequest request) {
         return CommandMapper.lifecycle(lifecycle.voidDisclosure(caller, DisclosureMapper.id(id), CommandMapper.reason(request)));
-    }
-
-    @PostMapping("/{id}/supersede")
-    public LifecycleReceipt supersede(Caller caller, @PathVariable("id") String id, @RequestBody LifecycleRequest request) {
-        return CommandMapper.lifecycle(lifecycle.supersede(caller, DisclosureMapper.id(id), CommandMapper.reason(request)));
     }
 
     @PostMapping("/{id}/rebase")

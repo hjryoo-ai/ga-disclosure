@@ -3,6 +3,7 @@ package com.ga.disclosure.api.security;
 import com.ga.disclosure.api.idempotency.CanonicalJsonMessageConverter;
 import com.ga.disclosure.api.idempotency.IdempotencyInterceptor;
 import com.ga.disclosure.workflow.idempotency.IdempotencyService;
+import com.ga.disclosure.workflow.idempotency.RequestHashPort;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.converter.HttpMessageConverters;
@@ -22,16 +23,18 @@ import java.util.List;
 public class ApiWebConfiguration implements WebMvcConfigurer {
 
     private final IdempotencyService idempotency;
+    private final RequestHashPort requestHashes;
     private final JsonMapper mapper;
 
-    public ApiWebConfiguration(IdempotencyService idempotency, JsonMapper mapper) {
+    public ApiWebConfiguration(IdempotencyService idempotency, RequestHashPort requestHashes, JsonMapper mapper) {
         this.idempotency = idempotency;
+        this.requestHashes = requestHashes;
         this.mapper = mapper;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new IdempotencyInterceptor(idempotency)).addPathPatterns("/api/**", "/internal/**");
+        registry.addInterceptor(new IdempotencyInterceptor(idempotency, requestHashes)).addPathPatterns("/api/**", "/internal/**");
     }
 
     @Override

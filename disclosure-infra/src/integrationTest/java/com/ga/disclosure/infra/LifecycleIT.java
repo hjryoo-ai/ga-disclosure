@@ -116,10 +116,13 @@ class LifecycleIT {
         // 6A: 설계사에게 정정 칸이 없다(인가 거부 = 404) — 업무 규칙(exceptionApproval.role)은 같은 주체의 CLI 대리 실행에서 드러난다
         assertThatThrownBy(() -> s.lifecycle.supersede(Callers.of(s.w.tenant, WorkflowSetup.AGENT), original, new LifecycleReason("CONTENT_ERROR", null)))
                 .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);
+        // 6B 승인 §2: 관리자에게도 정정 칸이 없다 — 정정은 운영자 CLI 대리 실행만
+        assertThatThrownBy(() -> s.lifecycle.supersede(Callers.of(s.w.tenant, SealSetup.MANAGER), original, new LifecycleReason("CONTENT_ERROR", null)))
+                .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);
         assertThat(s.lifecycle.supersede(Callers.cli(s.w.tenant, WorkflowSetup.AGENT), original, new LifecycleReason("CONTENT_ERROR", null)).rejection())
                 .contains(LifecycleService.Rejection.ROLE_REQUIRED);
 
-        LifecycleService.Outcome o = s.lifecycle.supersede(Callers.of(s.w.tenant, SealSetup.MANAGER), original, new LifecycleReason("CONTENT_ERROR", "보험료 예시 오기"));
+        LifecycleService.Outcome o = s.lifecycle.supersede(Callers.cli(s.w.tenant, SealSetup.MANAGER), original, new LifecycleReason("CONTENT_ERROR", "보험료 예시 오기"));
         assertThat(o.status()).isEqualTo(DisclosureStatus.SUPERSEDED);
         DisclosureId next = o.newVersion().orElseThrow();
         String t = s.w.tenant.value();
@@ -173,7 +176,7 @@ class LifecycleIT {
     @Test
     void supersedeIsOnlyForSealedDisclosures() {
         DisclosureId id = s.w.reasoned();
-        assertThatThrownBy(() -> s.lifecycle.supersede(Callers.of(s.w.tenant, SealSetup.MANAGER), id, new LifecycleReason("CONTENT_ERROR", null))).isInstanceOf(IllegalTransition.class);
+        assertThatThrownBy(() -> s.lifecycle.supersede(Callers.cli(s.w.tenant, SealSetup.MANAGER), id, new LifecycleReason("CONTENT_ERROR", null))).isInstanceOf(IllegalTransition.class);
         assertThat(s.audit().getLast().entry().action()).isEqualTo(AuditAction.COMMAND_FAILED);
     }
 
@@ -226,7 +229,7 @@ class LifecycleIT {
             String token = x.issue(original, com.ga.disclosure.domain.enums.SignatureChannel.TOUCH_PAD);
             String sessionId = x.w.in(() -> x.sessions.openFor(original)).getFirst().sessionId().toString();
             x.clock.advance(java.time.Duration.ofMinutes(1));
-            LifecycleService.Outcome o = x.lifecycle.supersede(Callers.of(x.w.tenant, SealSetup.MANAGER), original, new LifecycleReason("CONTENT_ERROR", null));
+            LifecycleService.Outcome o = x.lifecycle.supersede(Callers.cli(x.w.tenant, SealSetup.MANAGER), original, new LifecycleReason("CONTENT_ERROR", null));
             DisclosureId next = o.newVersion().orElseThrow();
             assertThat(sessionStatus(x, sessionId)).isEqualTo("REVOKED/DOCUMENT_SUPERSEDED");
             assertThat(x.signaturesOf(original)).as("the agent signature stays on version 1").hasSize(1);

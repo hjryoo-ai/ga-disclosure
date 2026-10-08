@@ -2,6 +2,7 @@ package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.infra.crypto.CursorCodec;
+import com.ga.disclosure.infra.crypto.RequestHashKey;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.authz.AuthorizationPort;
@@ -11,6 +12,7 @@ import com.ga.disclosure.workflow.feed.EventFeed;
 import com.ga.disclosure.workflow.feed.EventFeedStore;
 import com.ga.disclosure.workflow.flag.FlagLookup;
 import com.ga.disclosure.workflow.flag.FlagQueryService;
+import com.ga.disclosure.workflow.idempotency.RequestHashPort;
 import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.retention.LegalHoldQueryService;
 import com.ga.disclosure.workflow.retention.LegalHoldStore;
@@ -35,6 +37,13 @@ public class QueryConfiguration {
     @ConditionalOnWebApplication
     public CursorPort cursorCodec(@Value("${ga.api.cursor-key-file}") String keyFile) {
         return CursorCodec.fromKeyFile(Path.of(keyFile));
+    }
+
+    /** 멱등 요청 해시 키(6B 계획 §A-2) — 웹이면 {@code ga.api.request-hash-key-file}(기본값 없음, 커서 키와 같은 규약). CLI는 멱등 키를 받지 않는다. */
+    @Bean
+    @ConditionalOnWebApplication
+    public RequestHashPort requestHashKey(@Value("${ga.api.request-hash-key-file}") String keyFile) {
+        return RequestHashKey.fromKeyFile(Path.of(keyFile));
     }
 
     @Bean
