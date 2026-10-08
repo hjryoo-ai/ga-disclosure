@@ -94,11 +94,14 @@ class V14GuardIT {
         DB.asAppCommitting(T, c -> {
             SeedData.exec(c, "UPDATE contract_link SET superseded_by = ?, superseded_at = now()" + where, next, T, first[0]);
             insertLink(c, next, d, "POL-A", "2026-10-03");
+            SeedData.exec(c, "UPDATE disclosure SET contract_date = DATE '2026-10-03'" + WHERE, T, d);   // V15: 현재값도 같은 트랜잭션에서
             return null;
         });
         assertRejected(DB, T, "GD130", "UPDATE contract_link SET superseded_by = gen_random_uuid(), superseded_at = now()" + where, T, first[0]);
         String foreign = sqlStateOf(() -> DB.asAppCommitting(T, c -> {
             UUID otherLink = SeedData.contractLink(c, T, other, "POL-O", "2026-10-01");
+            // 외래키만 본다 — 지연 정합 검사(V15 GD136, 활성 0건)보다 먼저 이 문장 끝에서 확인
+            SeedData.exec(c, "SET CONSTRAINTS fk_contract_link_superseded_by IMMEDIATE");
             SeedData.exec(c, "UPDATE contract_link SET superseded_by = ?, superseded_at = now()" + where, next, T, otherLink);
             return null;
         }));

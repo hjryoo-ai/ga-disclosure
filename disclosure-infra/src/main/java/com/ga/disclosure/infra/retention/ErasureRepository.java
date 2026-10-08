@@ -46,13 +46,25 @@ public class ErasureRepository extends TenantScopedRepository implements Erasure
         Map<String, Object> id = Map.of("id", disclosure.value());
         List<Erased> out = new ArrayList<>();
         query("""
-                SELECT void_reason_text, supersede_reason_text, policy_no
+                SELECT void_reason_text, supersede_reason_text, policy_no, application_no
                   FROM disclosure
                  WHERE tenant_id = :tenantId AND disclosure_id = :id
                 """, id, (rs, n) -> {
             text(out, "disclosure", "void_reason_text", disclosure.toString(), rs.getString("void_reason_text"));
             text(out, "disclosure", "supersede_reason_text", disclosure.toString(), rs.getString("supersede_reason_text"));
             text(out, "disclosure", "policy_no", disclosure.toString(), rs.getString("policy_no"));
+            text(out, "disclosure", "application_no", disclosure.toString(), rs.getString("application_no"));
+            return null;
+        });
+        // V14: 계약 연결 이력의 증권·청약 번호(대체된 행 포함)
+        query("""
+                SELECT link_id, policy_no, application_no
+                  FROM contract_link
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND (policy_no IS NOT NULL OR application_no IS NOT NULL)
+                 ORDER BY link_id
+                """, id, (rs, n) -> {
+            text(out, "contract_link", "policy_no", rs.getString("link_id"), rs.getString("policy_no"));
+            text(out, "contract_link", "application_no", rs.getString("link_id"), rs.getString("application_no"));
             return null;
         });
         query("""

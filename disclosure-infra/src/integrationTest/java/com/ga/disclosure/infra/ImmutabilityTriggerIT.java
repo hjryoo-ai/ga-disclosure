@@ -157,8 +157,9 @@ class ImmutabilityTriggerIT {
                 .flatMap(t -> Stream.of("INSERT", "UPDATE", "UPDATE_V6", "DELETE").map(op -> Arguments.of(s, t, op))));
     }
 
+    /** 봉인 이후 행은 계약 연결과 함께(메타 값의 출처), 봉인 전 행은 연결 없이 — V15 GD130: 연결은 봉인 이후 확인서에만 생긴다. */
     private static UUID seedDisclosure(String status) {
-        return seedDisclosure(status, true);
+        return seedDisclosure(status, !SeedData.MUTABLE_STATUSES.contains(status));
     }
 
     private static UUID seedDisclosure(String status, boolean withContractLink) {

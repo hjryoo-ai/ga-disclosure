@@ -626,7 +626,10 @@ public final class SeedData {
         return contractLink(c, tenant, disclosure, policyNo, contractDate, null);
     }
 
-    /** {@link #contractLink(Connection, String, UUID, String, String)}과 같되 청약번호를 함께 싣는다(파기 대상 컬럼 시험). */
+    /**
+     * {@link #contractLink(Connection, String, UUID, String, String)}과 같되 청약번호를 함께 싣는다(파기 대상 컬럼 시험). 연결 유스케이스처럼 확인서의 현재값
+     * ({@code policy_no}·{@code contract_date})도 같은 트랜잭션에서 맞춘다 — V15 GD136이 커밋 때 정합을 본다. 확인서는 봉인 이후여야 한다(GD130).
+     */
     public static UUID contractLink(Connection c, String tenant, UUID disclosure, String policyNo, String contractDate, String applicationNoOrNull)
             throws SQLException {
         UUID id = UUID.randomUUID();
@@ -635,6 +638,8 @@ public final class SeedData {
                                            source_ref, received_at, linked_by)
                 VALUES (?, ?, ?, ?, ?, CAST(? AS date), 'INS_A', 'SEED', ?, now(), 'seed')
                 """, tenant, id, disclosure, policyNo, applicationNoOrNull, contractDate, id.toString());
+        exec(c, "UPDATE disclosure SET policy_no = ?, contract_date = CAST(? AS date) WHERE tenant_id = ? AND disclosure_id = ?",
+                policyNo, contractDate, tenant, disclosure);
         return id;
     }
 
