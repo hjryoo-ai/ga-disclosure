@@ -551,12 +551,25 @@ public final class SeedData {
                 """, tenant);
         exec(c, """
                 INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at)
-                VALUES (?, ?, 'MISSING', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09')
+                VALUES (?, ?, 'SIGN_EXPIRED', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09')
                 """, tenant, UUID.randomUUID());
         // V12
         notification(c, tenant, SEED_CUSTOMER_REF, remoteSession(c, tenant, sealed));      // 고객 서명의 세션은 USED라 OPEN이 비어 있다
         asyncJob(c, tenant, "VERIFY_TENANT");
         idempotencyKey(c, tenant, "sub-1", "seed-idempotency-0001", "2026-09-24 10:00:00+09");
+        // V14
+        contractLink(c, tenant, sealed, "POL-SEED-" + tenant, "2026-10-01");
+        exec(c, """
+                INSERT INTO contract_link_unmatched (tenant_id, unmatched_id, policy_no, contract_date, insurer_code, reason, source, source_ref,
+                                                     received_at)
+                VALUES (?, ?, 'POL-UNMATCHED', DATE '2026-10-01', 'INS_A', 'UNMATCHED', 'SEED', 'seed#1', TIMESTAMPTZ '2026-10-02 00:00:00+09')
+                """, tenant, UUID.randomUUID());
+        exec(c, """
+                INSERT INTO collection_rate_snapshot (tenant_id, snapshot_id, period_month, org_path, formula, denominator, numerator, rate_bp,
+                                                      computed_at, rule_version_id, inputs_hash, job_id)
+                VALUES (?, ?, DATE '2026-09-01', '/', 'LINKED_COMPLETED_BY_CONTRACT_DATE', 1, 1, 10000, TIMESTAMPTZ '2026-10-01 00:00:00+09',
+                        'DISC-2026-07', repeat('0', 64), ?)
+                """, tenant, UUID.randomUUID(), UUID.randomUUID());
     }
 
     /** 관리자 예외 승인 1건(V6 review, 부모는 가변 상태여야 한다 — GD080; 부모의 고정 룰 버전 2종을 싣는다 — V7 GD081). */
@@ -603,6 +616,26 @@ public final class SeedData {
                 return rs.next() ? rs.getString(1) : null;
             }
         }
+    }
+
+    /**
+     * 활성 계약 연결 1건(V14 {@code contract_link}) — 확인서의 {@code policy_no}·{@code contract_date}는 이 행의 현재값이어야 바꿀 수 있다(GD136). 같은
+     * 확인서에 이미 활성 연결이 있으면 실패한다(부분 유일).
+     */
+    public static UUID contractLink(Connection c, String tenant, UUID disclosure, String policyNo, String contractDate) throws SQLException {
+        return contractLink(c, tenant, disclosure, policyNo, contractDate, null);
+    }
+
+    /** {@link #contractLink(Connection, String, UUID, String, String)}과 같되 청약번호를 함께 싣는다(파기 대상 컬럼 시험). */
+    public static UUID contractLink(Connection c, String tenant, UUID disclosure, String policyNo, String contractDate, String applicationNoOrNull)
+            throws SQLException {
+        UUID id = UUID.randomUUID();
+        exec(c, """
+                INSERT INTO contract_link (tenant_id, link_id, disclosure_id, policy_no, application_no, contract_date, insurer_code, source,
+                                           source_ref, received_at, linked_by)
+                VALUES (?, ?, ?, ?, ?, CAST(? AS date), 'INS_A', 'SEED', ?, now(), 'seed')
+                """, tenant, id, disclosure, policyNo, applicationNoOrNull, contractDate, id.toString());
+        return id;
     }
 
     public static int exec(Connection c, String sql, Object... params) throws SQLException {

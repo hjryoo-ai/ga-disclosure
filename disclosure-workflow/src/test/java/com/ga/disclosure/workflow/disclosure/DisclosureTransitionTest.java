@@ -34,7 +34,8 @@ class DisclosureTransitionTest {
 
     static final List<DisclosureCommand> IMPLEMENTED = List.of(DisclosureCommand.REPLACE_ITEMS, DisclosureCommand.COMPARE,
             DisclosureCommand.APPLY_SNAPSHOT, DisclosureCommand.SET_RECOMMENDATIONS, DisclosureCommand.SEAL, DisclosureCommand.VOID,
-            DisclosureCommand.SUPERSEDE, DisclosureCommand.REBASE, DisclosureCommand.SIGN, DisclosureCommand.COMPLETE, DisclosureCommand.EXPIRE);
+            DisclosureCommand.SUPERSEDE, DisclosureCommand.REBASE, DisclosureCommand.SIGN, DisclosureCommand.COMPLETE, DisclosureCommand.EXPIRE,
+            DisclosureCommand.ABANDON);
 
     static final java.time.Instant AT = java.time.Instant.parse("2026-09-23T03:00:00Z");
 
@@ -67,6 +68,10 @@ class DisclosureTransitionTest {
         }
         applied(d.setRecommendations(reasons(), Fixtures.RULE.autoReasonCodes(), Fixtures.CHECK));
         if (status == DisclosureStatus.REASONED) {
+            return d;
+        }
+        if (status == DisclosureStatus.ABANDONED) {
+            applied(d.abandon(AT));
             return d;
         }
         return Disclosure.restore(d.id(), d.agentId(), d.customerRef(), d.groupCode(), d.consultDate(), d.ruleVersionId(), null,
@@ -120,6 +125,7 @@ class DisclosureTransitionTest {
             case SIGN -> d.sign(new ValidationSubject.SignatureMark(nextRole(d), AT.plus(java.time.Duration.ofHours(4))), null, PASS);
             case COMPLETE -> d.complete(new CompletionStamp(AT.plus(java.time.Duration.ofHours(5)), java.time.LocalDate.of(2031, 9, 24)), PASS);
             case EXPIRE -> d.expire(AT.plus(java.time.Duration.ofDays(30)));
+            case ABANDON -> d.abandon(AT.plus(java.time.Duration.ofDays(60)));
         };
     }
 
@@ -151,7 +157,7 @@ class DisclosureTransitionTest {
         List<String> commandMethods = Arrays.stream(Disclosure.class.getDeclaredMethods())
                 .filter(m -> Modifier.isPublic(m.getModifiers()) && m.getReturnType() == TransitionOutcome.class)
                 .map(Method::getName).sorted().toList();
-        assertThat(commandMethods).containsExactly("applySnapshot", "compare", "complete", "expire", "rebase", "replaceItems", "seal",
+        assertThat(commandMethods).containsExactly("abandon", "applySnapshot", "compare", "complete", "expire", "rebase", "replaceItems", "seal",
                 "setRecommendations", "sign", "supersede", "voidWith");
         assertThat(IMPLEMENTED).hasSize(commandMethods.size());
     }

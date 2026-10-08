@@ -31,9 +31,10 @@ class RlsIsolationIT {
 
     /**
      * V12 기준 테넌트 테이블 수(V8 signature_evidence·outbox_head·outbox_event 추가, V9 anchor·anchor_receipt·legal_hold 추가와 audit_anchor 제거,
-     * V12 idempotency_key·async_job·notification_outbox 추가). 테이블을 추가하는 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게).
+     * V12 idempotency_key·async_job·notification_outbox 추가, V14 contract_link·contract_link_unmatched·collection_rate_snapshot 추가). 테이블을 추가하는
+     * 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게).
      */
-    private static final int EXPECTED_TABLE_COUNT = 32;
+    private static final int EXPECTED_TABLE_COUNT = 35;
 
     static final List<String> TABLES = catalogTables();
 

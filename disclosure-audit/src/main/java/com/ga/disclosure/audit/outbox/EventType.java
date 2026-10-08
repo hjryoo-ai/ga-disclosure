@@ -11,7 +11,9 @@ public enum EventType {
     PolicyLinked,
     ComplianceFlagRaised,
     /** Phase 5 파기 ③(추가형, V10). payload는 식별자·번호·시각만. */
-    DisclosureDestroyed;
+    DisclosureDestroyed,
+    /** 봉인 전 초안의 폐기(6B, 추가형) — 식별자·시각만. */
+    DisclosureAbandoned;
 
     public int version() {
         return 1;

@@ -41,7 +41,8 @@ class ContractSchemaTest {
 
     static final List<String> EVENT_TYPES = List.of(
             "DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted",
-            "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised", "DisclosureDestroyed");
+            "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised", "DisclosureDestroyed",
+            "DisclosureAbandoned");
 
     private static SchemaRegistry registry;
 

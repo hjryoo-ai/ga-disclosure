@@ -74,9 +74,9 @@ class TenantPredicateScanTest {
     void scanCoversMigrationsAndRepositories() {
         assertThat(sqlFiles).extracting(p -> p.getFileName().toString())
                 .contains("V1__init.sql", "V2__rls.sql", "V3__immutability.sql");
-        // 테이블 목록은 마이그레이션의 CREATE TABLE에서 읽는다 — V5의 새 테이블 2개·V6 review·V7 3개·V8 3개·V9 3개·V12 3개가 손대지 않아도 스캔
+        // 테이블 목록은 마이그레이션의 CREATE TABLE에서 읽는다 — V5의 새 테이블 2개·V6 review·V7 3개·V8 3개·V9 3개·V12 3개·V14 3개가 손대지 않아도 스캔
         // 대상이 된다(Phase 2 P7). V9가 제거한 V1 audit_anchor도 V1 파일에 남아 있으므로 목록에 있다(그 이름을 쓰는 문장도 계속 검사된다).
-        assertThat(knownTables).hasSize(33).contains("tenant", "disclosure", "signature", "audit_log", "customer_data_key", "catalog_import",
+        assertThat(knownTables).hasSize(36).contains("contract_link", "contract_link_unmatched", "collection_rate_snapshot", "tenant", "disclosure", "signature", "audit_log", "customer_data_key", "catalog_import",
                 "review", "disclosure_counter", "disclosure_chain_head", "document_key", "signature_evidence", "outbox_head", "outbox_event",
                 "anchor", "anchor_receipt", "legal_hold", "audit_anchor", "idempotency_key", "async_job", "notification_outbox");
         long javaSqlCount = javaFiles.stream().mapToLong(p -> SqlTenantScanner.sqlLiteralsInJava(read(p)).size()).sum();

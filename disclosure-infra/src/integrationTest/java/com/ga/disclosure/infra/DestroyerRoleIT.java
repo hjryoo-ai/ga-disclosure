@@ -41,7 +41,8 @@ class DestroyerRoleIT {
 
     /** 파기 대상 컬럼(5 계획 §5.6 — 확인서 함수). */
     private static final Map<String, List<String>> ERASED = Map.of(
-            "disclosure", List.of("void_reason_text", "supersede_reason_text", "policy_no", "destroyed_at", "destroyed_by"),
+            "disclosure", List.of("void_reason_text", "supersede_reason_text", "policy_no", "application_no", "destroyed_at", "destroyed_by"),
+            "contract_link", List.of("policy_no", "application_no"),                  // V14
             "recommendation", List.of("reason_text"),
             "review", List.of("reason"),
             "signature", List.of("device", "ip", "view_evidence"),
@@ -95,11 +96,13 @@ class DestroyerRoleIT {
                 }
                 default -> SeedData.exec(c, "UPDATE disclosure SET status = ?" + WHERE, status, T, id[0]);
             }
-            SeedData.exec(c, "UPDATE disclosure SET policy_no = 'POL-77'" + WHERE, T, id[0]);
+            String policy = "POL-" + id[0];                                             // V14: 활성 증권은 테넌트에 하나
+            SeedData.contractLink(c, T, id[0], policy, "2026-10-01", "APP-77");         // V14: 증권번호는 활성 연결의 현재값(GD136)
+            SeedData.exec(c, "UPDATE disclosure SET policy_no = ?" + WHERE, policy, T, id[0]);
             SeedData.exec(c, """
                     INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at, disclosure_id, policy_no)
-                    VALUES (?, ?, 'MISSING', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09', ?, 'POL-77')
-                    """, T, UUID.randomUUID(), id[0]);
+                    VALUES (?, ?, 'SIGN_EXPIRED', 'HIGH', TIMESTAMPTZ '2026-10-01 00:00:00+09', ?, ?)
+                    """, T, UUID.randomUUID(), id[0], policy);
         });
         return new Doc(id[0], customer);
     }
@@ -191,13 +194,13 @@ class DestroyerRoleIT {
                        AND p.pronamespace = 'public'::regnamespace AND NOT has_function_privilege('public', p.oid, 'EXECUTE')
                      ORDER BY 1
                     """)).containsExactly("ga_customer_ref_destroy", "ga_disclosure_destroy", "ga_document_key_shred");
-            // 멤버십: 앱 → 파기자(SET만, 물려받지 않음, 관리 권한 없음), 마이그레이터 → 정의자(소유권 이전용). 그 밖에 없다.
+            // 멤버십: 앱 → 파기자(SET만, 물려받지 않음, 관리 권한 없음), 앱 → 폐기자(6B V14, 같은 방식), 마이그레이터 → 정의자(소유권 이전용). 그 밖에 없다.
             assertThat(strings(c, """
                     SELECT m.rolname || '>' || r.rolname || ':' || a.set_option || a.inherit_option || a.admin_option
                       FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member
                      WHERE r.rolname LIKE 'disclosure%' OR m.rolname LIKE 'disclosure%'
                      ORDER BY 1
-                    """)).containsExactly("disclosure_app>disclosure_destroyer:truefalsefalse",
+                    """)).containsExactly("disclosure_app>disclosure_abandoner:truefalsefalse", "disclosure_app>disclosure_destroyer:truefalsefalse",
                     "disclosure_migrator>disclosure_destroy_definer:truefalsefalse");
             // 세 함수: 정의자 소유, SECURITY DEFINER, search_path 고정
             assertThat(strings(c, """
@@ -217,7 +220,7 @@ class DestroyerRoleIT {
                         || ':' || has_column_privilege('disclosure_destroy_definer', 'disclosure', 'status', 'UPDATE')
                         || ':' || has_column_privilege('disclosure_destroy_definer', 'disclosure', 'chain_hash', 'UPDATE')
                         || ':' || has_column_privilege('disclosure_destroy_definer', 'signature', 'signed_doc_hash', 'UPDATE')
-                    """)).containsExactly("true:false:false:false");
+                    """)).containsExactly("true:true:false:false");   // V14: 폐기 함수가 상태(ABANDONED)를 바꾼다 — 그 분기는 GD133이 지킨다
             return null;
         });
     }

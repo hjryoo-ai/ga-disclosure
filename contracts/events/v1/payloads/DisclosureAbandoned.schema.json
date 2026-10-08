@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/events/v1/payloads/DisclosureAbandoned.schema.json",
+  "title": "DisclosureAbandoned payload (v1)",
+  "description": "봉인 전 초안의 폐기(Phase 6B): 상태가 ABANDONED 묘비가 되고 자유 텍스트·청약번호가 지워졌다. 번호는 없다(봉인 전). 식별자·시각만 싣는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "disclosureId",
+    "abandonedAt"
+  ],
+  "properties": {
+    "disclosureId": {
+      "$ref": "../defs.schema.json#/$defs/uuid"
+    },
+    "abandonedAt": {
+      "$ref": "../defs.schema.json#/$defs/instant"
+    }
+  }
+}

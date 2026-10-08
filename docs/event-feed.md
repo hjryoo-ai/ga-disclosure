@@ -51,6 +51,11 @@ POST /internal/v1/events/ack     Idempotency-Key: <16~128자>
   version 증가).
 - 이벤트 종류는 envelope 스키마의 `type` 열거가 정본이다. 새 종류가 생기면 계약 버전과 이 문서를 같이 고친다.
 
+## 추가 공지 — `DisclosureAbandoned` (Phase 6B, v1)
+
+봉인 전 초안을 설계사가 폐기하거나 룰 기간이 지나 배치가 폐기하면 `DisclosureAbandoned`가 발행된다(`aggregate.kind = DISCLOSURE`, payload
+`{disclosureId, abandonedAt}`). 번호는 없다(봉인 전). 소비자는 그 초안에 대해 자기 쪽에 복제해 둔 자유 텍스트가 있으면 지운다.
+
 ## 추가 공지 — `DisclosureDestroyed` (Phase 5, v1)
 
 보존기간이 끝나 확인서의 개인정보 컬럼을 파기하면 `DisclosureDestroyed`가 발행된다(`aggregate.kind = DISCLOSURE`, payload

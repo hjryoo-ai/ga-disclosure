@@ -50,10 +50,16 @@ class FlagVisibilityIT {
     static UUID flag(Connection c, String tenant, String type, UUID disclosureOrNull, String raisedAt, boolean resolved) throws SQLException {
         UUID id = UUID.randomUUID();
         SeedData.exec(c, """
-                INSERT INTO compliance_flag (tenant_id, flag_id, type, disclosure_id, severity, raised_at, resolved_at, resolved_by, resolution)
-                VALUES (?, ?, ?, ?, 'HIGH', CAST(? AS timestamptz), CASE WHEN ? THEN CAST(? AS timestamptz) + INTERVAL '1 hour' END,
-                        CASE WHEN ? THEN 'manager-1' END, CASE WHEN ? THEN 'PAPER_SCAN_REVIEWED' END)
-                """, tenant, id, type, disclosureOrNull, raisedAt, resolved, raisedAt, resolved, resolved);
+                INSERT INTO compliance_flag (tenant_id, flag_id, type, disclosure_id, severity, raised_at)
+                VALUES (?, ?, ?, ?, 'HIGH', CAST(? AS timestamptz))
+                """, tenant, id, type, disclosureOrNull, raisedAt);
+        if (resolved) {
+            // V14 GD134: 플래그는 열린 채로 생기고 해소는 그 뒤 한 번
+            SeedData.exec(c, """
+                    UPDATE compliance_flag SET resolved_at = raised_at + INTERVAL '1 hour', resolved_by = 'manager-1', resolution = 'PAPER_SCAN_REVIEWED'
+                     WHERE tenant_id = ? AND flag_id = ?
+                    """, tenant, id);
+        }
         return id;
     }
 

@@ -93,6 +93,11 @@ public final class OutboxPayloads {
         return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("destroyedAt", destroyedAt.toString());
     }
 
+    /** 초안 폐기(6B): 식별자·시각만 — 번호는 없고(봉인 전) 지운 값의 해시는 감사에만 남는다. */
+    public static JsonNode disclosureAbandoned(UUID disclosureId, Instant abandonedAt) {
+        return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("abandonedAt", abandonedAt.toString());
+    }
+
     public static JsonNode policyLinked(UUID disclosureId, String disclosureNo, String policyNo, LocalDate contractDate) {
         return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("policyNo", policyNo)
                 .put("contractDate", contractDate.toString());
