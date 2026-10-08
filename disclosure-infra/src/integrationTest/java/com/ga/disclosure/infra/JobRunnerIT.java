@@ -109,7 +109,7 @@ class JobRunnerIT {
     void anHttpSubmissionRunsOnTheExecutorAndASecondOneConflicts() throws Exception {
         JobSetup.Blocking work = new JobSetup.Blocking("{\"http\":true}");
         JobRunner runner = j.runner(Thread.ofVirtual()::start, Map.of(JobKind.RECONCILE, p -> work));
-        UUID id = runner.submit(j.operator(), JobKind.RECONCILE, JobSetup.params());
+        UUID id = runner.submit(j.operator(), JobKind.RECONCILE, JobSetup.params()).jobId();
         work.awaitEntered();
         assertThat(j.row(id)).startsWith("RUNNING:");
         assertThatThrownBy(() -> runner.submit(j.operator(), JobKind.RECONCILE, JobSetup.params())).isInstanceOf(JobAlreadyRunningException.class);

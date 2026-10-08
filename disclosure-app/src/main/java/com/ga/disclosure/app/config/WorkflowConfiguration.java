@@ -114,7 +114,7 @@ public class WorkflowConfiguration {
 
     /** 인가 어댑터(6A 계획 §3): identity_link·대상 사실은 RLS 아래에서, 거부 감사는 별도 트랜잭션. */
     @Bean
-    public AuthorizationPort authorizationPort(AgentDirectory agents, AuthzFactsRepository facts, AuditPort audit, WorkflowTransactions tx,
+    public IdentityLinkAuthorization authorizationPort(AgentDirectory agents, AuthzFactsRepository facts, AuditPort audit, WorkflowTransactions tx,
                                                Clock clock) {
         return new IdentityLinkAuthorization(agents, facts, audit, tx, clock);
     }

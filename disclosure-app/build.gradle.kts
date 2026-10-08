@@ -1,6 +1,6 @@
-// Spring Boot 조립(진입점 + /actuator/health). 컨트롤러·비즈니스 로직 없음(Phase 0).
+// Spring Boot 조립(진입점·설정 배선·CLI + /actuator/health). 컨트롤러는 disclosure-api(6A), 업무 로직은 disclosure-workflow.
 // archTest: 전 모듈 아키텍처 규칙(ArchUnit) + disclosure-infra SQL 테넌트 조건 스캔.
-// integrationTest: Testcontainers PostgreSQL로 부팅 스모크(Flyway는 disclosure_migrator, 데이터소스는 disclosure_app).
+// integrationTest: Testcontainers PostgreSQL로 부팅 스모크(Flyway는 disclosure_migrator, 데이터소스는 disclosure_app)·CLI·HTTP(6A).
 plugins {
     alias(libs.plugins.spring.boot)
     `jvm-test-suite`
@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":disclosure-api"))
     implementation(project(":disclosure-infra"))
     implementation(libs.spring.boot.starter.webmvc)
+    implementation(libs.spring.boot.starter.security.oauth2.resource.server)
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(libs.spring.boot.starter.flyway)
@@ -57,6 +58,11 @@ testing {
                 implementation(project(":disclosure-infra"))
                 implementation(project(":disclosure-workflow"))
                 implementation(project(":platform-spring"))
+                // 6A: 시험용 JWT 서명(Nimbus — oauth2-jose의 전이 의존, BOM 정렬)
+                implementation(libs.spring.security.oauth2.jose)
+                // 6A: 바인딩 순서 주입(TenantBindingOrderIT — 서블릿 필터를 시험 구성으로 끼운다)
+                implementation(project(":disclosure-api"))
+                implementation(libs.spring.boot.starter.webmvc)
                 implementation(project(":disclosure-domain"))
                 implementation(libs.jackson.databind)
                 implementation(platform(libs.spring.boot.bom))

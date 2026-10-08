@@ -19,17 +19,9 @@ dependencies {
     api(libs.spring.tx)
     implementation(libs.spring.boot.autoconfigure)
 
-    // OIDC 리소스 서버 설정은 골격만 둔다(프로파일 "oidc"로만 활성, 구현·필터는 Phase 6).
-    compileOnly(libs.spring.security.config)
-    compileOnly(libs.spring.security.web)
-    compileOnly(libs.spring.security.oauth2.resource.server)
-    compileOnly(libs.spring.security.oauth2.jose)
+    // 보안 체인은 소비 애플리케이션의 몫이다(6A: disclosure-api api.security). Phase 0의 프로파일 "oidc" 골격은 6A에서 폐기했다.
 
     testImplementation("org.springframework.boot:spring-boot-test")
-    testImplementation(libs.spring.security.config)
-    testImplementation(libs.spring.security.web)
-    testImplementation(libs.spring.security.oauth2.resource.server)
-    testImplementation(libs.spring.security.oauth2.jose)
 }
 
 publishing {

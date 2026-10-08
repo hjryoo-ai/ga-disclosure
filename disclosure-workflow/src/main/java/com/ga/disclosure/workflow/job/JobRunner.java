@@ -99,7 +99,7 @@ public final class JobRunner {
     }
 
     /** 잠금을 잡고 QUEUED 행을 만든 작업 하나. */
-    private record Started(Caller caller, Actor actor, UUID jobId, JobKind kind, JobLockPort.Held lock) {
+    private record Started(Caller caller, Actor actor, UUID jobId, JobKind kind, JobLockPort.Held lock, JobRecord queued) {
         TenantId tenant() {
             return caller.tenant();
         }
@@ -154,12 +154,12 @@ public final class JobRunner {
     }
 
     /**
-     * HTTP 제출(202): 인가 → 매개변수(400) → 잠금(409 {@link JobAlreadyRunningException}) → QUEUED 행 → 실행기. 실행기가 받지 않으면
+     * HTTP 제출(202): 인가 → 매개변수(400) → 잠금(409 {@link JobAlreadyRunningException}) → QUEUED 행 → 실행기. 돌려주는 것은 만든 QUEUED 행이다. 실행기가 받지 않으면
      * {@code QUEUED→FAILED(REJECTED)}로 닫고 {@link RejectedExecutionException}을 다시 던진다. 앵커는 HTTP가 아니다(승인 Q7).
      */
     @UseCaseEntry({Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN, Action.VERIFY_TENANT,
             Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE})
-    public UUID submit(Caller caller, JobKind kind, ObjectNode params) {
+    public JobRecord submit(Caller caller, JobKind kind, ObjectNode params) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(params, "params");
         Action action = switch (kind) {
@@ -193,7 +193,7 @@ public final class JobRunner {
             }
             throw e;
         }
-        return started.jobId();
+        return started.queued();
     }
 
     private <R> void runInBackground(Started started, JobWork<R> work) {
@@ -214,7 +214,7 @@ public final class JobRunner {
         UUID jobId = ids.get();
         JobRecord.Channel channel = caller.channel() == Channel.CLI ? JobRecord.Channel.CLI : JobRecord.Channel.HTTP;
         String paramsJson = JSON.writeValueAsString(params);
-        transactions.inTenant(caller.tenant(), () -> {
+        JobRecord queued = transactions.inTenant(caller.tenant(), () -> {
             var now = clock.instant();
             for (JobRecord old : store.active(kind.lockKind())) {
                 if (store.fail(old.jobId(), old.status(), now, JobError.INTERRUPTED)) {
@@ -222,13 +222,14 @@ public final class JobRunner {
                             .put("from", old.status().name()).put("interruptedBy", jobId.toString()));
                 }
             }
-            store.insertQueued(new JobRecord(caller.tenant(), jobId, kind, JobRecord.Status.QUEUED, caller.subject(), channel, paramsJson, now,
-                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+            JobRecord job = new JobRecord(caller.tenant(), jobId, kind, JobRecord.Status.QUEUED, caller.subject(), channel, paramsJson, now,
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            store.insertQueued(job);
             record(actor, AuditAction.JOB_QUEUED, jobId, JSON.createObjectNode().put("kind", kind.name()).put("channel", channel.name())
                     .set("params", params.deepCopy()));
-            return null;
+            return job;
         });
-        return new Started(caller, actor, jobId, kind, lock);
+        return new Started(caller, actor, jobId, kind, lock, queued);
     }
 
     private void markRunning(Started s) {

@@ -16,6 +16,7 @@ import com.ga.disclosure.workflow.authz.Role;
 import com.ga.disclosure.workflow.authz.ScopePolicy;
 import com.ga.disclosure.workflow.authz.Target;
 import com.ga.disclosure.workflow.authz.TargetFacts;
+import com.ga.disclosure.workflow.authz.TenantRegistry;
 import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.platform.core.tenant.TenantContext;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,7 +39,7 @@ import java.util.Set;
  * 거부는 {@link AuthorizationDenied} 하나이고, 감사 {@code AUTHZ_DENIED}(행위·채널·사유, 대상 종류·ID)를 <b>별도 트랜잭션</b>에 남긴다(유스케이스
  * 트랜잭션은 롤백된다). 테넌트 행이 없으면 남기지 않는다.
  */
-public final class IdentityLinkAuthorization implements AuthorizationPort {
+public final class IdentityLinkAuthorization implements AuthorizationPort, TenantRegistry {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -55,6 +56,12 @@ public final class IdentityLinkAuthorization implements AuthorizationPort {
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /** 바인딩된 테넌트의 행이 있는가(RLS 아래, 6A 계획 §8 ④). */
+    @Override
+    public boolean exists(com.ga.platform.core.tenant.TenantId tenant) {
+        return transactions.inTenant(tenant, facts::tenantExists);
     }
 
     @Override
