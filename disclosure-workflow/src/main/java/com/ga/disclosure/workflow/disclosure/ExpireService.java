@@ -13,6 +13,11 @@ import com.ga.disclosure.sign.session.SessionStatus;
 import com.ga.disclosure.sign.session.SessionWindow;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
 import com.ga.disclosure.workflow.sign.SignSession;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
@@ -59,6 +64,7 @@ public final class ExpireService {
     private final CommandRunner runner;
     private final DisclosureLoader loader;
     private final SessionClosing closing;
+    private final AuthorizationPort authz;
 
     public ExpireService(DisclosureServiceDeps deps, SignSessionStore sessions) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
@@ -70,15 +76,26 @@ public final class ExpireService {
         this.runner = new CommandRunner(transactions, audit, clock);
         this.loader = deps.loader();
         this.closing = new SessionClosing(sessions, audit, clock);
+        this.authz = deps.authz();
     }
 
-    public Report run(TenantId tenant, Actor actor, Instant asOf, int limit) {
+    @UseCaseEntry(Action.DISCLOSURE_EXPIRE)
+    public Report run(Caller caller, Instant asOf, int limit) {
         Objects.requireNonNull(asOf, "asOf");
-        List<DisclosureId> candidates = transactions.inTenant(tenant, () -> store.awaitingSignatures(limit));
+        TenantId tenant = caller.tenant();
+        record Candidates(Actor actor, List<DisclosureId> ids) {
+        }
+        Candidates found = transactions.inTenant(tenant, () -> new Candidates(authz.require(caller, Action.DISCLOSURE_EXPIRE, Target.none()),
+                store.awaitingSignatures(limit)));
+        Actor actor = found.actor();
+        List<DisclosureId> candidates = found.ids();
         List<DisclosureId> expired = new ArrayList<>();
         int stillOpen = 0;
         for (DisclosureId id : candidates) {
-            boolean done = runner.inTransaction(tenant, actor, DisclosureCommand.EXPIRE.name(), id.toString(), () -> expireOne(tenant, actor, id, asOf));
+            boolean done = runner.inTransaction(caller, DisclosureCommand.EXPIRE.name(), id.toString(), attempt -> {
+                attempt.granted(actor);
+                return expireOne(tenant, actor, id, asOf);
+            });
             if (done) {
                 expired.add(id);
             } else {
@@ -87,7 +104,8 @@ public final class ExpireService {
         }
         int sessionsExpired = 0;
         for (SignSession s : transactions.inTenant(tenant, () -> sessions.openElapsed(asOf, limit))) {
-            boolean done = runner.inTransaction(tenant, actor, "SIGN_SESSION_EXPIRE", s.disclosureId().toString(), () -> {
+            boolean done = runner.inTransaction(caller, "SIGN_SESSION_EXPIRE", s.disclosureId().toString(), attempt -> {
+                attempt.granted(actor);
                 loader.load(tenant, s.disclosureId());                                   // 확인서 먼저 잠근다
                 SignSession locked = sessions.lock(s.sessionId()).orElseThrow();
                 if (locked.state().status() != SessionStatus.OPEN || !SessionWindow.elapsed(asOf, locked.expiresAt())) {

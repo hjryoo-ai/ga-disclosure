@@ -44,7 +44,7 @@ class RetentionOrderIT {
     void failureBeforeCommitLeavesOnlyUnlockedOrphansThatGcRemoves() {
         DisclosureId id = s.w.reasoned();
         s.recordPort.failOnArtifact.set(true);
-        assertThatThrownBy(() -> s.seal.seal(s.w.tenant, WorkflowSetup.AGENT, id)).isInstanceOf(FailingPorts.InjectedFailure.class);
+        assertThatThrownBy(() -> s.seal.seal(Callers.of(s.w.tenant, WorkflowSetup.AGENT), id)).isInstanceOf(FailingPorts.InjectedFailure.class);
         s.recordPort.failOnArtifact.set(false);
 
         String t = s.w.tenant.value();
@@ -58,20 +58,20 @@ class RetentionOrderIT {
         s.store.uploaded.forEach(k -> assertThat(s.bucket.retention(k)).isEmpty());
 
         // (b) 유예(24시간) 안: 건드리지 않는다
-        ArtifactService.GcReport young = s.artifacts.gc(s.w.tenant, SealSetup.MANAGER, SealSetup.grace());
+        ArtifactService.GcReport young = s.artifacts.gc(Callers.cli(s.w.tenant, SealSetup.MANAGER), SealSetup.grace());
         assertThat(young.deleted()).isEmpty();
         assertThat(s.objects()).isEqualTo(2);
-        assertThatThrownBy(() -> s.artifacts.gc(s.w.tenant, SealSetup.MANAGER, Duration.ofSeconds(30)))
+        assertThatThrownBy(() -> s.artifacts.gc(Callers.cli(s.w.tenant, SealSetup.MANAGER), Duration.ofSeconds(30)))
                 .as("유예는 봉인 트랜잭션 제한(60초)보다 커야 한다").isInstanceOf(IllegalArgumentException.class);
 
         // (a) 25시간 뒤: 참조 없는 잠금 없는 객체를 지운다
-        ArtifactService.GcReport gc = artifactsHoursFromNow(25).gc(s.w.tenant, SealSetup.MANAGER, SealSetup.grace());
+        ArtifactService.GcReport gc = artifactsHoursFromNow(25).gc(Callers.cli(s.w.tenant, SealSetup.MANAGER), SealSetup.grace());
         assertThat(gc.deleted()).containsExactlyInAnyOrderElementsOf(s.store.uploaded);
         assertThat(s.objects()).isZero();
         assertThat(s.audit().stream().filter(r -> r.entry().action() == AuditAction.ARTIFACT_GC)).hasSize(2);
 
         // 같은 확인서를 다시 봉인하면 성공한다(번호는 1 — 실패한 시도가 번호를 쓰지 않았다)
-        SealService.Outcome retry = s.seal.seal(s.w.tenant, WorkflowSetup.AGENT, id);
+        SealService.Outcome retry = s.seal.seal(Callers.of(s.w.tenant, WorkflowSetup.AGENT), id);
         assertThat(retry.number().orElseThrow().sequence()).isEqualTo(1);
     }
 
@@ -79,7 +79,7 @@ class RetentionOrderIT {
     void retentionFailureAfterCommitIsReconciled() {
         DisclosureId id = s.w.reasoned();
         s.store.failRetention.set(true);
-        SealService.Outcome o = s.seal.seal(s.w.tenant, WorkflowSetup.AGENT, id);
+        SealService.Outcome o = s.seal.seal(Callers.of(s.w.tenant, WorkflowSetup.AGENT), id);
         s.store.failRetention.set(false);
         assertThat(o.sealed()).isTrue();
         assertThat(o.status()).isEqualTo(DisclosureStatus.SEALED);
@@ -90,16 +90,16 @@ class RetentionOrderIT {
         List<ArtifactRecord> artifacts = s.artifactsOf(id);
         artifacts.forEach(a -> assertThat(s.bucket.retention(a.storageKey())).isEmpty());
 
-        ArtifactService.ReconcileReport report = s.artifacts.reconcile(s.w.tenant, SealSetup.MANAGER, 100);
+        ArtifactService.ReconcileReport report = s.artifacts.reconcile(Callers.cli(s.w.tenant, SealSetup.MANAGER), 100);
         assertThat(report.applied()).isEqualTo(2);
         assertThat(report.failed()).isZero();
         assertThat(s.count("SELECT count(*) FROM document_artifact WHERE tenant_id = ? AND retention_applied_at IS NULL", t)).isZero();
         artifacts.forEach(a -> assertThat(s.bucket.retention(a.storageKey())).hasValue(SealService.retainUntilInstant(LocalDate.of(2031, 9, 23))));
-        assertThat(s.artifacts.reconcile(s.w.tenant, SealSetup.MANAGER, 100).applied()).as("다시 돌려도 할 일 없음").isZero();
+        assertThat(s.artifacts.reconcile(Callers.cli(s.w.tenant, SealSetup.MANAGER), 100).applied()).as("다시 돌려도 할 일 없음").isZero();
 
         // (d) 잠긴 산출물은 보존기한 전에 지울 수 없다 — 정리도 참조 행 때문에 건드리지 않는다
         artifacts.forEach(a -> assertThatThrownBy(() -> s.bucket.delete(a.storageKey())).isInstanceOf(ObjectLockedException.class));
-        ArtifactService.GcReport gc = artifactsHoursFromNow(25).gc(s.w.tenant, SealSetup.MANAGER, SealSetup.grace());
+        ArtifactService.GcReport gc = artifactsHoursFromNow(25).gc(Callers.cli(s.w.tenant, SealSetup.MANAGER), SealSetup.grace());
         assertThat(gc.deleted()).isEmpty();
         assertThat(gc.referenced()).isEqualTo(2);
     }

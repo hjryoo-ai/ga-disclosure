@@ -19,6 +19,11 @@ ga:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
     username: ${DISCLOSURE_OPERATOR_USER:disclosure_operator}
     password: ${DISCLOSURE_OPERATOR_PASSWORD:operator_local_only}
+  # 작업 잠금(6A, 승인 Q8): 테이블 권한이 없는 disclosure_job_lock 롤로 잠금마다 풀 없이 연결한다(세션 advisory lock — 연결이 끝나면 풀린다).
+  job-lock:
+    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
+    username: ${DISCLOSURE_JOB_LOCK_USER:disclosure_job_lock}
+    password: ${DISCLOSURE_JOB_LOCK_PASSWORD:job_lock_local_only}
   # 고객 개인정보 암호화의 마스터 키(KEK). 개발·테스트는 저장소 밖 로컬 키 파일(`crypto init-kek`로 생성, chmod 600),
   # 운영은 KMS 어댑터로 교체한다(설계서 §9). 비어 있으면 고객 정보를 다루는 순간 실패한다.
   crypto:
@@ -37,6 +42,26 @@ ga:
   # 봉인 트랜잭션 제한 시간(잔여물 정리 유예는 이보다 커야 한다)
   seal:
     transaction-timeout: PT60S
+
+# 오류 응답(6A 계획 §5.5): 화이트라벨 끔, 예외·메시지·스택·바인딩 오류를 응답에 싣지 않는다, 요청 상세(헤더·질의)를 로그에 남기지 않는다.
+# 공개 서명 응답 하한 ga.public-sign.min-response-millis는 기본값이 없다(승인 Q6) — 웹 모드 배포 설정이 정한다.
+server:
+  error:
+    whitelabel:
+      enabled: false
+    include-exception: false
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+spring.mvc.log-request-details: false
+# 요청 원문(요청 줄·헤더·본문 앞부분)이나 원 URI(질의 포함)를 DEBUG/TRACE로 찍는 프레임워크 로거는 INFO로 고정한다(6A G6) — 운영자가 문제를 보려고
+# 루트 수준을 올려도 서명 토큰(헤더 X-Sign-Token, 잘못 보낸 질의·경로)·본문의 생년월일이 로그에 가지 않는다. 이 로거를 따로 내리는 것은 명시적 결정이다.
+logging:
+  level:
+    org.apache.coyote: INFO
+    org.apache.catalina: INFO
+    org.apache.tomcat: INFO
+    org.springframework.security.web.FilterChainProxy: INFO
 
 management:
   endpoints:

@@ -43,7 +43,7 @@ class RuleFreezeIT {
     }
 
     private DisclosureId draftOn(LocalDate consult) {
-        return s.service.createDraft(s.tenant, WorkflowSetup.AGENT, s.customer, WorkflowSetup.GROUP, consult, TemplateType.STANDARD);
+        return s.service.createDraft(Callers.of(s.tenant, WorkflowSetup.AGENT), s.customer, WorkflowSetup.GROUP, consult, TemplateType.STANDARD);
     }
 
     private String pinned(DisclosureId id) {
@@ -89,7 +89,7 @@ class RuleFreezeIT {
         // 기존 초안의 판정은 고정한 룰로 낸다: 검증 감사의 룰 정체 = 초안 생성 때 고정한 것(사규 없음, 같은 본문 해시)
         String createdHash = s.auditLog().stream().filter(a -> a.entry().action().name().equals("DISCLOSURE_CREATE"))
                 .filter(a -> eve.toString().equals(a.entry().targetId())).findFirst().orElseThrow().entry().detail().get("ruleBodyHash").asString();
-        s.service.validate(s.tenant, WorkflowSetup.AGENT, eve, ValidationStage.COMPARE);
+        s.service.validate(Callers.of(s.tenant, WorkflowSetup.AGENT), eve, ValidationStage.COMPARE);
         var validated = s.auditLog().getLast().entry().detail();
         assertThat(validated.get("ruleVersionId").asString()).isEqualTo("DISC-2026-07");
         assertThat(validated.get("tenantRuleVersionId").isNull()).as("뒤에 생긴 사규는 기존 초안의 판정에 쓰이지 않는다").isTrue();
@@ -103,25 +103,25 @@ class RuleFreezeIT {
         assertThat(pinned(newYear)).isEqualTo("DISC-2027-01|-|STANDARD v1");
 
         // 경계: 3개 항목은 2026-12-31 초안(최소 3)만 통과, 2027-01-01 초안(최소 4)은 거부
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, eve, WorkflowSetup.threeItems());
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, newYear, WorkflowSetup.threeItems());
-        assertThat(s.service.compare(s.tenant, WorkflowSetup.AGENT, eve).status()).isEqualTo(DisclosureStatus.COMPARED);
-        CommandResult blocked = s.service.compare(s.tenant, WorkflowSetup.AGENT, newYear);
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), eve, WorkflowSetup.threeItems());
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), newYear, WorkflowSetup.threeItems());
+        assertThat(s.service.compare(Callers.of(s.tenant, WorkflowSetup.AGENT), eve).status()).isEqualTo(DisclosureStatus.COMPARED);
+        CommandResult blocked = s.service.compare(Callers.of(s.tenant, WorkflowSetup.AGENT), newYear);
         assertThat(blocked.rejectionOrNull()).isEqualTo(CommandResult.Rejection.VALIDATION_BLOCKED);
         assertThat(blocked.results()).filteredOn(ValidationResult::blocking).extracting(ValidationResult::ruleId).containsExactly("R-MIN-COMPARE");
 
         // 서식: 고정된 v1과 새 초안의 v2(필수 항목 TEST_ONLY_FIELD 추가)는 같은 항목에서 다른 필수 목록으로 검증된다(산출 전이라 둘 다 실패)
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, newYear, four());
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, later, four());
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), newYear, four());
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), later, four());
         assertThat(fieldRequired(newYear)).contains("COMMISSION_GRADE@INS-A:PRD-1001").doesNotContain("TEST_ONLY_FIELD");
         assertThat(fieldRequired(later)).contains("COMMISSION_GRADE@INS-A:PRD-1001", "TEST_ONLY_FIELD@INS-A:PRD-1001");
 
         // 3B S13: TEST_ONLY_FIELD는 AGENT_INPUT 결속 — 추천 항목의 추천사유가 모두 있어도 그것으로 충족되지 않는다(3A D2의 과대 충족 폐기).
-        assertThat(s.service.compare(s.tenant, WorkflowSetup.AGENT, later).applied()).isTrue();
-        assertThat(s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, later).applied()).isTrue();
+        assertThat(s.service.compare(Callers.of(s.tenant, WorkflowSetup.AGENT), later).applied()).isTrue();
+        assertThat(s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), later).applied()).isTrue();
         List<AgentReason> reasons = List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
                 new AgentReason(3, List.of(ReasonCode.of("COVERAGE")), null));
-        CommandResult reasonsOnly = s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, later, reasons);
+        CommandResult reasonsOnly = s.service.setRecommendations(Callers.of(s.tenant, WorkflowSetup.AGENT), later, reasons);
         assertThat(reasonsOnly.rejectionOrNull()).isEqualTo(CommandResult.Rejection.VALIDATION_BLOCKED);
         String missing = reasonsOnly.results().stream().filter(r -> r.ruleId().equals("R-FIELD-REQUIRED")).findFirst().orElseThrow().message();
         assertThat(missing).contains("TEST_ONLY_FIELD@INS-A:PRD-1001", "TEST_ONLY_FIELD@INS-C:PRD-3120")   // 추천사유가 있는 두 항목
@@ -132,14 +132,14 @@ class RuleFreezeIT {
             return new ItemInput.Catalog(c.productKey(), c.recommended(), c.requestedByCustomer(),
                     Map.of("TEST_ONLY_FIELD", JSON.getNodeFactory().stringNode("설계사 입력")));
         }).toList();
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, later, withAgentInput);
-        s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, later);
-        assertThat(s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, later, reasons).status()).isEqualTo(DisclosureStatus.REASONED);
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), later, withAgentInput);
+        s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), later);
+        assertThat(s.service.setRecommendations(Callers.of(s.tenant, WorkflowSetup.AGENT), later, reasons).status()).isEqualTo(DisclosureStatus.REASONED);
         assertThat(fieldRequired(later)).doesNotContain("TEST_ONLY_FIELD");
     }
 
     private String fieldRequired(DisclosureId id) {
-        return s.service.validate(s.tenant, WorkflowSetup.AGENT, id, ValidationStage.SEAL).stream()
+        return s.service.validate(Callers.of(s.tenant, WorkflowSetup.AGENT), id, ValidationStage.SEAL).stream()
                 .filter(r -> r.ruleId().equals("R-FIELD-REQUIRED")).findFirst().orElseThrow().message();
     }
 }

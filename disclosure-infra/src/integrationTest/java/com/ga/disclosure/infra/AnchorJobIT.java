@@ -12,7 +12,6 @@ import com.ga.disclosure.audit.tsa.TimestampVerifier;
 import com.ga.disclosure.audit.tsa.stub.LocalStubTsa;
 import com.ga.disclosure.infra.persistence.AnchorRepository;
 import com.ga.disclosure.rules.resolve.RuleResolver;
-import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.anchor.AnchorJob;
 import com.ga.disclosure.workflow.anchor.AnchorReceipt;
 import com.ga.disclosure.workflow.anchor.AnchorStore;
@@ -38,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class AnchorJobIT {
 
-    static final Actor SYSTEM = new Actor("system:anchor", "SYSTEM");
+    static final String SYSTEM = "system:anchor";
     static final LocalDate DAY = LocalDate.parse("2026-09-23");
 
     final SealSetup a = new SealSetup();
@@ -54,7 +53,7 @@ class AnchorJobIT {
 
     AnchorJob job(Clock clock, com.ga.disclosure.audit.tsa.TimestampAuthorityPort port, AnchorStore store) {
         return new AnchorJob(store, a.w.audit, a.w.tx, new RuleResolver(a.w.rules), new TimestampClient(port, NonceSource.secure(), tsa.trustAnchors()),
-                clock);
+                clock, Callers.authz(clock));
     }
 
     AnchorJob job() {
@@ -178,20 +177,28 @@ class AnchorJobIT {
     void theKstDayIsTheAnchorDateEvenAfterUtcMidnight() {
         Clock late = Clock.fixed(Instant.parse("2026-09-23T15:30:00Z"), ZoneOffset.UTC);   // KST 2026-09-24 00:30
         AnchorJob kst = new AnchorJob(anchors, a.w.audit, a.w.tx, new RuleResolver(a.w.rules),
-                new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), late);
+                new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), late, Callers.authz(late));
 
         kst.run(List.of(a.w.tenant), SYSTEM);
 
         assertThat(a.text("SELECT anchor_date::text FROM anchor WHERE tenant_id = ?", a.w.tenant.value())).isEqualTo("2026-09-24");
     }
 
+    /** 5 수용심사 R1: 지난 날짜 라벨로 지금의 머리를 고정하지 않는다(소급 폐지). 시계가 마지막 앵커보다 뒤로 가도 쓰지 않는다. */
     @Test
-    void anEarlierDayIsNotAnchoredAfterALaterOne() {
+    void aPastDayIsNotBackfilledAndABackwardClockWritesNothing() {
         job().run(List.of(a.w.tenant), DAY, SYSTEM);
-        AnchorJob.Report earlier = job().run(List.of(a.w.tenant), DAY.minusDays(1), SYSTEM);
+        AnchorJob.Report backfill = job().run(List.of(a.w.tenant), DAY.minusDays(1), SYSTEM);
 
-        assertThat(earlier.created()).isEmpty();
-        assertThat(earlier.failures()).singleElement().satisfies(f -> assertThat(f.code()).isEqualTo("DATE_NOT_AFTER_LATEST"));
+        assertThat(backfill.created()).isEmpty();
+        assertThat(backfill.failures()).singleElement().satisfies(f -> assertThat(f.code()).isEqualTo("DATE_NOT_TODAY"));
+
+        Clock yesterday = Clock.offset(a.w.clock, java.time.Duration.ofDays(-1));
+        AnchorJob.Report behind = job(yesterday, tsa, anchors).run(List.of(a.w.tenant), SYSTEM);
+
+        assertThat(behind.created()).isEmpty();
+        assertThat(behind.failures()).singleElement().satisfies(f -> assertThat(f.code()).isEqualTo("CLOCK_BEHIND_LATEST"));
+        assertThat(a.text("SELECT count(*)::text FROM anchor WHERE tenant_id = ?", a.w.tenant.value())).isEqualTo("1");
     }
 
     /** 위임 기반: 테스트가 특정 지점에 끼어든다. */

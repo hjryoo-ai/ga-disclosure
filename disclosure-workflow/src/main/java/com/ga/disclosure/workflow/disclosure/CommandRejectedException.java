@@ -1,5 +1,7 @@
 package com.ga.disclosure.workflow.disclosure;
 
+import com.ga.disclosure.workflow.RejectionCategory;
+
 import java.util.Objects;
 
 /**
@@ -9,13 +11,24 @@ import java.util.Objects;
 public final class CommandRejectedException extends RuntimeException {
 
     private final String code;
+    private final RejectionCategory category;
 
+    /** 요청 자체가 업무 규칙에 맞지 않는 거부({@link RejectionCategory#INVALID}). */
     public CommandRejectedException(String code, String message) {
+        this(code, RejectionCategory.INVALID, message);
+    }
+
+    public CommandRejectedException(String code, RejectionCategory category, String message) {
         super(message);
         this.code = Objects.requireNonNull(code, "code");
+        this.category = Objects.requireNonNull(category, "category");
     }
 
     public String code() {
         return code;
+    }
+
+    public RejectionCategory category() {
+        return category;
     }
 }

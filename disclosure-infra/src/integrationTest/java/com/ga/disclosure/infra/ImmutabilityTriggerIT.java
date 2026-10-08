@@ -113,9 +113,22 @@ class ImmutabilityTriggerIT {
         });
         java.util.Set<String> classified = new java.util.HashSet<>(BODY.keySet());
         classified.addAll(META.keySet());
-        classified.addAll(java.util.List.of("tenant_id", "status"));
+        classified.addAll(java.util.List.of("tenant_id", "status", "org_path"));
         assertThat(columns).contains("tenant_rule_version_id", "grading_policy_version_id", "ranking_policy_version_id", "tie_break",
                 "grade_basis", "snapshot_generated_at").allSatisfy(col -> assertThat(classified).contains(col));
+    }
+
+    /**
+     * V12 {@code org_path}: 작성 시점 조직 스냅샷 — 상태와 무관하게 한 번 쓰고 끝이다(GD124, 6A 승인 Q1). 봉인 이후에는 본문 가드(GD001)가 먼저
+     * 거부한다(트리거 이름 순서). 가변 상태에서도 거부되므로 본문(BODY)이 아니라 따로 분류한다.
+     */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.FieldSource("STATUSES")
+    void theOrganisationPathNeverChangesInAnyStatus(String status) {
+        java.util.UUID[] id = new java.util.UUID[1];
+        DB.seed(T, c -> id[0] = SeedData.disclosure(c, T, status, SeedData.hash('a')));
+        assertRejected(DB, T, SeedData.MUTABLE_STATUSES.contains(status) ? "GD124" : "GD001",
+                "UPDATE disclosure SET org_path = '/HQ/X' WHERE tenant_id = ? AND disclosure_id = ?", T, id[0]);
     }
 
     static Stream<Arguments> statusTimesBody() {

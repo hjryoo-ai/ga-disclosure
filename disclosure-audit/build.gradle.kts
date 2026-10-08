@@ -36,3 +36,28 @@ tasks.test {
     inputs.file(layout.projectDirectory.file("gradle.lockfile")).withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir(rootProject.layout.projectDirectory.dir("contracts")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
+
+// 실 TSA 계약 시험(6A 계획 §12 9단계·결정 8 보강, 설계서 §14 #4): 외부 RFC 3161 TSA에서 실제로 토큰을 받아 운영 경로(HttpTimestampAuthority →
+// TimestampClient 수락·검증)를 확인한다. 네트워크와 외부 서비스가 필요하므로 check에 걸지 않는다 — 걸면 환경이 없을 때 "스킵"이 생긴다.
+// 실행: GA_TSA_URL=<TSA URL> GA_TSA_TRUST_PEM=<그 TSA의 신뢰 앵커 PEM 경로> ./gradlew :disclosure-audit:tsaContractTest
+// 둘 중 하나라도 없으면 시험은 스킵이 아니라 실패한다. 결과는 매번 새로 받는다(캐시하지 않는다).
+testing {
+    suites {
+        register<JvmTestSuite>("tsaContractTest") {
+            dependencies {
+                implementation(project())
+                implementation(platform(libs.spring.boot.bom))
+                implementation(libs.junit.jupiter)
+                implementation(libs.assertj.core)
+                runtimeOnly(libs.junit.platform.launcher)
+            }
+            targets.all {
+                testTask.configure {
+                    systemProperty("ga.tsa.contract.url", System.getenv("GA_TSA_URL") ?: "")
+                    systemProperty("ga.tsa.contract.trust-pem", System.getenv("GA_TSA_TRUST_PEM") ?: "")
+                    outputs.upToDateWhen { false }
+                }
+            }
+        }
+    }
+}

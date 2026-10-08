@@ -1,6 +1,6 @@
-// Spring Boot 조립(진입점 + /actuator/health). 컨트롤러·비즈니스 로직 없음(Phase 0).
+// Spring Boot 조립(진입점·설정 배선·CLI + /actuator/health). 컨트롤러는 disclosure-api(6A), 업무 로직은 disclosure-workflow.
 // archTest: 전 모듈 아키텍처 규칙(ArchUnit) + disclosure-infra SQL 테넌트 조건 스캔.
-// integrationTest: Testcontainers PostgreSQL로 부팅 스모크(Flyway는 disclosure_migrator, 데이터소스는 disclosure_app).
+// integrationTest: Testcontainers PostgreSQL로 부팅 스모크(Flyway는 disclosure_migrator, 데이터소스는 disclosure_app)·CLI·HTTP(6A).
 plugins {
     alias(libs.plugins.spring.boot)
     `jvm-test-suite`
@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":disclosure-api"))
     implementation(project(":disclosure-infra"))
     implementation(libs.spring.boot.starter.webmvc)
+    implementation(libs.spring.boot.starter.security.oauth2.resource.server)
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(libs.spring.boot.starter.flyway)
@@ -53,7 +54,18 @@ testing {
             dependencies {
                 implementation(project())
                 implementation(testFixtures(project(":disclosure-infra")))
+                // 6A: 작업 잠금을 직접 쥐어 CLI의 "그 테넌트만 실패"를 본다(JobLockGateway·JobKind)
+                implementation(project(":disclosure-infra"))
+                implementation(project(":disclosure-workflow"))
                 implementation(project(":platform-spring"))
+                // 6A: 시험용 JWT 서명(Nimbus — oauth2-jose의 전이 의존, BOM 정렬)
+                implementation(libs.spring.security.oauth2.jose)
+                // 6A: 바인딩 순서 주입(TenantBindingOrderIT — 서블릿 필터를 시험 구성으로 끼운다)
+                implementation(project(":disclosure-api"))
+                implementation(libs.spring.boot.starter.webmvc)
+                // 6A: 응답마다 OpenAPI 계약 스키마 검증(ApiContracts — 계약 정본 YAML을 그대로 읽는다)
+                implementation(libs.json.schema.validator)
+                implementation(libs.jackson.dataformat.yaml)
                 implementation(project(":disclosure-domain"))
                 implementation(libs.jackson.databind)
                 implementation(platform(libs.spring.boot.bom))
@@ -78,4 +90,14 @@ tasks.named("check") {
 // 운영자 CLI(bootRun --args="--spring.profiles.active=cli ...")의 상대 경로(contracts/rules/bundles 등)는 저장소 루트 기준이다.
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
     workingDir = rootProject.projectDir
+}
+
+// HTTP 데모(disclosure-demo/scripts/http-demo.sh, 6A): 웹 앱을 부트 jar로 백그라운드에 띄운다(bootRun은 Gradle 데몬 아래라 스크립트가 끝낼 PID가 없다).
+// jar는 툴체인 JDK로 컴파일되므로 그 실행 파일 경로를 알려 준다(PATH의 java가 더 낮을 수 있다).
+tasks.register("demoJavaLauncher") {
+    description = "Prints the toolchain java executable that runs the boot jar (http-demo.sh)."
+    val launcher = javaToolchains.launcherFor(java.toolchain)
+    doLast {
+        println(launcher.get().executablePath.asFile.absolutePath)
+    }
 }

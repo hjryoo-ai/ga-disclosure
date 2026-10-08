@@ -62,6 +62,13 @@ public class TenantTransactionTemplate implements TenantTransactions, WorkflowTr
         }
     }
 
+    @Override
+    public <T> T inNewTenantTransaction(TenantId tenant, Supplier<T> work) {
+        TransactionTemplate fresh = new TransactionTemplate(transactionManager);
+        fresh.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return run(fresh, tenant, work);
+    }
+
     private static <T> T run(TransactionTemplate t, TenantId tenant, Supplier<T> work) {
         AtomicReference<T> result = new AtomicReference<>();
         TenantContext.runWith(tenant, () -> result.set(t.execute(status -> work.get())));

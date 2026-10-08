@@ -10,11 +10,11 @@ import com.ga.disclosure.audit.tsa.TimestampClient;
 import com.ga.disclosure.audit.tsa.stub.LocalStubTsa;
 import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
+import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.rules.testing.Bundles;
 import com.ga.disclosure.rules.version.RuleVersion;
 import com.ga.disclosure.rules.version.RuleVersionPort;
-import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.ConcurrentWriteConflict;
 import com.ga.disclosure.workflow.WorkflowTransactions;
@@ -46,7 +46,7 @@ class AnchorJobTest {
 
     static final LocalDate DAY = LocalDate.parse("2026-09-23");
     static final Clock CLOCK = Clock.fixed(Instant.parse("2026-09-23T01:00:00Z"), ZoneOffset.UTC);
-    static final Actor SYSTEM = new Actor("system:anchor", "SYSTEM");
+    static final String SYSTEM = "system:anchor";
     static final TenantId A = TenantId.of("ANC_A");
     static final TenantId B = TenantId.of("ANC_B");
     static final TenantId C = TenantId.of("ANC_C");
@@ -68,7 +68,20 @@ class AnchorJobTest {
                 return Optional.empty();
             }
         };
-        return new AnchorJob(anchors, audit, tx, new RuleResolver(rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), CLOCK);
+        return new AnchorJob(anchors, audit, tx, new RuleResolver(rules), new TimestampClient(tsa, NonceSource.secure(), tsa.trustAnchors()), CLOCK,
+                new com.ga.disclosure.workflow.authz.AuthorizationPort() {
+                    @Override
+                    public Actor require(com.ga.disclosure.workflow.authz.Caller caller, com.ga.disclosure.workflow.authz.Action action,
+                                         com.ga.disclosure.workflow.authz.Target target) {
+                        return new Actor(caller.subject(), "OPERATOR");
+                    }
+
+                    @Override
+                    public com.ga.disclosure.workflow.authz.ListGrant requireList(com.ga.disclosure.workflow.authz.Caller caller,
+                                                                                 com.ga.disclosure.workflow.authz.Action action) {
+                        throw new UnsupportedOperationException("the anchor job lists nothing");
+                    }
+                });
     }
 
     static RuleVersion withDepth(int depth) {
@@ -104,15 +117,19 @@ class AnchorJobTest {
         assertThat(report.batches()).singleElement().satisfies(b -> assertThat(b.leaves()).isEqualTo(1));
     }
 
-    /** 5 계획 §8.8: 오늘(KST) 뒤의 날짜는 앵커도 영수증도 만들지 않는다. 오늘은 된다. */
+    /** 5 수용심사 R1: 오늘(KST)이 아닌 날짜 — 미래도 소급도 — 는 앵커도 영수증도 만들지 않는다. 오늘은 된다. */
     @Test
-    void aFutureDateIsRefusedForEveryTenantAndTodayIsAllowed() {
-        AnchorJob.Report future = job(Map.of(A, 16, B, 16), new Bound()).run(List.of(A, B), DAY.plusDays(1), SYSTEM);
+    void aDateOtherThanTodayIsRefusedForEveryTenantAndTodayIsAllowed() {
+        for (LocalDate other : List.of(DAY.plusDays(1), DAY.minusDays(1))) {
+            AnchorJob.Report refused = job(Map.of(A, 16, B, 16), new Bound()).run(List.of(A, B), other, SYSTEM);
 
-        assertThat(future.failures()).containsExactly(new AnchorJob.Failure("A", A, DAY.plusDays(1), "DATE_IN_FUTURE"),
-                new AnchorJob.Failure("A", B, DAY.plusDays(1), "DATE_IN_FUTURE"));
-        assertThat(future.created()).isEmpty();
-        assertThat(job(Map.of(A, 16), new Bound()).run(List.of(A), DAY, SYSTEM).created()).as("미래 앵커가 남았으면 DATE_NOT_AFTER_LATEST").containsExactly(A);
+            assertThat(refused.failures()).as(other.toString()).containsExactly(new AnchorJob.Failure("A", A, other, "DATE_NOT_TODAY"),
+                    new AnchorJob.Failure("A", B, other, "DATE_NOT_TODAY"));
+            assertThat(refused.created()).isEmpty();
+            assertThat(refused.receipts()).isZero();
+        }
+        assertThat(anchors.rows).as("거부된 날짜는 아무것도 남기지 않는다").isEmpty();
+        assertThat(job(Map.of(A, 16), new Bound()).run(List.of(A), DAY, SYSTEM).created()).containsExactly(A);
     }
 
     @Test
@@ -147,6 +164,11 @@ class AnchorJobTest {
 
         @Override
         public <T> T inTenantRepeatableRead(TenantId tenant, Supplier<T> work) {
+            return inTenant(tenant, work);
+        }
+
+        @Override
+        public <T> T inNewTenantTransaction(TenantId tenant, Supplier<T> work) {
             return inTenant(tenant, work);
         }
     }

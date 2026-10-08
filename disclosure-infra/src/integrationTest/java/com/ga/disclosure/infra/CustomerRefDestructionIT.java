@@ -58,7 +58,7 @@ class CustomerRefDestructionIT {
     }
 
     DestructionJob.Report runAt(Instant asOf) {
-        return RetentionSetup.conforming(r.job().run(r.x.w.tenant, asOf, false, RetentionSetup.SYSTEM, 100));
+        return RetentionSetup.conforming(r.job().run(Callers.of(r.x.w.tenant, RetentionSetup.SYSTEM), asOf, false, 100));
     }
 
     @Test
@@ -87,9 +87,9 @@ class CustomerRefDestructionIT {
         assertThat(first.customersDestroyed()).doesNotContain(r.x.signer);
         assertThat(first.customersSkipped()).containsKey("GRACE_NOT_ELAPSED");
         LegalHoldService holds = r.holdService(RetentionSetup.at(RetentionSetup.AFTER));     // 해제된 고객 보류의 사유 텍스트(V11)
-        LegalHoldService.Outcome hold = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new LegalHoldService.Target.Customer(r.x.signer), "OTHER",
+        LegalHoldService.Outcome hold = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new LegalHoldService.Target.Customer(r.x.signer), "OTHER",
                 "가상 민원 메모 — 허구");
-        holds.release(r.x.w.tenant, RetentionSetup.OPERATOR, hold.holdId(), "CASE_CLOSED");
+        holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), hold.holdId(), "CASE_CLOSED");
 
         DestructionJob.Report second = runAt(RetentionSetup.AFTER.plus(Duration.ofDays(2)));
 
@@ -140,7 +140,7 @@ class CustomerRefDestructionIT {
         r = new RetentionSetup(body -> ((tools.jackson.databind.node.ObjectNode) body.get("customerRef")).put("abandonedDays", 4));
         CustomerRef abandoned = r.x.newSigner("가상방치고객");
         CustomerRef held = r.x.newSigner("가상보류고객");
-        r.holdService(RetentionSetup.at(RetentionSetup.AFTER)).place(r.x.w.tenant, RetentionSetup.OPERATOR, new LegalHoldService.Target.Customer(held),
+        r.holdService(RetentionSetup.at(RetentionSetup.AFTER)).place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new LegalHoldService.Target.Customer(held),
                 "LITIGATION", null);
 
         assertThat(runAt(RetentionSetup.AFTER).customersDestroyed()).as("등록 2026-09-23 + 4일 전").doesNotContain(abandoned, held);

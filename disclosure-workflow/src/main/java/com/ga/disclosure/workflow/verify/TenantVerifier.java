@@ -20,13 +20,18 @@ import com.ga.disclosure.rules.resolve.RuleResolver;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.anchor.AnchorReceipt;
-import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.anchor.AnchorStore.StoredAnchor;
+import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
 import com.ga.disclosure.workflow.artifact.SignatureEvidenceRecord;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.platform.canonical.Sha256;
 import com.ga.platform.core.tenant.TenantId;
@@ -58,14 +63,14 @@ import static com.ga.disclosure.audit.verify.ReportBuilder.map;
  *
  * <p>쓰기는 끝에 별도 트랜잭션 하나: 감사 {@code VERIFY_RUN}(보고서 해시)과, 무결성 불일치가 있으면 {@code CHAIN_BROKEN} 플래그 — 끊긴 지점의
  * 확인서마다, 확인서를 정할 수 없으면 {@code disclosure_id NULL}로 그 지점을 대상으로(감사 체인 = {@code AUDIT_LOG}·seq, 앵커·영수증 =
- * {@code ANCHOR}·앵커 순번, 그 밖 = {@code TENANT}, 5 계획 §1.6). {@code ANCHOR_UNSTAMPED}·{@code TSA_UNTRUSTED}는 무결성이 아니라 운영·설정 신호라 보고서는 불일치(종료
- * 2)지만 플래그를 올리지 않는다.
+ * {@code ANCHOR}·앵커 순번, 그 밖 = {@code TENANT}, 5 계획 §1.6). {@code ANCHOR_UNSTAMPED}·{@code TSA_UNTRUSTED}·{@code ANCHOR_MISSING_DAY}는 무결성이 아니라 운영·설정 신호라
+ * 보고서는 불일치(종료 2)지만 플래그를 올리지 않는다.
  */
 public final class TenantVerifier {
 
     public static final int PAGE = 500;
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
-    static final Set<FindingCode> OPERATIONAL = Set.of(FindingCode.ANCHOR_UNSTAMPED, FindingCode.TSA_UNTRUSTED);
+    static final Set<FindingCode> OPERATIONAL = Set.of(FindingCode.ANCHOR_UNSTAMPED, FindingCode.TSA_UNTRUSTED, FindingCode.ANCHOR_MISSING_DAY);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final AuditPort audit;
@@ -78,9 +83,11 @@ public final class TenantVerifier {
     private final DisclosureFlagPort flags;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
     public TenantVerifier(AuditPort audit, SealChainReader chain, AnchorStore anchors, DocumentRecordStore records, DocumentCryptoPort crypto,
-                          ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags, WorkflowTransactions transactions, Clock clock) {
+                          ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags, WorkflowTransactions transactions, Clock clock,
+                          AuthorizationPort authz) {
         this.audit = Objects.requireNonNull(audit, "audit");
         this.chain = Objects.requireNonNull(chain, "chain");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
@@ -91,12 +98,16 @@ public final class TenantVerifier {
         this.flags = Objects.requireNonNull(flags, "flags");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
     /**
      * @param trustPem TSA 신뢰 앵커 PEM(없으면 null — 영수증 토큰은 TSA_UNTRUSTED)
      */
-    public VerifyReport run(TenantId tenant, Actor actor, byte[] trustPem) {
+    @UseCaseEntry(Action.VERIFY_TENANT)
+    public VerifyReport run(Caller caller, byte[] trustPem) {
+        TenantId tenant = caller.tenant();
+        Actor actor = transactions.inTenant(tenant, () -> authz.require(caller, Action.VERIFY_TENANT, Target.none()));
         Instant asOf = clock.instant();
         TrustAnchors trust = trustPem == null ? TrustAnchors.none() : TrustAnchors.fromPem(trustPem);
         Read read = transactions.inTenantRepeatableRead(tenant, () -> read(tenant, trust, asOf));
@@ -212,6 +223,7 @@ public final class TenantVerifier {
                         map("alertDays", (long) alertDays.get()));
             }
         }
+        missingDays(r, all, today);
         anchorCheck.close();
         TimestampVerifier tokens = new TimestampVerifier(trust);
         for (Map.Entry<StoredAnchor, AnchorReceipt> e : stamped) {
@@ -234,6 +246,27 @@ public final class TenantVerifier {
         }
         receiptCheck.counted(receipts).close();
         return new Read(r, new VerifyReport.Counts(sealed.size(), objectCount, auditRows, all.size(), receipts));
+    }
+
+    /**
+     * 빠진 날(5 수용심사 R1, 6A 승인 Q10): 앵커는 내용 변화와 무관하게 매일 만들어지므로(앵커 감사 행이 머리를 바꾼다) 첫 앵커 날짜부터 어제(KST,
+     * 검증 시계)까지 앵커가 없는 달력 날짜는 공백이다. 오늘은 아직 돌지 않았을 수 있어 빼고, 끝의 공백은 넣는다. 공백 구간마다 발견 1건.
+     * 운영 신호다 — 증명 구간이 길어질 뿐 체인의 공백이 아니므로 {@code CHAIN_BROKEN}을 올리지 않는다(보고서는 불일치).
+     */
+    private static void missingDays(ReportBuilder r, List<StoredAnchor> all, LocalDate today) {
+        if (all.isEmpty()) {
+            return;
+        }
+        LocalDate yesterday = today.minusDays(1);
+        for (int i = 0; i < all.size(); i++) {
+            AnchorRecord rec = all.get(i).record();
+            LocalDate from = rec.anchorDate().plusDays(1);
+            LocalDate to = i + 1 < all.size() ? all.get(i + 1).record().anchorDate().minusDays(1) : yesterday;
+            if (!from.isAfter(to)) {
+                r.finding(FindingCode.ANCHOR_MISSING_DAY, map("afterAnchorSeq", rec.anchorSeq(), "fromDate", from.toString(), "toDate", to.toString()),
+                        map("days", java.time.temporal.ChronoUnit.DAYS.between(from, to) + 1));
+            }
+        }
     }
 
     private Optional<Integer> alertDays(TenantId tenant, LocalDate today) {

@@ -3,8 +3,8 @@ package com.ga.disclosure.infra;
 import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.vo.DisclosureId;
-import com.ga.disclosure.workflow.artifact.ArtifactUnreadableException;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
+import com.ga.disclosure.workflow.artifact.ArtifactUnreadableException;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.SealService;
@@ -65,7 +65,7 @@ class ArtifactEncryptionIT {
             assertThat(com.ga.platform.canonical.Sha256.of(stored)).isEqualTo(a.cipherSha256().hex());
         }
         // 복호화 → 평문 해시 일치(PDF에는 성명이 인쇄돼 있다 — 암호문에만 없어야 한다)
-        ArtifactService.View pdf = s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF);
+        ArtifactService.View pdf = s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.PDF);
         assertThat(pdf).isInstanceOf(ArtifactService.View.Granted.class);
         byte[] plain = ((ArtifactService.View.Granted) pdf).plaintext();
         assertThat(com.ga.platform.canonical.Sha256.of(plain)).isEqualTo(s.text(
@@ -86,10 +86,10 @@ class ArtifactEncryptionIT {
     void shreddingTheDocumentKeyMakesEveryCopyUnreadable() {
         SealService.Outcome o = s.sealReasoned();
         DisclosureId id = o.id();
-        assertThat(s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.CANONICAL_JSON)).isInstanceOf(ArtifactService.View.Granted.class);
+        assertThat(s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.CANONICAL_JSON)).isInstanceOf(ArtifactService.View.Granted.class);
         // 키 파기의 효과(V9: 정의자 롤 + 함수 표식만 — 판정 조건을 거치는 함수 경로는 DestroyerRoleIT)
         s.w.db.seed(s.w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.shredDocumentKey(c, s.w.tenant.value(), id.value()));
-        ArtifactService.View denied = s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF);
+        ArtifactService.View denied = s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.PDF);
         assertThat(denied).isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.KEY_SHREDDED));
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED
                 && r.entry().detail().path("reason").asString().equals("KEY_SHREDDED"));
@@ -107,7 +107,7 @@ class ArtifactEncryptionIT {
         byte[] other = s.cipher.seal(s.w.tenant, id, java.util.Map.of(ArtifactKind.CANONICAL_JSON, "{}".getBytes(StandardCharsets.UTF_8)))
                 .ciphertext(ArtifactKind.CANONICAL_JSON);
         s.bucket.put(canonical.storageKey(), other);
-        assertThat(s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.CANONICAL_JSON))
+        assertThat(s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.CANONICAL_JSON))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.UNREADABLE));
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED
                 && r.entry().detail().path("reason").asString().equals("UNREADABLE"));
@@ -149,8 +149,8 @@ class ArtifactEncryptionIT {
                 return s.cipher.openEvidence(tenant, disclosure, key, signatureId, kind, ciphertext);
             }
         };
-        ArtifactService view = new ArtifactService(s.records, altering, s.store, s.w.audit, s.w.tx, s.w.clock, SealService.DEFAULT_TRANSACTION_TIMEOUT);
-        assertThat(view.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF))
+        ArtifactService view = new ArtifactService(s.records, altering, s.store, s.w.audit, s.w.tx, s.w.clock, SealService.DEFAULT_TRANSACTION_TIMEOUT, Callers.authz(s.w.clock));
+        assertThat(view.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.PDF))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.HASH_MISMATCH));
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED
                 && r.entry().detail().path("reason").asString().equals("HASH_MISMATCH"));

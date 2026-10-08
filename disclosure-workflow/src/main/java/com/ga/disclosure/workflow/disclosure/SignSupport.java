@@ -15,6 +15,8 @@ import com.ga.disclosure.sign.token.SignToken;
 import com.ga.disclosure.sign.token.SignTokenRejected;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Channel;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
 import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.workflow.sign.SignRejection;
@@ -92,6 +94,23 @@ final class SignSupport {
         return new Actor(SESSION_TARGET + ":" + s.sessionId(), "CUSTOMER");
     }
 
+    /** 토큰 경로의 호출자(세션을 열기 전): 토큰 접두의 테넌트, 익명 고객. */
+    static Caller anonymous(SignToken token) {
+        return new Caller(token.tenant(), ANONYMOUS.subject(), Channel.SIGN_TOKEN);
+    }
+
+    /** 토큰이 연 세션의 고객 호출자 — 인가 포트는 세션 존재만 본다(토큰이 곧 자격, 6A 계획 §3.2). */
+    static Caller customerCaller(SignToken token, SignSession s) {
+        return new Caller(token.tenant(), customer(s).subject(), Channel.SIGN_TOKEN);
+    }
+
+    /** 현장 기기 토큰을 설계사가 넘길 때: 토큰의 테넌트가 호출자의 테넌트여야 한다 — 아니면 토큰 거부와 같다(존재 누설 없음). */
+    static void sameTenant(Caller caller, SignToken token) {
+        if (!caller.tenant().equals(token.tenant())) {
+            throw new SignTokenRejected();
+        }
+    }
+
     /** 바인딩된 트랜잭션 안에서: 토큰 → 세션(잠금, 확인서 먼저) → OPEN·TTL. */
     Access access(TenantId tenant, SignToken token, Instant now) {
         Optional<SignSession> found = sessions.findByToken(token.hash());
@@ -130,7 +149,8 @@ final class SignSupport {
 
     /** 행위자가 이 확인서의 담당 설계사인가({@code identity_link} 해석 agent_id = 확인서 agent_id, AGENT 역할). */
     boolean assigned(Actor actor, Disclosure d) {
-        return agents.find(actor.subject()).filter(l -> l.hasRole("AGENT")).map(l -> l.agentId().value().equals(d.agentId())).orElse(false);
+        return agents.find(actor.subject()).filter(l -> l.hasRole("AGENT")).flatMap(AgentDirectory.LinkedIdentity::agentId)
+                .map(id -> id.value().equals(d.agentId())).orElse(false);
     }
 
     /** 이미 서명한 역할인가. */

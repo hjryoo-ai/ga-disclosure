@@ -183,9 +183,9 @@ class SnapshotColumnCheckIT {
             vals.append(", TIMESTAMPTZ '2026-09-24 09:00:00+09', 'CUSTOMER_CANCELLED'");
         }
         String sql = """
-                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,
+                INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,
                                         status, consult_date, rule_version_id%s)
-                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', 'DISC-2026-07'%s)"""
+                VALUES (?, gen_random_uuid(), '/HQ/B1', 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', ?, DATE '2026-09-23', 'DISC-2026-07'%s)"""
                 .formatted(cols, vals);
         boolean none = mask == 0;
         boolean all = mask == 63;
@@ -206,10 +206,10 @@ class SnapshotColumnCheckIT {
         String[] p = caseSpec.split("\\|");
         boolean snapshot = !p[2].equals("NULL");
         String sql = """
-                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,
+                INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version, issuer_mode,
                                         status, consult_date, grade_snapshot_id, grading_policy_version_id, ranking_policy_version_id, tie_break,
                                         grade_basis, snapshot_generated_at, rule_version_id)
-                VALUES (?, gen_random_uuid(), 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', %s, DATE '2026-09-23', %s, %s, %s, %s, %s, %s,
+                VALUES (?, gen_random_uuid(), '/HQ/B1', 'AGENT-1', 'C-1', 'PG-HEALTH', 'STANDARD', 1, 'SELF', %s, DATE '2026-09-23', %s, %s, %s, %s, %s, %s,
                         'DISC-2026-07')"""
                 .formatted(p[1], snapshot ? "'GRD-1'" : "NULL", snapshot ? "'G'" : "NULL", snapshot ? "'R'" : "NULL", p[2], p[3],
                         snapshot ? "now()" : "NULL");

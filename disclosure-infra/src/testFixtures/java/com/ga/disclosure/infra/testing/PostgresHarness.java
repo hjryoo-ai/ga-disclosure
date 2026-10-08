@@ -6,13 +6,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
-import javax.sql.DataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import javax.sql.DataSource;
 
 /**
  * 통합 테스트용 PostgreSQL 18 하네스. JVM당 1회 기동·재사용(싱글턴).
@@ -32,10 +32,12 @@ public final class PostgresHarness {
     public static final String MIGRATOR = "disclosure_migrator";
     public static final String APP = "disclosure_app";
     public static final String OPERATOR = "disclosure_operator";
+    public static final String JOB_LOCK = "disclosure_job_lock";
     // init-roles.sql과 짝을 이루는 로컬 전용 자격 증명
     static final String MIGRATOR_PASSWORD = "migrator_local_only";
     static final String APP_PASSWORD = "app_local_only";
     public static final String OPERATOR_PASSWORD = "operator_local_only";
+    public static final String JOB_LOCK_PASSWORD = "job_lock_local_only";
 
     private static PostgresHarness instance;
 
@@ -43,6 +45,7 @@ public final class PostgresHarness {
     private final DataSource app;
     private final DataSource migrator;
     private final DataSource operator;
+    private final DataSource jobLock;
     private final DataSource superuser;
 
     private PostgresHarness() {
@@ -61,6 +64,7 @@ public final class PostgresHarness {
         migrator = dataSource(MIGRATOR, MIGRATOR_PASSWORD);
         app = dataSource(APP, APP_PASSWORD);
         operator = dataSource(OPERATOR, OPERATOR_PASSWORD);
+        jobLock = dataSource(JOB_LOCK, JOB_LOCK_PASSWORD);
 
         Flyway.configure()
                 .dataSource(migrator)
@@ -94,6 +98,11 @@ public final class PostgresHarness {
         return operator;
     }
 
+    /** 작업 잠금 전용 롤(테이블 권한 0, V12 — advisory lock만). */
+    public DataSource jobLockDataSource() {
+        return jobLock;
+    }
+
     public DataSource superuserDataSource() {
         return superuser;
     }
@@ -111,6 +120,7 @@ public final class PostgresHarness {
             s.execute("REVOKE ALL ON DATABASE " + name + " FROM PUBLIC");
             s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + APP);
             s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + OPERATOR);
+            s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + JOB_LOCK);
         } catch (SQLException e) {
             throw new UncheckedSqlException(e);
         }

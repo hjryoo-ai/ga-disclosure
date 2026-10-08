@@ -63,7 +63,7 @@ cli demo disclosures --tenant DEMO1 --file "$DEMO/demo/disclosures.json" --opera
 SIGN="$DEMO/demo/sign"
 SIGN_OUT="$(cli demo signatures --tenant DEMO1 --file "$DEMO/demo/signatures.json" --operator "$OPERATOR" $LOCAL_BUCKET)"
 echo "$SIGN_OUT"
-TOKEN="$(printf '%s\n' "$SIGN_OUT" | sed -n 's|^SIGN LINK .*/sign/||p' | tail -n 1)"
+TOKEN="$(printf '%s\n' "$SIGN_OUT" | sed -n 's|^SIGN LINK .*/s#||p' | tail -n 1)"
 REMOTE_ID="$(printf '%s\n' "$SIGN_OUT" | sed -n 's/^DEMO_SIGN DEMO1 A-3-REMOTE id=\([0-9a-f-]*\) .*/\1/p' | tail -n 1)"
 if [ -n "$TOKEN" ]; then
   cli sign open --token "$TOKEN" --view-file "$SIGN/view.json" $LOCAL_BUCKET
@@ -76,11 +76,11 @@ if [ -n "$TOKEN" ]; then
 fi
 # 만료 데모: 판정 시각을 기한 뒤(+30일)로 — 서명을 기다리던 A-5-EXPIRE만 만료된다
 cli disclosure expire --tenants DEMO1 --as-of P30D --operator "$OPERATOR"
-# Phase 5 첫 날 앵커: 어제(KST) 날짜로 DEMO1·DEMO2의 지금 머리를 고정한다("누락된 날을 늦게 채움" — created_at이 실제 시각을 남긴다).
-# 이미 그 뒤 날짜의 앵커가 있으면(다른 날 시드한 볼륨) DATE_NOT_AFTER_LATEST로 거부되고 데모는 오늘 앵커만으로 잇는다.
-YESTERDAY="$(TZ=Asia/Seoul date -v-1d +%F 2>/dev/null || TZ=Asia/Seoul date -d yesterday +%F)"
-cli anchor run --date "$YESTERDAY" --tenants DEMO1,DEMO2 --operator "$OPERATOR" $TSA_STUB \
-  || echo "ANCHOR_RUN --date $YESTERDAY refused (a later anchor exists — use a fresh volume for the two-day demo)"
+# Phase 5 첫 날 앵커: 데모 전용 시계 오프셋(-P1D, 데모 프로파일만)으로 "어제"의 시계에서 DEMO1·DEMO2의 앵커를 만든다(5 수용심사 R1 —
+# 앵커 날짜 = 생성 시각의 KST 날짜, V12 CHECK. 다른 날짜를 --date로 고정하는 소급은 DATE_NOT_TODAY로 거부된다). 두 번째 실행은 NOOP.
+# 이미 오늘 앵커가 있는 볼륨(다른 날 시드)은 CLOCK_BEHIND_LATEST로 거부되고 데모는 오늘 앵커만으로 잇는다.
+cli anchor run --tenants DEMO1,DEMO2 --operator "$OPERATOR" $TSA_STUB --spring.profiles.active=cli,demo --ga.demo.clock-offset=-P1D \
+  || echo "ANCHOR_RUN on yesterday's clock refused (a later anchor exists — use a fresh volume for the two-day demo)"
 # 종이 스캔 데모(DEMO2): 봉인 사례 1건 → 스캔 업로드(각주 번호·해시 접두 대조) → 설계사 → 관리자 확인이 검토를 해소하며 완료
 cli demo disclosures --tenant DEMO2 --file "$DEMO/demo/disclosures-demo2.json" --operator "$OPERATOR" $ENGINE_STUB $LOCAL_BUCKET
 cli demo signatures --tenant DEMO2 --file "$DEMO/demo/signatures-demo2.json" --operator "$OPERATOR" $LOCAL_BUCKET

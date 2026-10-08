@@ -59,9 +59,9 @@ final class CatalogCustomerSetup {
         this.kekFile = kekFile;
         this.keys = LocalFileKeyProvider.load(kekFile);
         this.vault = new CustomerVaultRepository(gateway, keys);
-        this.imports = new CatalogImportService(catalog, audit, tx, clock);
-        this.customers = new CustomerRefService(vault, audit, tx, clock);
-        this.rekey = new CustomerRekeyService(vault, audit, tx, clock);
+        this.imports = new CatalogImportService(catalog, audit, tx, clock, Callers.authz(clock));
+        this.customers = new CustomerRefService(vault, audit, tx, clock, Callers.authz(clock));
+        this.rekey = new CustomerRekeyService(vault, audit, tx, clock, Callers.authz(clock));
     }
 
     CatalogCustomerSetup() {
@@ -98,6 +98,6 @@ final class CatalogCustomerSetup {
     }
 
     CatalogImportOutcome importJson(TenantId tenant, String fileName, String json) {
-        return imports.importFile(tenant, OPERATOR, fileName, json.getBytes(StandardCharsets.UTF_8));
+        return imports.importFile(Callers.of(tenant, OPERATOR), fileName, json.getBytes(StandardCharsets.UTF_8));
     }
 }

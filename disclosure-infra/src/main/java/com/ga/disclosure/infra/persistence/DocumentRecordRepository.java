@@ -192,6 +192,11 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
                   FROM signature_evidence
                  WHERE tenant_id = :tenantId
                    AND storage_key = :storageKey
+                UNION ALL
+                SELECT 1 AS hit
+                  FROM async_job
+                 WHERE tenant_id = :tenantId
+                   AND result_ref = :storageKey
                  LIMIT 1
                 """, Map.of("storageKey", storageKey), (rs, n) -> Boolean.TRUE).isPresent();
     }

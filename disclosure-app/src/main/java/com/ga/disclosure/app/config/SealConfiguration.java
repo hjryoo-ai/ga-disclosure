@@ -2,7 +2,6 @@ package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.audit.outbox.OutboxPort;
-import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.infra.crypto.DocumentCipher;
 import com.ga.disclosure.infra.storage.S3StorageSettings;
 import com.ga.disclosure.infra.storage.VerifiedArtifactStore;
@@ -14,6 +13,7 @@ import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.catalog.InsurerPanelPort;
 import com.ga.disclosure.workflow.catalog.ProductCatalogPort;
 import com.ga.disclosure.workflow.customer.CustomerVault;
@@ -27,6 +27,7 @@ import com.ga.disclosure.workflow.disclosure.ReviewStore;
 import com.ga.disclosure.workflow.disclosure.SealLedgerPort;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.TenantProfilePort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -74,9 +75,9 @@ public class SealConfiguration {
                                                        TenantProfilePort tenants, ProductCatalogPort catalog, InsurerPanelPort panel,
                                                        CustomerVault customers, RuleResolver rules, TemplateResolver templates,
                                                        ValidationRegistry registry, AuditPort audit, WorkflowTransactions tx, Clock clock,
-                                                       AgentDirectory agents, OutboxPort outbox) {
+                                                       AgentDirectory agents, OutboxPort outbox, AuthorizationPort authz) {
         return new DisclosureServiceDeps(store, reviews, flags, tenants, catalog, panel, customers, rules, templates, registry, audit, tx, clock,
-                agents, outbox);
+                agents, outbox, authz);
     }
 
     @Bean
@@ -93,7 +94,7 @@ public class SealConfiguration {
 
     @Bean
     public ArtifactService artifactService(DocumentRecordStore records, DocumentCryptoPort crypto, ArtifactStore storage, AuditPort audit,
-                                           WorkflowTransactions tx, Clock clock, SealService seal) {
-        return new ArtifactService(records, crypto, storage, audit, tx, clock, seal.transactionTimeout());
+                                           WorkflowTransactions tx, Clock clock, SealService seal, AuthorizationPort authz) {
+        return new ArtifactService(records, crypto, storage, audit, tx, clock, seal.transactionTimeout(), authz);
     }
 }

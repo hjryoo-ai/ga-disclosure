@@ -14,14 +14,19 @@ import com.ga.disclosure.workflow.ConcurrentWriteConflict;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.anchor.AnchorStore.ChainHeads;
 import com.ga.disclosure.workflow.anchor.AnchorStore.StoredAnchor;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -84,9 +89,10 @@ public final class AnchorJob {
     private final TimestampClient tsa;
     private final Clock clock;
     private final Supplier<UUID> batchIds;
+    private final AuthorizationPort authz;
 
     public AnchorJob(AnchorStore store, AuditPort audit, WorkflowTransactions transactions, RuleResolver rules, TimestampClient tsa, Clock clock,
-                     Supplier<UUID> batchIds) {
+                     Supplier<UUID> batchIds, AuthorizationPort authz) {
         this.store = Objects.requireNonNull(store, "store");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
@@ -94,23 +100,47 @@ public final class AnchorJob {
         this.tsa = Objects.requireNonNull(tsa, "tsa");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.batchIds = Objects.requireNonNull(batchIds, "batchIds");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public AnchorJob(AnchorStore store, AuditPort audit, WorkflowTransactions transactions, RuleResolver rules, TimestampClient tsa, Clock clock) {
-        this(store, audit, transactions, rules, tsa, clock, UUID::randomUUID);
+    public AnchorJob(AnchorStore store, AuditPort audit, WorkflowTransactions transactions, RuleResolver rules, TimestampClient tsa, Clock clock,
+                     AuthorizationPort authz) {
+        this(store, audit, transactions, rules, tsa, clock, UUID::randomUUID, authz);
     }
 
-    /** 오늘(KST) 날짜로 실행한다. */
-    public Report run(List<TenantId> tenants, Actor actor) {
-        return run(tenants, LocalDate.ofInstant(clock.instant(), SEOUL), actor);
+    /**
+     * 오늘(KST) 날짜로 실행한다. 다른 날짜는 {@link #run(List, LocalDate, String)}가 {@code DATE_NOT_TODAY}로 거부한다(R1). 앵커는 플랫폼
+     * 배치라 운영자 CLI만 부른다(6A 승인 Q7) — 테넌트마다 인가한다.
+     */
+    @UseCaseEntry(Action.ANCHOR_RUN)
+    public Report run(List<TenantId> tenants, String operator) {
+        Actor actor = authorizeAll(tenants, t -> transactions.inTenant(t, () -> authz.require(Caller.cli(t, operator), Action.ANCHOR_RUN,
+                Target.none())), operator);
+        return runAs(tenants, LocalDate.ofInstant(clock.instant(), SEOUL), actor);
     }
 
-    public Report run(List<TenantId> tenants, LocalDate date, Actor actor) {
+    @UseCaseEntry(Action.ANCHOR_RUN)
+    public Report run(List<TenantId> tenants, LocalDate date, String operator) {
         Objects.requireNonNull(date, "date");
-        Objects.requireNonNull(actor, "actor");
-        if (date.isAfter(LocalDate.ofInstant(clock.instant(), SEOUL))) {
-            // 5 계획 §8.8: 미래 날짜는 거부한다 — A단계는 지금의 머리를 읽으므로 미래 날짜 앵커는 "그 날의 머리"가 아니다
-            List<Failure> refused = tenants.stream().map(t -> new Failure("A", t, date, "DATE_IN_FUTURE")).toList();
+        Actor actor = authorizeAll(tenants, t -> transactions.inTenant(t, () -> authz.require(Caller.cli(t, operator), Action.ANCHOR_RUN,
+                Target.none())), operator);
+        return runAs(tenants, date, actor);
+    }
+
+    /** 테넌트마다 인가하고 감사 행위자(운영자 CLI는 모두 같은 OPERATOR)를 돌려준다. 테넌트가 없으면 운영자 그대로. */
+    private static Actor authorizeAll(List<TenantId> tenants, java.util.function.Function<TenantId, Actor> authorize, String operator) {
+        Actor actor = new Actor(operator, "OPERATOR");
+        for (TenantId t : tenants) {
+            actor = authorize.apply(t);
+        }
+        return actor;
+    }
+
+    private Report runAs(List<TenantId> tenants, LocalDate date, Actor actor) {
+        if (!date.equals(LocalDate.ofInstant(clock.instant(), SEOUL))) {
+            // 5 수용심사 R1: 앵커 날짜 = 생성 시각의 KST 날짜(V12 CHECK). A단계는 지금의 머리를 읽으므로 다른 날짜의 라벨은 그 날의 머리가
+            // 아니다 — 소급(지난 날)도 미래도 거부한다. 빠진 날은 다음 앵커가 덮고 verify tenant가 ANCHOR_MISSING_DAY로 알린다.
+            List<Failure> refused = tenants.stream().map(t -> new Failure("A", t, date, "DATE_NOT_TODAY")).toList();
             return new Report(date, List.of(), List.of(), Map.of(), List.of(), 0, refused);
         }
         List<TenantId> created = new ArrayList<>();
@@ -165,7 +195,8 @@ public final class AnchorJob {
         ChainHeads heads = store.heads();
         var latest = store.latest();
         if (latest.isPresent() && !latest.get().record().anchorDate().isBefore(date)) {
-            return new Outcome.Refused("DATE_NOT_AFTER_LATEST");             // GD110도 거부한다 — 지난 날짜를 뒤늦게 고정하지 않는다
+            // 날짜가 오늘로 고정되었으므로 여기 오는 것은 시계가 마지막 앵커보다 뒤로 간 경우뿐이다(GD110도 거부한다)
+            return new Outcome.Refused("CLOCK_BEHIND_LATEST");
         }
         long seq = latest.map(a -> a.record().anchorSeq() + 1).orElse(1L);
         AnchorRecord record = new AnchorRecord(tenant, seq, date, heads.sealChainSeq(), heads.sealChainHead(), heads.auditSeq(), heads.auditHead());

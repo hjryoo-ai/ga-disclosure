@@ -272,6 +272,38 @@ public record EffectiveRule(
         return intValue("legalHoldReasonTextMaxLength");
     }
 
+    /** 법적 보류 해제 사유 코드(닫힌 목록, 텍스트 없음 — 5 수용심사 D12로 §14 #15를 닫았다). GLOBAL 전용. */
+    public List<LifecycleReasonRule> legalHoldReleaseReasons() {
+        return lifecycleReasons("legalHoldReleaseReasons");
+    }
+
+    /** Idempotency-Key 보관 시간(6A). GLOBAL 전용. */
+    public int idempotencyTtlHours() {
+        return intValue(object("api"), "api.idempotencyTtlHours", "idempotencyTtlHours");
+    }
+
+    /** 진행 중 Idempotency-Key의 임차 초 — 지나면 같은 요청이 인수한다(6A). GLOBAL 전용. */
+    public int idempotencyLeaseSeconds() {
+        return intValue(object("api"), "api.idempotencyLeaseSeconds", "idempotencyLeaseSeconds");
+    }
+
+    /** 공개 서명 경로의 테넌트 분당 한도(6A). 패딩 하한은 룰이 아니라 배포 설정이다(6A 승인 Q6). GLOBAL 전용. */
+    public int publicSignTenantRatePerMinute() {
+        return intValue(object("publicSign"), "publicSign.tenantRatePerMinute", "tenantRatePerMinute");
+    }
+
+    /** 통지 재시도 백오프(6A). 실행 시점의 ACTIVE 룰로 읽는다. GLOBAL 전용. */
+    public NotifyRetryRule notifyRetry() {
+        JsonNode retry = object(object("notify"), "notify.retry", "retry");
+        try {
+            return new NotifyRetryRule(intValue(retry, "notify.retry.maxAttempts", "maxAttempts"),
+                    intValue(retry, "notify.retry.initialDelaySeconds", "initialDelaySeconds"),
+                    intValue(retry, "notify.retry.multiplier", "multiplier"), intValue(retry, "notify.retry.maxDelaySeconds", "maxDelaySeconds"));
+        } catch (IllegalArgumentException e) {
+            throw missing("notify.retry (maxDelaySeconds < initialDelaySeconds)");
+        }
+    }
+
     /** 고객 파기 유예: 그 고객의 마지막 확인서 파기 뒤 일수. */
     public int customerGraceDaysAfterLastDestruction() {
         return intValue(object("customerRef"), "customerRef.graceDaysAfterLastDestruction", "graceDaysAfterLastDestruction");
@@ -381,6 +413,14 @@ public record EffectiveRule(
         JsonNode n = body.get(key);
         if (n == null || !n.isObject()) {
             throw missing(key);
+        }
+        return n;
+    }
+
+    private JsonNode object(JsonNode parent, String path, String key) {
+        JsonNode n = parent.get(key);
+        if (n == null || !n.isObject()) {
+            throw missing(path);
         }
         return n;
     }

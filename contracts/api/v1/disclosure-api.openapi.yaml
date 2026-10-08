@@ -1,0 +1,945 @@
+openapi: 3.1.0
+info:
+  title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
+  version: 1.0.0
+  description: |
+    설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
+    - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
+    - 권한 없음·없는 자원(다른 테넌트 포함)·없는 라우트는 같은 404 바이트(`NOT_FOUND`).
+    - 오류 본문은 `Problem`(JCS). 업무 거부는 범주로 409(상태 충돌)·422(요청 거부), 본문 `REJECTED` + 거부 코드.
+    - 쓰기 POST는 `Idempotency-Key` 필수(없으면 428). 같은 키·같은 요청은 같은 바이트로 재생(`Idempotency-Replayed: true`), 다른 요청 422.
+      일회용 자격을 담은 응답(세션 발급)은 재생하지 않는다 — 같은 키의 재요청은 409 `IDEMPOTENCY_NOT_REPLAYABLE`.
+    - JSON 응답은 전부 JCS 바이트. 시각은 ISO-8601 UTC(`Instant`), 날짜는 `yyyy-MM-dd`. 스키마 형식 검사는 `format`이 아니라 `pattern`.
+    - 목록은 서명된 불투명 커서(`after` → `next`) — 다른 테넌트·다른 목록의 커서는 400 `INVALID_CURSOR`.
+servers:
+  - url: https://disclosure.example
+security:
+  - bearerJwt: []
+paths:
+  /api/v1/disclosures:
+    get:
+      operationId: listDisclosures
+      summary: 확인서 목록(범위로 걸러진 — 설계사 자기 것, 관리자 조직 아래, 준법 테넌트 전체)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/After'
+        - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/DisclosureStatus' } }
+      responses:
+        '200':
+          description: 목록 한 쪽
+          content: { application/json: { schema: { $ref: '#/components/schemas/DisclosurePage' } } }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      operationId: createDisclosure
+      summary: 초안 생성(설계사)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDisclosureRequest' }
+            example: { customerRef: CR-0000000000000000000000000000001, groupCode: PG-HEALTH-SIMPLE-NR, consultDate: '2026-09-25', templateType: STANDARD }
+      responses:
+        '201':
+          description: 생성됨(`Location`)
+          headers:
+            Location: { schema: { type: string } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: getDisclosure
+      summary: 확인서 상세(고객 개인정보 없음 — 가명 참조만). 준법 조회는 감사 DISCLOSURE_VIEW.
+      responses:
+        '200':
+          description: 상세
+          content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureDetail' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/items:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: replaceItems
+      summary: 항목 전체 교체(산출 이후면 비교 전으로 되돌린다)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ItemsRequest' }
+            example:
+              items:
+                - { productKey: 'INS-A:PRD-1001', recommended: true }
+                - { insurerCode: INS-D, productName: '(가상) 임시 상품', quoteDocNo: Q-2026-0001 }
+      responses:
+        '200': { $ref: '#/components/responses/DisclosureReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/compare:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: compare
+      summary: 비교 완료(단계 검증)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/DisclosureReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/grades:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: requestGrades
+      summary: 엔진 등급·순위 산출(재산출 포함)과 정합성 검증
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/DisclosureReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/recommendations:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: setRecommendations
+      summary: 추천사유(설계사 입력만)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecommendationsRequest' }
+            example: { reasons: [ { itemNo: 1, codes: [PREMIUM] }, { itemNo: 3, codes: [COVERAGE], text: '보장 범위 우선' } ] }
+      responses:
+        '200': { $ref: '#/components/responses/DisclosureReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/validate:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: validate
+      summary: 검증 미리보기(상태를 바꾸지 않는다)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ValidateRequest' }
+            example: { stage: SEAL }
+      responses:
+        '200':
+          description: 규칙별 결과
+          content: { application/json: { schema: { $ref: '#/components/schemas/ValidationReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/seal:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: seal
+      summary: 봉인·발급
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 봉인됨
+          content: { application/json: { schema: { $ref: '#/components/schemas/SealReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/void:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: voidDisclosure
+      summary: 무효(사유 코드)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleRequest' }
+            example: { reasonCode: DUPLICATE }
+      responses:
+        '200': { $ref: '#/components/responses/LifecycleReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/supersede:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: supersede
+      summary: 정정(새 버전, 관리자)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleRequest' }
+            example: { reasonCode: CONTENT_ERROR }
+      responses:
+        '200': { $ref: '#/components/responses/LifecycleReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/rebase:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: rebase
+      summary: 재기준(룰 교체로 막힌 초안)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/LifecycleReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/exception-approvals:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: approveException
+      summary: 예외 승인(관리자) — 실패 대상 해시에 귀속
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExceptionApprovalRequest' }
+            example: { ruleId: R-TEMP-PRODUCT, subjectHash: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0, reason: '발행번호 확인' }
+      responses:
+        '200':
+          description: 승인 기록
+          content: { application/json: { schema: { $ref: '#/components/schemas/ExceptionApprovalReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/artifacts/{kind}:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+      - { name: kind, in: path, required: true, schema: { type: string, enum: [CANONICAL_JSON, PDF, SIGNED_PDF, EVIDENCE_ZIP] } }
+    get:
+      operationId: getArtifact
+      summary: 봉인 산출물 평문 바이트(열람 감사). 산출물이 없거나 읽을 수 없으면 409.
+      responses:
+        '200':
+          description: 산출물 바이트 그대로
+          content:
+            application/pdf: { schema: { type: string, contentMediaType: application/pdf } }
+            application/json: { schema: { type: object } }
+            application/zip: { schema: { type: string, contentMediaType: application/zip } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/anchor-receipt:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: getAnchorReceipt
+      summary: 앵커 영수증 내보내기(준법) — `anchor-receipt-export` 스키마 바이트 그대로. 아직 덮이지 않았으면 409.
+      responses:
+        '200':
+          description: 영수증 바이트
+          content: { application/json: { schema: { type: object } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/sign-sessions:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: issueSignSession
+      summary: 고객 서명 세션 발급 — 현장 기기 채널만 토큰을 돌려준다(no-store, 재생하지 않음)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionIssueRequest' }
+            example: { channel: TOUCH_PAD }
+      responses:
+        '201':
+          description: 발급됨
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/SessionIssueReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/agent-signature:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: agentSignature
+      summary: 설계사 서명(DRAWN이면 스트로크·이미지)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentSignatureRequest' }
+            example: { strokes: [ [ { x: 131, y: 57, t: 0 }, { x: 140, y: 61, t: 16 } ] ], imagePngBase64: iVBORw0KGgo= }
+      responses:
+        '200': { $ref: '#/components/responses/SignReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/manager-confirmation:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: managerConfirmation
+      summary: 관리자 확인(걸린 플래그 전부 확인)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagerConfirmationRequest' }
+            example: { acknowledgedFlags: [] }
+      responses:
+        '200': { $ref: '#/components/responses/SignReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/paper-scan-review:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: paperScanReview
+      summary: 종이 스캔 검토(관리자가 서명자 집합에 없을 때)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/SignReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: complete
+      summary: 완료 판정
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/SignReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/sign-sessions/face-to-face:
+    post:
+      operationId: confirmFaceToFace
+      summary: 대면 본인확인(현장 기기 세션 토큰은 본문으로)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+            example: { token: 'T1.abcdefghijklmnopqrstuvwxyz012345' }
+      responses:
+        '200':
+          description: 본인확인 결과
+          content: { application/json: { schema: { $ref: '#/components/schemas/IdentityReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/sign-sessions/paper-scan:
+    post:
+      operationId: uploadPaperScan
+      summary: 종이 스캔 업로드(번호·해시 접두를 스캔본에서 읽어 입력)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaperScanRequest' }
+            example: { token: 'T1.abcdefghijklmnopqrstuvwxyz012345', disclosureNo: T1-2026-000481, hashPrefix: 0f1e2d3c4b5a, imageBase64: '/9j/4AAQ' }
+      responses:
+        '200': { $ref: '#/components/responses/SignReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/legal-holds:
+    get:
+      operationId: listLegalHolds
+      summary: 법적 보류 목록(준법). 사유 텍스트는 싣지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/After'
+      responses:
+        '200':
+          description: 목록 한 쪽
+          content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldPage' } } }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      operationId: placeLegalHold
+      summary: 법적 보류 설정(준법) — 대상은 확인서 또는 고객 가명 하나
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LegalHoldRequest' }
+            example: { disclosureId: 6b0c5a52-3f2e-4c1a-9f3b-2d1e0c9b8a7f, reasonCode: LITIGATION }
+      responses:
+        '201': { $ref: '#/components/responses/LegalHoldReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/legal-holds/{holdId}/release:
+    parameters:
+      - { name: holdId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    post:
+      operationId: releaseLegalHold
+      summary: 법적 보류 해제(준법, 설정자와 다른 사람 — 4-eyes)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LegalHoldReleaseRequest' }
+            example: { reasonCode: CASE_CLOSED }
+      responses:
+        '200': { $ref: '#/components/responses/LegalHoldReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/jobs:
+    get:
+      operationId: listJobs
+      summary: 작업 목록(준법)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/After'
+      responses:
+        '200':
+          description: 목록 한 쪽
+          content: { application/json: { schema: { $ref: '#/components/schemas/JobPage' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/jobs/{kind}:
+    parameters:
+      - $ref: '#/components/parameters/JobKind'
+    post:
+      operationId: submitJob
+      summary: 작업 제출(준법은 VERIFY_TENANT). ANCHOR는 HTTP에 없다(404).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JobParams' }
+            example: {}
+      responses:
+        '202': { $ref: '#/components/responses/JobAccepted' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      operationId: getJob
+      summary: 작업 한 건
+      responses:
+        '200':
+          description: 작업
+          content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/jobs/{jobId}/report:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      operationId: getJobReport
+      summary: 작업 보고서 평문(준법) — verify-report·destruction-report 등 종류별 스키마 바이트 그대로
+      responses:
+        '200':
+          description: 보고서 바이트
+          content: { application/json: { schema: { type: object } } }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    bearerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 발급자·대상·서명·만료 검증. 클레임은 `sub`·`tenant_id`만 읽는다.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{16,128}$' }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    After:
+      name: after
+      in: query
+      required: false
+      description: 앞 쪽 응답의 `next`(서명된 불투명 커서)
+      schema: { $ref: '#/components/schemas/Cursor' }
+    DisclosureId:
+      name: disclosureId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    JobKind:
+      name: kind
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/JobKind' }
+  responses:
+    Problem:
+      description: 오류(인증 401·없음 404·형식 400·키 없음 428·업무 거부 409/422·작업 겹침 409 등)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    DisclosureReceipt:
+      description: 적용됨
+      content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureReceipt' } } }
+    LifecycleReceipt:
+      description: 적용됨
+      content: { application/json: { schema: { $ref: '#/components/schemas/LifecycleReceipt' } } }
+    SignReceipt:
+      description: 적용됨
+      content: { application/json: { schema: { $ref: '#/components/schemas/SignReceipt' } } }
+    LegalHoldReceipt:
+      description: 적용됨
+      content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldReceipt' } } }
+    JobAccepted:
+      description: 접수(비동기 실행) — `Location`이 작업 자원
+      headers:
+        Location: { schema: { type: string } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } }
+  schemas:
+    Uuid: { type: string, pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' }
+    Instant: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?Z$' }
+    Date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+    Sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+    Code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+    Cursor: { type: string, pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$', maxLength: 512 }
+    DisclosureNo: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' }
+    NullableString: { type: [string, 'null'] }
+    NullableInstant:
+      oneOf:
+        - { type: 'null' }
+        - { $ref: '#/components/schemas/Instant' }
+    DisclosureStatus:
+      type: string
+      enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED]
+    JobKind:
+      type: string
+      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE]
+      description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          enum: [UNAUTHENTICATED, NOT_FOUND, METHOD_NOT_ALLOWED, MALFORMED_REQUEST, REJECTED, CONFLICT, CONCURRENT_WRITE, JOB_ALREADY_RUNNING,
+                 REPORT_NOT_AVAILABLE, IDEMPOTENCY_KEY_REQUIRED, IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_IN_PROGRESS, IDEMPOTENCY_NOT_REPLAYABLE,
+                 INVALID_CURSOR, INTERNAL_ERROR]
+        message: { type: string, description: 코드별 고정 영문 문장(입력값·자원 값 없음) }
+        details:
+          oneOf:
+            - { type: object, additionalProperties: false, maxProperties: 0 }
+            - type: object
+              additionalProperties: false
+              required: [field]
+              properties:
+                field: { type: string, pattern: '^[A-Za-z][A-Za-z0-9-]{0,63}$' }
+            - type: object
+              additionalProperties: false
+              required: [rejections]
+              properties:
+                rejections:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [code]
+                    properties:
+                      code: { $ref: '#/components/schemas/Code' }
+                      ruleId: { type: string, pattern: '^R-[A-Z0-9-]{1,63}$' }
+    Job:
+      type: object
+      additionalProperties: false
+      required: [jobId, kind, status, channel, requestedBy, requestedAt, startedAt, finishedAt, errorCode, reportSha256]
+      properties:
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE] }
+        status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
+        channel: { type: string, enum: [HTTP, CLI] }
+        requestedBy: { type: string }
+        requestedAt: { $ref: '#/components/schemas/Instant' }
+        startedAt: { $ref: '#/components/schemas/NullableInstant' }
+        finishedAt: { $ref: '#/components/schemas/NullableInstant' }
+        errorCode: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Code' } ] }
+        reportSha256: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Sha256' } ] }
+    JobPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+        next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }
+    JobParams:
+      type: object
+      additionalProperties: false
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE는 limit, VERIFY_TENANT는 없음.
+      properties:
+        asOf: { $ref: '#/components/schemas/Instant' }
+        limit: { type: integer, minimum: 1 }
+    DisclosureSummary:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, disclosureNo, version, status, agentId, customerRef, groupCode, consultDate, sealedAt, destroyedAt]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        disclosureNo: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/DisclosureNo' } ] }
+        version: { type: integer, minimum: 1 }
+        status: { $ref: '#/components/schemas/DisclosureStatus' }
+        agentId: { type: string }
+        customerRef: { type: string, description: 고객 가명 참조(개인정보 아님) }
+        groupCode: { type: string }
+        consultDate: { $ref: '#/components/schemas/Date' }
+        sealedAt: { $ref: '#/components/schemas/NullableInstant' }
+        destroyedAt: { $ref: '#/components/schemas/NullableInstant' }
+    DisclosurePage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DisclosureSummary' } }
+        next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }
+    DisclosureDetail:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, disclosureNo, version, supersedesId, supersededById, status, agentId, customerRef, groupCode, consultDate,
+                 ruleVersionId, tenantRuleVersionId, templateId, templateVersion, issuerMode, items, snapshot, seal, voidedAt, voidReasonCode,
+                 supersedeReasonCode, signatures, completedAt, destroyedAt, asOf]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        disclosureNo: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/DisclosureNo' } ] }
+        version: { type: integer, minimum: 1 }
+        supersedesId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+        supersededById: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+        status: { $ref: '#/components/schemas/DisclosureStatus' }
+        agentId: { type: string }
+        customerRef: { type: string }
+        groupCode: { type: string }
+        consultDate: { $ref: '#/components/schemas/Date' }
+        ruleVersionId: { type: string }
+        tenantRuleVersionId: { $ref: '#/components/schemas/NullableString' }
+        templateId: { type: string }
+        templateVersion: { type: integer, minimum: 1 }
+        issuerMode: { type: string, enum: [SELF, ASSOC] }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [itemNo, productKey, insurerCode, groupCode, productName, tempProduct, quoteDocNo, recommended, requestedByCustomer, grade,
+                       recommendation]
+            properties:
+              itemNo: { type: integer, minimum: 1 }
+              productKey: { $ref: '#/components/schemas/NullableString' }
+              insurerCode: { type: string }
+              groupCode: { type: string }
+              productName: { type: string }
+              tempProduct: { type: boolean }
+              quoteDocNo: { $ref: '#/components/schemas/NullableString' }
+              recommended: { type: boolean }
+              requestedByCustomer: { type: boolean }
+              grade:
+                oneOf:
+                  - { type: 'null' }
+                  - type: object
+                    additionalProperties: false
+                    required: [status, gradeCode, gradeLabel, gradeOrdinal, rankInSet, tie, ratioToAvg, unavailableReason, source]
+                    properties:
+                      status: { type: string, enum: [OK, UNAVAILABLE] }
+                      gradeCode: { $ref: '#/components/schemas/NullableString' }
+                      gradeLabel: { $ref: '#/components/schemas/NullableString' }
+                      gradeOrdinal: { type: [integer, 'null'] }
+                      rankInSet: { type: [integer, 'null'] }
+                      tie: { type: [boolean, 'null'] }
+                      ratioToAvg: { type: [string, 'null'], description: 엔진 원문 그대로(불투명 문자열 — 숫자로 바꾸지 않는다) }
+                      unavailableReason: { $ref: '#/components/schemas/NullableString' }
+                      source: { $ref: '#/components/schemas/NullableString' }
+              recommendation:
+                oneOf:
+                  - { type: 'null' }
+                  - type: object
+                    additionalProperties: false
+                    required: [reasonCodes, text]
+                    properties:
+                      reasonCodes: { type: array, items: { type: string } }
+                      text: { $ref: '#/components/schemas/NullableString' }
+        snapshot:
+          oneOf:
+            - { type: 'null' }
+            - type: object
+              additionalProperties: false
+              required: [snapshotId, gradingPolicyVersionId, rankingPolicyVersionId, tieBreak, generatedAt]
+              properties:
+                snapshotId: { type: string }
+                gradingPolicyVersionId: { type: string }
+                rankingPolicyVersionId: { type: string }
+                tieBreak: { type: string }
+                generatedAt: { $ref: '#/components/schemas/Instant' }
+        seal:
+          oneOf:
+            - { type: 'null' }
+            - type: object
+              additionalProperties: false
+              required: [disclosureNo, sealedAt, canonicalHash, pdfHash, chainSeq, retentionUntil]
+              properties:
+                disclosureNo: { $ref: '#/components/schemas/DisclosureNo' }
+                sealedAt: { $ref: '#/components/schemas/Instant' }
+                canonicalHash: { $ref: '#/components/schemas/Sha256' }
+                pdfHash: { $ref: '#/components/schemas/Sha256' }
+                chainSeq: { type: integer, minimum: 1 }
+                retentionUntil: { $ref: '#/components/schemas/Date' }
+        voidedAt: { $ref: '#/components/schemas/NullableInstant' }
+        voidReasonCode: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Code' } ] }
+        supersedeReasonCode: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Code' } ] }
+        signatures:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [role, signedAt]
+            properties:
+              role: { type: string, enum: [CUSTOMER, AGENT, MANAGER] }
+              signedAt: { $ref: '#/components/schemas/Instant' }
+        completedAt: { $ref: '#/components/schemas/NullableInstant' }
+        destroyedAt: { $ref: '#/components/schemas/NullableInstant' }
+        asOf: { $ref: '#/components/schemas/Instant' }
+    CreateDisclosureRequest:
+      type: object
+      additionalProperties: false
+      required: [customerRef, groupCode, consultDate, templateType]
+      properties:
+        customerRef: { type: string, minLength: 1 }
+        groupCode: { type: string, minLength: 1 }
+        consultDate: { $ref: '#/components/schemas/Date' }
+        templateType: { type: string, enum: [STANDARD, AUTO] }
+    ItemsRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            description: 카탈로그 상품은 productKey, 임시등록은 insurerCode·productName·quoteDocNo. 플래그는 생략하면 false.
+            properties:
+              productKey: { type: string, pattern: '^[A-Z0-9_-]+:[A-Za-z0-9_.-]+$' }
+              insurerCode: { type: string }
+              productName: { type: string }
+              quoteDocNo: { type: string }
+              recommended: { type: boolean }
+              requestedByCustomer: { type: boolean }
+              agentValues: { type: object }
+    RecommendationsRequest:
+      type: object
+      additionalProperties: false
+      required: [reasons]
+      properties:
+        reasons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [itemNo, codes]
+            properties:
+              itemNo: { type: integer, minimum: 1 }
+              codes: { type: array, items: { $ref: '#/components/schemas/Code' } }
+              text: { type: string }
+    ValidateRequest:
+      type: object
+      additionalProperties: false
+      required: [stage]
+      properties:
+        stage: { type: string, enum: [COMPARE, GRADE, REASON, SEAL] }
+    LifecycleRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode]
+      properties:
+        reasonCode: { $ref: '#/components/schemas/Code' }
+        reasonText: { type: string }
+    ExceptionApprovalRequest:
+      type: object
+      additionalProperties: false
+      required: [ruleId, subjectHash, reason]
+      properties:
+        ruleId: { type: string }
+        subjectHash: { $ref: '#/components/schemas/Sha256' }
+        reason: { type: string, minLength: 1 }
+    DisclosureReceipt:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, status]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/DisclosureStatus' }
+    ValidationReceipt:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, results]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ruleId, passed, overridable, subjectHash]
+            properties:
+              ruleId: { type: string }
+              passed: { type: boolean }
+              overridable: { type: boolean }
+              subjectHash: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Sha256' } ] }
+    SealReceipt:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, status, disclosureNo, retentionPending]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/DisclosureStatus' }
+        disclosureNo: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/DisclosureNo' } ] }
+        retentionPending: { type: boolean }
+    LifecycleReceipt:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, status, newVersionId]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/DisclosureStatus' }
+        newVersionId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+    ExceptionApprovalReceipt:
+      type: object
+      additionalProperties: false
+      required: [reviewId, disclosureId, ruleId]
+      properties:
+        reviewId: { $ref: '#/components/schemas/Uuid' }
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        ruleId: { type: string }
+    SessionIssueRequest:
+      type: object
+      additionalProperties: false
+      required: [channel]
+      properties:
+        channel: { type: string, enum: [TOUCH_PAD, REMOTE_LINK, PAPER_SCAN, CERTIFIED_ESIGN] }
+    SessionIssueReceipt:
+      type: object
+      additionalProperties: false
+      required: [sessionId, disclosureId, channel, expiresAt, deviceToken]
+      properties:
+        sessionId: { $ref: '#/components/schemas/Uuid' }
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        channel: { type: string }
+        expiresAt: { $ref: '#/components/schemas/NullableInstant' }
+        deviceToken: { type: [string, 'null'], description: 현장 기기 채널만(원격 링크는 null) }
+    TokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string, minLength: 1 }
+    PaperScanRequest:
+      type: object
+      additionalProperties: false
+      required: [token, disclosureNo, hashPrefix, imageBase64]
+      properties:
+        token: { type: string, minLength: 1 }
+        disclosureNo: { type: string }
+        hashPrefix: { type: string }
+        imageBase64: { type: string, contentEncoding: base64 }
+    AgentSignatureRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        strokes:
+          type: array
+          items:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [x, y, t]
+              properties:
+                x: { type: number }
+                y: { type: number }
+                t: { type: integer }
+        imagePngBase64: { type: string, contentEncoding: base64 }
+        deviceFingerprint: { type: string }
+    ManagerConfirmationRequest:
+      type: object
+      additionalProperties: false
+      required: [acknowledgedFlags]
+      properties:
+        acknowledgedFlags: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+    SignReceipt:
+      type: object
+      additionalProperties: false
+      required: [disclosureId, status, signatureId, completed, retentionPending]
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/DisclosureStatus' }
+        signatureId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+        completed: { type: boolean }
+        retentionPending: { type: boolean }
+    IdentityReceipt:
+      type: object
+      additionalProperties: false
+      required: [sessionId, missing, failures, revoked]
+      properties:
+        sessionId: { $ref: '#/components/schemas/Uuid' }
+        missing: { type: array, items: { $ref: '#/components/schemas/Code' } }
+        failures: { type: integer, minimum: 0 }
+        revoked: { type: boolean }
+    LegalHoldRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode]
+      description: disclosureId 또는 customerRef 중 정확히 하나
+      properties:
+        disclosureId: { $ref: '#/components/schemas/Uuid' }
+        customerRef: { type: string }
+        reasonCode: { $ref: '#/components/schemas/Code' }
+        reasonText: { type: string }
+    LegalHoldReleaseRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode]
+      properties:
+        reasonCode: { $ref: '#/components/schemas/Code' }
+    LegalHoldReceipt:
+      type: object
+      additionalProperties: false
+      required: [holdId, storageApplied, storageFailed, storageUnsupported]
+      properties:
+        holdId: { $ref: '#/components/schemas/Uuid' }
+        storageApplied: { type: integer, minimum: 0 }
+        storageFailed: { type: integer, minimum: 0 }
+        storageUnsupported: { type: boolean }
+    LegalHold:
+      type: object
+      additionalProperties: false
+      required: [holdId, disclosureId, customerRef, reasonCode, placedBy, placedAt, releasedBy, releasedAt, releaseReasonCode]
+      properties:
+        holdId: { $ref: '#/components/schemas/Uuid' }
+        disclosureId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+        customerRef: { $ref: '#/components/schemas/NullableString' }
+        reasonCode: { $ref: '#/components/schemas/Code' }
+        placedBy: { type: string }
+        placedAt: { $ref: '#/components/schemas/Instant' }
+        releasedBy: { $ref: '#/components/schemas/NullableString' }
+        releasedAt: { $ref: '#/components/schemas/NullableInstant' }
+        releaseReasonCode: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Code' } ] }
+    LegalHoldPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/LegalHold' } }
+        next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }

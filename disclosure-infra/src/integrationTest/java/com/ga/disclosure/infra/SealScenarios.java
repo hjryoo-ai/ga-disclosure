@@ -98,12 +98,12 @@ final class SealScenarios {
         DisclosureId id = w.draft();
         JsonNodeFactory f = JsonNodeFactory.instance;
         Map<String, JsonNode> values = Map.of("PREMIUM", f.numberNode(30100), "SURRENDER_VALUE_EXAMPLE", f.stringNode("가입설계서 참조"));
-        w.service.replaceItems(w.tenant, WorkflowSetup.AGENT, id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
+        w.service.replaceItems(Callers.of(w.tenant, WorkflowSetup.AGENT), id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
                 new ItemInput.Temp(InsurerCode.of("INS-D"), "(가상) 임시등록 상품", quoteDocNo, true, false, values),
                 WorkflowSetup.catalogItem("INS-C:PRD-3120", false)));
-        w.service.compare(w.tenant, WorkflowSetup.AGENT, id);
-        w.service.requestGrades(w.tenant, WorkflowSetup.AGENT, id);
-        w.service.setRecommendations(w.tenant, WorkflowSetup.AGENT, id, List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
+        w.service.compare(Callers.of(w.tenant, WorkflowSetup.AGENT), id);
+        w.service.requestGrades(Callers.of(w.tenant, WorkflowSetup.AGENT), id);
+        w.service.setRecommendations(Callers.of(w.tenant, WorkflowSetup.AGENT), id, List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
                 new AgentReason(2, List.of(ReasonCode.of("COVERAGE")), null)));
         return id;
     }

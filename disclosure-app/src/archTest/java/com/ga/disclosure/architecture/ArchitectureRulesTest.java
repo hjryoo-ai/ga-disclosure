@@ -4,9 +4,9 @@ import com.ga.disclosure.domain.grade.GradeSnapshotItem;
 import com.ga.disclosure.domain.grade.RatioLabel;
 import com.ga.disclosure.domain.pii.Sensitive;
 import com.ga.disclosure.rules.grade.GradeConsistencyCheck;
-import com.ga.platform.core.arch.ArchRules;
 import com.ga.platform.core.arch.ArchRules.Allowed;
 import com.ga.platform.core.arch.ArchRules.Layer;
+import com.ga.platform.core.arch.ArchRules;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -54,7 +54,10 @@ class ArchitectureRulesTest {
                             + "(Phase 1 계획 D4, 설계서 §9)"),
             new Allowed(P + "infra.retention.DestroyerGateway",
                     "파기 함수 3개 호출 — 호출자 트랜잭션의 연결에서 SET LOCAL ROLE disclosure_destroyer(전용 롤, 함수 EXECUTE만) → 함수 → RESET ROLE. "
-                            + "테넌트 데이터를 읽지 않는다(5 계획 승인 Q2, 설계서 §9)"));
+                            + "테넌트 데이터를 읽지 않는다(5 계획 승인 Q2, 설계서 §9)"),
+            new Allowed(P + "infra.jobs.JobLockGateway",
+                    "작업 잠금 — 전용 롤 disclosure_job_lock(테이블·스키마 권한 0, V12 단언)으로 풀 없이 연 커넥션의 세션 advisory lock과 "
+                            + "pg_locks 보유 확인만. 테넌트 데이터를 읽지 않는다(6A 계획 §6.1, 승인 Q8·B1)"));
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(

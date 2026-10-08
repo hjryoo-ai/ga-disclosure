@@ -75,7 +75,7 @@ class TombstoneIT {
 
     TenantVerifier verifier() {
         return new TenantVerifier(r.x.w.audit, r.chain(), new AnchorRepository(r.x.w.gateway), r.x.s.records, r.x.s.cipher, r.x.s.bucket,
-                new RuleResolver(r.x.w.rules), r.x.w.flags, r.x.w.tx, RetentionSetup.at(RetentionSetup.AFTER));
+                new RuleResolver(r.x.w.rules), r.x.w.flags, r.x.w.tx, RetentionSetup.at(RetentionSetup.AFTER), Callers.authz(RetentionSetup.at(RetentionSetup.AFTER)));
     }
 
     @Test
@@ -83,9 +83,9 @@ class TombstoneIT {
         DisclosureId id = r.completed();
         r.reconcileAfterRetention();
         var holds = r.holdService(RetentionSetup.at(RetentionSetup.AFTER));         // 해제된 보류의 사유 텍스트도 지운다(V11)
-        var placed = holds.place(r.x.w.tenant, RetentionSetup.OPERATOR, new com.ga.disclosure.workflow.retention.LegalHoldService.Target.Disclosure(id),
+        var placed = holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new com.ga.disclosure.workflow.retention.LegalHoldService.Target.Disclosure(id),
                 "OTHER", "가상 분쟁 메모 — 허구");
-        holds.release(r.x.w.tenant, RetentionSetup.OPERATOR, placed.holdId(), "CASE_CLOSED");
+        holds.release(Callers.of(r.x.w.tenant, RetentionSetup.RELEASER), placed.holdId(), "CASE_CLOSED");
         Map<String, List<JsonNode>> before = new java.util.TreeMap<>();
         ERASABLE.keySet().forEach(t -> before.put(t, rows(t, id)));
         Set<String> expected = expectedErasure(before);
@@ -124,7 +124,7 @@ class TombstoneIT {
                 r.x.w.tenant.value(), kept.value()));
         assertThat(r.destroy().destroyed()).extracting(d -> d.id()).containsExactly(destroyed);
 
-        VerifyReport report = verifier().run(r.x.w.tenant, RetentionSetup.OPERATOR, null);
+        VerifyReport report = verifier().run(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), null);
 
         assertThat(report.findings()).isEmpty();
         assertThat(report.counts().disclosures()).isEqualTo(2);
@@ -156,7 +156,7 @@ class TombstoneIT {
             throw new IllegalStateException(e);
         }
 
-        VerifyReport report = verifier().run(r.x.w.tenant, RetentionSetup.OPERATOR, null);
+        VerifyReport report = verifier().run(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), null);
 
         assertThat(report.findings()).anySatisfy(f -> {
             assertThat(f.code()).isEqualTo(FindingCode.OBJECT_NOT_DELETED);

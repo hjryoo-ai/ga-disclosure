@@ -1,11 +1,11 @@
 package com.ga.disclosure.app;
 
-import com.ga.disclosure.infra.testing.PostgresHarness;
+import com.ga.disclosure.app.api.ApiTestSupport;
 import com.ga.platform.spring.jdbc.TenantSessionBinder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -21,17 +21,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 부팅 스모크: 애플리케이션이 disclosure_app 데이터소스와 disclosure_migrator Flyway로 뜨고,
- * /actuator/health가 UP이며, 트랜잭션 매니저가 TenantSessionBinder다. 컨트롤러는 없다.
+ * /actuator/health가 UP이며, 트랜잭션 매니저가 TenantSessionBinder다. 보안 체인 밖 경로는 헬스 외 전부 내부 404와 같은 본문이다(6A 계획 §5.1).
+ * 컨트롤러 배치 규칙은 ApiLayerRulesTest (a)가 맡는다(자리표시 단언 noApplicationControllersExist 폐기 — 6A 계획 §9.4).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class DisclosureApplicationIT {
 
-    private static final PostgresHarness DB = PostgresHarness.get();
-
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DB::jdbcUrl);
-        registry.add("spring.flyway.url", DB::jdbcUrl);
+        ApiTestSupport.properties(registry);
     }
 
     @Value("${local.server.port}")
@@ -53,9 +51,13 @@ class DisclosureApplicationIT {
     }
 
     @Test
-    void noApplicationControllersExist() {
-        assertThat(context.getBeansWithAnnotation(org.springframework.stereotype.Controller.class).values())
-                .noneMatch(bean -> bean.getClass().getName().startsWith("com.ga."));
+    void pathsOutsideTheChainsAreTheInternal404() {
+        ApiTestSupport.Response notFound = ApiTestSupport.get(port, "/actuator/env", null);
+        assertThat(notFound.status()).isEqualTo(404);
+        assertThat(notFound.text()).isEqualTo("{\"code\":\"NOT_FOUND\",\"details\":{},\"message\":\"Resource not found.\"}");
+        assertThat(ApiTestSupport.get(port, "/", null).fingerprint()).isEqualTo(notFound.fingerprint());
+        assertThat(ApiTestSupport.get(port, "/sign/abc", null).fingerprint()).isEqualTo(notFound.fingerprint());
+        assertThat(ApiTestSupport.send(port, "POST", "/actuator/health", null, "{}", java.util.Map.of()).status()).isEqualTo(404);
     }
 
     /** Phase 2 P5: 앱이 쓰는 JSON 매퍼(Boot 자동 구성)는 개인정보 값객체 직렬화를 거부한다(가드 모듈 등록 확인). */

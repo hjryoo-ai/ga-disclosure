@@ -28,7 +28,7 @@ import java.util.List;
 final class SealSetup implements AutoCloseable {
 
     static final Actor MANAGER = WorkflowSetup.MANAGER;
-    static final Actor COMPLIANCE = new Actor("compliance-1@test", "MANAGER");
+    static final Actor COMPLIANCE = new Actor("compliance-1@test", "COMPLIANCE");
 
     final WorkflowSetup w;
     final SeaweedHarness s3 = SeaweedHarness.get();
@@ -61,7 +61,7 @@ final class SealSetup implements AutoCloseable {
     }
 
     ArtifactService artifactsAt(Clock clock, ArtifactStore store) {
-        return new ArtifactService(records, cipher, store, w.audit, w.tx, clock, SealService.DEFAULT_TRANSACTION_TIMEOUT);
+        return new ArtifactService(records, cipher, store, w.audit, w.tx, clock, SealService.DEFAULT_TRANSACTION_TIMEOUT, Callers.authz(clock));
     }
 
     SealService sealAt(Clock clock, ArtifactStore store, DocumentRecordStore recordStore) {
@@ -70,7 +70,7 @@ final class SealSetup implements AutoCloseable {
 
     SealService.Outcome sealReasoned() {
         DisclosureId id = w.reasoned();
-        return seal.seal(w.tenant, WorkflowSetup.AGENT, id);
+        return seal.seal(Callers.of(w.tenant, WorkflowSetup.AGENT), id);
     }
 
     /** 감사 행 중 대상이 이 확인서인 것의 동작들(순서대로). */

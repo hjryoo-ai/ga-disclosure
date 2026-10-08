@@ -1,6 +1,5 @@
 package com.ga.disclosure.workflow.artifact;
 
-import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.vo.DisclosureId;
 
 import java.time.Instant;
@@ -40,7 +39,7 @@ public interface DocumentRecordStore {
      */
     List<Unretained> unretained(int limit);
 
-    /** 그 객체 키를 가리키는 기록(산출물 또는 서명 증거)이 있는가(잔여물 정리 판정). */
+    /** 그 객체 키를 가리키는 기록(산출물·서명 증거·작업 보고서 — 6A)이 있는가(잔여물 정리 판정). */
     boolean referenced(String storageKey);
 
     record Unretained(LockedObject record, LocalDate retentionUntil) {

@@ -96,14 +96,14 @@ class SignatureEvidenceEncryptionIT {
             assertThat(r.storageKey()).startsWith(s.w.tenant.value() + "/" + st.id().value() + "/SIG/" + st.signatureId() + "/")
                     .doesNotContain(r.sha256().hex());
         }
-        ArtifactService.View image = s.artifacts.viewEvidence(s.w.tenant, SealSetup.COMPLIANCE, st.id(), st.signatureId(), SignatureEvidenceKind.IMAGE);
+        ArtifactService.View image = s.artifacts.viewEvidence(Callers.of(s.w.tenant, SealSetup.COMPLIANCE), st.id(), st.signatureId(), SignatureEvidenceKind.IMAGE);
         assertThat(((ArtifactService.View.Granted) image).plaintext()).isEqualTo(PNG);
-        ArtifactService.View strokes = s.artifacts.viewEvidence(s.w.tenant, SealSetup.COMPLIANCE, st.id(), st.signatureId(),
+        ArtifactService.View strokes = s.artifacts.viewEvidence(Callers.of(s.w.tenant, SealSetup.COMPLIANCE), st.id(), st.signatureId(),
                 SignatureEvidenceKind.STROKES);
         assertThat(new String(((ArtifactService.View.Granted) strokes).plaintext(), StandardCharsets.UTF_8)).isEqualTo(STROKES);
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW
                 && r.entry().detail().path("signatureId").asString().equals(st.signatureId().toString()));
-        assertThat(s.artifacts.viewEvidence(s.w.tenant, SealSetup.COMPLIANCE, st.id(), st.signatureId(), SignatureEvidenceKind.SCAN))
+        assertThat(s.artifacts.viewEvidence(Callers.of(s.w.tenant, SealSetup.COMPLIANCE), st.id(), st.signatureId(), SignatureEvidenceKind.SCAN))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.NO_ARTIFACT));
     }
 
@@ -126,11 +126,11 @@ class SignatureEvidenceEncryptionIT {
                 assertThat(contains(raw, new byte[]{(byte) 0x89, 'P', 'N', 'G'})).as("PNG signature in %s", r.kindName()).isFalse();
                 assertThat(contains(raw, coordinate)).as("coordinates in %s", r.kindName()).isFalse();
             }
-            ArtifactService.View image = x.s.artifacts.viewEvidence(x.w.tenant, SealSetup.COMPLIANCE, id, signatureId, SignatureEvidenceKind.IMAGE);
+            ArtifactService.View image = x.s.artifacts.viewEvidence(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id, signatureId, SignatureEvidenceKind.IMAGE);
             assertThat(((ArtifactService.View.Granted) image).plaintext()).isEqualTo(SignSetup.png());
-            ArtifactService.View strokes = x.s.artifacts.viewEvidence(x.w.tenant, SealSetup.COMPLIANCE, id, signatureId, SignatureEvidenceKind.STROKES);
+            ArtifactService.View strokes = x.s.artifacts.viewEvidence(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id, signatureId, SignatureEvidenceKind.STROKES);
             assertThat(contains(((ArtifactService.View.Granted) strokes).plaintext(), coordinate)).isTrue();
-            byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, SealSetup.COMPLIANCE, id,
+            byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id,
                     com.ga.disclosure.domain.enums.ArtifactKind.EVIDENCE_ZIP)).plaintext();
             assertThat(contains(zip, coordinate)).as("no strokes in the evidence package").isFalse();
             java.util.Map<String, byte[]> entries = com.ga.disclosure.seal.evidence.EvidencePackageReader.entries(zip);
@@ -161,7 +161,7 @@ class SignatureEvidenceEncryptionIT {
     void shreddingTheDocumentKeyMakesEvidenceUnreadableToo() {
         Stored st = signedWithEvidence();
         s.w.db.seed(s.w.tenant.value(), c -> com.ga.disclosure.infra.testing.SeedData.shredDocumentKey(c, s.w.tenant.value(), st.id().value()));
-        assertThat(s.artifacts.viewEvidence(s.w.tenant, SealSetup.COMPLIANCE, st.id(), st.signatureId(), SignatureEvidenceKind.IMAGE))
+        assertThat(s.artifacts.viewEvidence(Callers.of(s.w.tenant, SealSetup.COMPLIANCE), st.id(), st.signatureId(), SignatureEvidenceKind.IMAGE))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.KEY_SHREDDED));
         assertThat(s.bucket.exists(st.image().storageKey())).as("the locked copy stays, unreadable").isTrue();
     }
@@ -171,12 +171,12 @@ class SignatureEvidenceEncryptionIT {
         Stored st = signedWithEvidence();
         String until = s.text("SELECT retention_until::text FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", s.w.tenant.value(),
                 st.id().value());
-        ArtifactService.ReconcileReport first = s.artifacts.reconcile(s.w.tenant, SealSetup.MANAGER, 100);
+        ArtifactService.ReconcileReport first = s.artifacts.reconcile(Callers.cli(s.w.tenant, SealSetup.MANAGER), 100);
         assertThat(first.applied()).isEqualTo(2);                                      // 봉인이 산출물은 이미 잠갔다 — 증거 2건
         assertThat(s.bucket.retention(st.image().storageKey())).isPresent();
         assertThat(s.text("SELECT retention_applied_until::text FROM signature_evidence WHERE tenant_id = ? AND signature_id = ? AND kind = 'IMAGE'",
                 s.w.tenant.value(), st.signatureId())).isEqualTo(until);
-        assertThat(s.artifacts.reconcile(s.w.tenant, SealSetup.MANAGER, 100).applied()).isZero();
+        assertThat(s.artifacts.reconcile(Callers.cli(s.w.tenant, SealSetup.MANAGER), 100).applied()).isZero();
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_RETAIN
                 && r.entry().detail().path("signatureId").asString().equals(st.signatureId().toString()));
 
@@ -184,7 +184,7 @@ class SignatureEvidenceEncryptionIT {
         LocalDate longer = LocalDate.parse(until).plusYears(5);
         s.w.db.seed(s.w.tenant.value(), c -> SeedData.exec(c, "UPDATE disclosure SET retention_until = ? WHERE tenant_id = ? AND disclosure_id = ?",
                 longer, s.w.tenant.value(), st.id().value()));
-        assertThat(s.artifacts.reconcile(s.w.tenant, SealSetup.MANAGER, 100).applied()).isEqualTo(4);  // PDF·CANONICAL + 증거 2
+        assertThat(s.artifacts.reconcile(Callers.cli(s.w.tenant, SealSetup.MANAGER), 100).applied()).isEqualTo(4);  // PDF·CANONICAL + 증거 2
         assertThat(s.bucket.retention(st.strokes().storageKey()).orElseThrow()).isAfter(Instant.parse(longer + "T00:00:00Z"));
         assertThat(s.text("SELECT retention_applied_until::text FROM document_artifact WHERE tenant_id = ? AND disclosure_id = ? AND kind = 'PDF'",
                 s.w.tenant.value(), st.id().value())).isEqualTo(longer.toString());
@@ -197,7 +197,7 @@ class SignatureEvidenceEncryptionIT {
         s.bucket.put(orphan, new byte[]{1, 2, 3});
         // 객체의 마지막 수정 시각은 저장소의 실제 시각이다 — 유예를 넘긴 미래 시계로 본다(RetentionOrderIT와 같은 방식)
         ArtifactService later = s.artifactsAt(Clock.offset(Clock.systemUTC(), SealSetup.grace().plus(Duration.ofHours(1))), s.bucket);
-        ArtifactService.GcReport report = later.gc(s.w.tenant, SealSetup.MANAGER, SealSetup.grace());
+        ArtifactService.GcReport report = later.gc(Callers.cli(s.w.tenant, SealSetup.MANAGER), SealSetup.grace());
         assertThat(report.deleted()).containsExactly(orphan);
         assertThat(report.referenced()).isEqualTo(4);                                   // PDF·CANONICAL + 증거 2
         assertThat(s.bucket.exists(st.image().storageKey())).isTrue();

@@ -62,9 +62,9 @@ class NumberingIT {
             List<DisclosureId> other = IntStream.range(0, 10).mapToObj(i -> b.w.reasoned()).toList();
 
             List<Callable<SealService.Outcome>> tasks = new ArrayList<>();
-            good.forEach(id -> tasks.add(() -> a.seal.seal(a.w.tenant, WorkflowSetup.AGENT, id)));
-            bad.forEach(id -> tasks.add(() -> a.seal.seal(a.w.tenant, WorkflowSetup.AGENT, id)));
-            other.forEach(id -> tasks.add(() -> b.seal.seal(b.w.tenant, WorkflowSetup.AGENT, id)));
+            good.forEach(id -> tasks.add(() -> a.seal.seal(Callers.of(a.w.tenant, WorkflowSetup.AGENT), id)));
+            bad.forEach(id -> tasks.add(() -> a.seal.seal(Callers.of(a.w.tenant, WorkflowSetup.AGENT), id)));
+            other.forEach(id -> tasks.add(() -> b.seal.seal(Callers.of(b.w.tenant, WorkflowSetup.AGENT), id)));
             java.util.Collections.shuffle(tasks, new java.util.Random(20261001L));
             List<SealService.Outcome> outcomes = concurrently(tasks);
 
@@ -91,8 +91,8 @@ class NumberingIT {
             SealService beforeMidnight = s.sealAt(Clock.fixed(Instant.parse("2026-12-31T14:59:00Z"), SealService.SEOUL), s.bucket, s.records);
             SealService afterMidnight = s.sealAt(Clock.fixed(Instant.parse("2026-12-31T15:00:00Z"), SealService.SEOUL), s.bucket, s.records);
             List<SealService.Outcome> outcomes = concurrently(List.of(
-                    () -> beforeMidnight.seal(w.tenant, WorkflowSetup.AGENT, eve),
-                    () -> afterMidnight.seal(w.tenant, WorkflowSetup.AGENT, newYear)));
+                    () -> beforeMidnight.seal(Callers.of(w.tenant, WorkflowSetup.AGENT), eve),
+                    () -> afterMidnight.seal(Callers.of(w.tenant, WorkflowSetup.AGENT), newYear)));
             assertThat(outcomes).allMatch(SealService.Outcome::sealed);
             DisclosureNo first = outcomes.get(0).number().orElseThrow();
             DisclosureNo second = outcomes.get(1).number().orElseThrow();

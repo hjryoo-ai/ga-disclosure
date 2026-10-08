@@ -27,11 +27,17 @@ import com.ga.disclosure.seal.canonical.CanonicalDocumentBuilder;
 import com.ga.disclosure.seal.canonical.CanonicalInput;
 import com.ga.disclosure.seal.renderer.DisclosurePdfRenderer;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.customer.CustomerVault;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
 import com.ga.platform.core.tenant.TenantId;
@@ -77,13 +83,24 @@ public final class SealService {
     static final String ARTIFACT_TARGET = "DOCUMENT_ARTIFACT";
 
     /** 봉인 거부 코드(닫힌 어휘, 평가 순서). */
-    public enum Rejection {
-        RULE_SUPERSEDED,
-        TEMPLATE_SUPERSEDED,
-        SNAPSHOT_STALE,
-        VALIDATION_BLOCKED,
-        APPROVAL_MISSING,
-        CUSTOMER_NAME_UNAVAILABLE
+    public enum Rejection implements RejectionCategory.Categorized {
+        RULE_SUPERSEDED(RejectionCategory.CONFLICT),
+        TEMPLATE_SUPERSEDED(RejectionCategory.CONFLICT),
+        SNAPSHOT_STALE(RejectionCategory.CONFLICT),
+        VALIDATION_BLOCKED(RejectionCategory.INVALID),
+        APPROVAL_MISSING(RejectionCategory.INVALID),
+        CUSTOMER_NAME_UNAVAILABLE(RejectionCategory.CONFLICT);
+
+        private final RejectionCategory category;
+
+        Rejection(RejectionCategory category) {
+            this.category = category;
+        }
+
+        @Override
+        public RejectionCategory category() {
+            return category;
+        }
     }
 
     /**
@@ -126,6 +143,7 @@ public final class SealService {
 
     private final Duration transactionTimeout;
     private final RetentionLocks locks;
+    private final AuthorizationPort authz;
 
     public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
                        ArtifactStore storage, DisclosurePdfRenderer renderer) {
@@ -152,6 +170,7 @@ public final class SealService {
         this.renderer = Objects.requireNonNull(renderer, "renderer");
         this.runner = new CommandRunner(transactions, audit, clock);
         this.loader = deps.loader();
+        this.authz = deps.authz();
         this.locks = new RetentionLocks(records, storage, audit, transactions, clock);
     }
 
@@ -159,16 +178,18 @@ public final class SealService {
         return transactionTimeout;
     }
 
-    private record Committed(Outcome outcome, List<ArtifactRecord> artifacts, LocalDate retentionUntil) {
+    private record Committed(Outcome outcome, List<ArtifactRecord> artifacts, LocalDate retentionUntil, Actor actor) {
     }
 
-    public Outcome seal(TenantId tenant, Actor actor, DisclosureId id) {
-        Committed committed = runner.inTransaction(tenant, actor, DisclosureCommand.SEAL.name(), id.toString(), transactionTimeout,
-                () -> sealInTransaction(tenant, actor, id));
+    @UseCaseEntry(Action.SEAL)
+    public Outcome seal(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        Committed committed = runner.inTransaction(caller, DisclosureCommand.SEAL.name(), id.toString(), transactionTimeout,
+                attempt -> sealInTransaction(tenant, attempt.granted(authz.require(caller, Action.SEAL, Target.disclosure(id))), id));
         if (!committed.outcome().sealed()) {
             return committed.outcome();
         }
-        boolean pending = applyRetention(tenant, actor, committed.artifacts(), committed.retentionUntil());
+        boolean pending = applyRetention(tenant, committed.actor(), committed.artifacts(), committed.retentionUntil());
         Outcome o = committed.outcome();
         return new Outcome(o.id(), o.status(), o.rejections(), o.results(), o.number(), pending);
     }
@@ -224,7 +245,7 @@ public final class SealService {
                     () -> detail.putNull("currentTenantRuleVersionId"));
             results(detail, results, unapproved);
             record(actor, AuditAction.DISCLOSURE_SEAL_REJECTED, id, detail);
-            return new Committed(new Outcome(id, d.status(), rejections, results, Optional.empty(), false), List.of(), null);
+            return new Committed(new Outcome(id, d.status(), rejections, results, Optional.empty(), false), List.of(), null, actor);
         }
 
         // ---------------------------------------------------------------- 성공 경로
@@ -274,7 +295,7 @@ public final class SealService {
         outbox.append(EventType.DisclosureSealed, id.toString(), now, OutboxPayloads.disclosureSealed(id.value(), number.value(),
                 d.lineage().version(), d.ruleVersionId().value(), d.engineSnapshot().map(s -> s.snapshot().snapshotId().value()).orElse(null),
                 canonical.sha256(), pdf.sha256(), chainHash, chainSeq, now));
-        return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, retentionUntil);
+        return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, retentionUntil, actor);
     }
 
     /** 봉인 체인 식 하나({@link com.ga.disclosure.audit.chain.SealChain} — 검증·앵커가 같은 식을 쓴다, V7 GD095는 SQL로 다시 계산). */

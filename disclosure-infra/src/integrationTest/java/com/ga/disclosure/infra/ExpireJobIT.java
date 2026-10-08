@@ -42,7 +42,7 @@ class ExpireJobIT {
     @Test
     void theLastInstantOfTheDeadlineDayIsStillOpenAndTheNextOneExpires() {
         DisclosureId id = x.sealed();
-        ExpireService.Report atDeadline = expire.run(x.w.tenant, OPERATOR, SignSetup.DEADLINE_END, 100);
+        ExpireService.Report atDeadline = expire.run(Callers.of(x.w.tenant, OPERATOR), SignSetup.DEADLINE_END, 100);
         assertThat(atDeadline.expired()).isEmpty();
         assertThat(atDeadline.stillOpen()).isEqualTo(1);
         assertThat(x.status(id)).isEqualTo("SEALED");
@@ -51,7 +51,7 @@ class ExpireJobIT {
         String token = x.issue(id, SignatureChannel.REMOTE_LINK);
         String sessionId = x.w.in(() -> x.sessions.openFor(id)).getFirst().sessionId().toString();
 
-        ExpireService.Report after = expire.run(x.w.tenant, OPERATOR, SignSetup.DEADLINE_END.plusNanos(1000), 100);
+        ExpireService.Report after = expire.run(Callers.of(x.w.tenant, OPERATOR), SignSetup.DEADLINE_END.plusNanos(1000), 100);
         assertThat(after.expired()).containsExactly(id);
         assertThat(x.status(id)).isEqualTo("EXPIRED");
         assertThat(sessionStatus(sessionId)).isEqualTo("REVOKED/DOCUMENT_EXPIRED");
@@ -59,7 +59,7 @@ class ExpireJobIT {
         assertThat(x.s.actionsFor(id)).contains(AuditAction.SIGN_SESSION_REVOKE, AuditAction.DISCLOSURE_EXPIRE);
         assertThatThrownBy(() -> x.sessionService.open(token)).isExactlyInstanceOf(SignTokenRejected.class);
 
-        ExpireService.Report again = expire.run(x.w.tenant, OPERATOR, SignSetup.DEADLINE_END.plusSeconds(60), 100);
+        ExpireService.Report again = expire.run(Callers.of(x.w.tenant, OPERATOR), SignSetup.DEADLINE_END.plusSeconds(60), 100);
         assertThat(again.expired()).isEmpty();
         assertThat(again.stillOpen()).isZero();
     }
@@ -68,13 +68,13 @@ class ExpireJobIT {
     void signaturesSurviveExpiryAndAnExpiredDisclosureTakesNoMore() {
         DisclosureId id = x.sealed();
         assertThat(x.customerSignsOnTouchPad(id).accepted()).isTrue();
-        expire.run(x.w.tenant, OPERATOR, Instant.parse("2026-10-01T00:00:00Z"), 100);
+        expire.run(Callers.of(x.w.tenant, OPERATOR), Instant.parse("2026-10-01T00:00:00Z"), 100);
         assertThat(x.status(id)).isEqualTo("EXPIRED");
         assertThat(x.signaturesOf(id)).hasSize(1);
         assertThatThrownBy(() -> x.agentSigns(id)).isInstanceOf(IllegalTransition.class);
         assertThat(x.s.audit()).anyMatch(r -> r.entry().action() == AuditAction.COMMAND_FAILED
                 && r.entry().detail().path("code").asString().equals("ILLEGAL_TRANSITION"));
-        assertThatThrownBy(() -> x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.TOUCH_PAD))
+        assertThatThrownBy(() -> x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.TOUCH_PAD))
                 .isInstanceOf(IllegalTransition.class);
     }
 
@@ -84,12 +84,12 @@ class ExpireJobIT {
         x.issue(id, SignatureChannel.TOUCH_PAD);                               // TTL 30분
         String sessionId = x.w.in(() -> x.sessions.openFor(id)).getFirst().sessionId().toString();
         x.clock.advance(Duration.ofMinutes(31));
-        ExpireService.Report r = expire.run(x.w.tenant, OPERATOR, x.clock.instant(), 100);
+        ExpireService.Report r = expire.run(Callers.of(x.w.tenant, OPERATOR), x.clock.instant(), 100);
         assertThat(r.sessionsExpired()).isEqualTo(1);
         assertThat(r.expired()).isEmpty();
         assertThat(sessionStatus(sessionId)).isEqualTo("EXPIRED");
         assertThat(x.status(id)).isEqualTo("SEALED");
         assertThat(x.s.actionsFor(id)).contains(AuditAction.SIGN_SESSION_EXPIRE);
-        assertThat(expire.run(x.w.tenant, OPERATOR, x.clock.instant(), 100).sessionsExpired()).isZero();
+        assertThat(expire.run(Callers.of(x.w.tenant, OPERATOR), x.clock.instant(), 100).sessionsExpired()).isZero();
     }
 }

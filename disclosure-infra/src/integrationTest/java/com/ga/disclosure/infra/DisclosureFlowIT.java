@@ -39,10 +39,10 @@ class DisclosureFlowIT {
     @Test
     void draftToReasonedIsStoredAndReloaded() {
         DisclosureId id = s.compared();
-        CommandResult graded = s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+        CommandResult graded = s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertThat(graded.applied()).as("%s %s", graded.rejectionOrNull(), graded.engineViolations()).isTrue();
         assertThat(graded.status()).isEqualTo(DisclosureStatus.GRADED);
-        CommandResult reasoned = s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, id, List.of(
+        CommandResult reasoned = s.service.setRecommendations(Callers.of(s.tenant, WorkflowSetup.AGENT), id, List.of(
                 new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
                 new AgentReason(3, List.of(ReasonCode.of("COVERAGE")), null)));
         assertThat(reasoned.applied()).as("%s", reasoned.results()).isTrue();
@@ -63,13 +63,13 @@ class DisclosureFlowIT {
     @Test
     void tempProductIsGradedLocallyAndNeverSentToTheEngine() {
         DisclosureId id = s.draft();
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), id, List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true),
                 new ItemInput.Temp(InsurerCode.of("INS-D"), "(가상) 임시등록 상품", "Q-2026-0001", true, false, Map.of(
                         "PREMIUM", tools.jackson.databind.node.JsonNodeFactory.instance.numberNode(30000),
                         "SURRENDER_VALUE_EXAMPLE", tools.jackson.databind.node.JsonNodeFactory.instance.stringNode("가입설계서 참조"))),
                 WorkflowSetup.catalogItem("INS-C:PRD-3120", false)));
-        assertThat(s.service.compare(s.tenant, WorkflowSetup.AGENT, id).applied()).isTrue();
-        CommandResult graded = s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+        assertThat(s.service.compare(Callers.of(s.tenant, WorkflowSetup.AGENT), id).applied()).isTrue();
+        CommandResult graded = s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertThat(graded.applied()).as("%s", graded.engineViolations()).isTrue();
         assertThat(s.engine.requestViolations()).as("임시등록은 요청에 없다(계약 요청 스키마 통과)").isEmpty();
 
@@ -96,19 +96,19 @@ class DisclosureFlowIT {
     @Test
     void customerRequestedInsurerSendsItBackToComparedAndRegrades() {
         DisclosureId id = s.compared();
-        s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+        s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         List<ItemInput> four = List.of(WorkflowSetup.catalogItem("INS-A:PRD-1001", true), WorkflowSetup.catalogItem("INS-B:PRD-2044", false),
                 WorkflowSetup.catalogItem("INS-C:PRD-3120", true),
                 new ItemInput.Catalog(com.ga.disclosure.domain.vo.ProductKey.parse("INS-E:PRD-5001"), false, true, Map.of()));
-        CommandResult replaced = s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, id, four);
+        CommandResult replaced = s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), id, four);
         assertThat(replaced.status()).isEqualTo(DisclosureStatus.COMPARED);
         assertThat(load(id).snapshotOrNull()).isNull();
 
-        CommandResult regraded = s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
+        CommandResult regraded = s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertThat(regraded.applied()).isTrue();
         // E는 A와 같은 rankKey → SHARED_RANK 동순위 1, 1, 3, 4
         assertThat(load(id).items()).extracting(i -> ((ItemGrade.Ok) i.gradeOrNull()).rankInSet()).containsExactly(1, 4, 3, 1);
-        CommandResult reasoned = s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, id, List.of(
+        CommandResult reasoned = s.service.setRecommendations(Callers.of(s.tenant, WorkflowSetup.AGENT), id, List.of(
                 new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null), new AgentReason(3, List.of(ReasonCode.of("COVERAGE")), null)));
         assertThat(reasoned.applied()).as("%s", reasoned.results()).isTrue();
         assertThat(load(id).items().get(3).recommendation().orElseThrow().codes()).as("고객 요청 항목에는 룰의 자동 부가 코드")

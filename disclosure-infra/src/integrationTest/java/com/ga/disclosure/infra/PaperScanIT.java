@@ -11,6 +11,7 @@ import com.ga.disclosure.workflow.sign.SignRejection;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 종이 스캔(설계서 §6.5 PAPER_SCAN, 4 계획 §7.2, 승인 Q10): 설계사가 스캔본 각주의 번호·해시 접두를 입력해 원본과 대조하고(OCR 없음, 불일치는 업무 거부 —
@@ -26,10 +27,14 @@ class PaperScanIT {
     }
 
     private static SignService.Outcome scan(SignSetup x, DisclosureId id, Actor agent, String prefixOverrideOrNull) {
+        return scan(x, id, Callers.of(x.w.tenant, agent), prefixOverrideOrNull);
+    }
+
+    private static SignService.Outcome scan(SignSetup x, DisclosureId id, com.ga.disclosure.workflow.authz.Caller agent, String prefixOverrideOrNull) {
         String token = x.issue(id, SignatureChannel.PAPER_SCAN);
-        x.sessionService.confirmFaceToFace(token, SignSetup.AGENT);         // 룰 identityCheck.PAPER_SCAN = [AGENT_FACE_TO_FACE]
+        x.sessionService.confirmFaceToFace(Callers.of(x.w.tenant, SignSetup.AGENT), token);         // 룰 identityCheck.PAPER_SCAN = [AGENT_FACE_TO_FACE]
         String[] footnote = numberAndPrefix(x, id);
-        return x.signService.uploadPaperScan(token, agent, new PaperScan(SignSetup.png(), footnote[0],
+        return x.signService.uploadPaperScan(agent, token, new PaperScan(SignSetup.png(), footnote[0],
                 prefixOverrideOrNull == null ? footnote[1] : prefixOverrideOrNull));
     }
 
@@ -44,9 +49,9 @@ class PaperScanIT {
             assertThat(scan(x, id, SignSetup.AGENT, null).accepted()).isTrue();
             assertThat(reviewOpen(x, id)).isTrue();
             x.agentSigns(id);
-            assertThat(x.signService.reviewPaperScan(x.w.tenant, SignSetup.MANAGER, id).rejections())
+            assertThat(x.signService.reviewPaperScan(Callers.of(x.w.tenant, SignSetup.MANAGER), id).rejections())
                     .containsExactly(SignRejection.REVIEW_VIA_MANAGER_CONFIRM);
-            assertThat(x.signService.managerConfirm(x.w.tenant, SignSetup.MANAGER, id, java.util.Set.of()).rejections())
+            assertThat(x.signService.managerConfirm(Callers.of(x.w.tenant, SignSetup.MANAGER), id, java.util.Set.of()).rejections())
                     .as("every flag of the disclosure must be acknowledged (approval Q9)").containsExactly(SignRejection.ACKNOWLEDGEMENT_MISSING);
             java.util.Set<java.util.UUID> all = x.allFlags(id);
             assertThat(all).isNotEmpty();
@@ -70,7 +75,9 @@ class PaperScanIT {
             String detail = x.s.audit().stream().filter(r -> r.entry().action() == AuditAction.DISCLOSURE_REJECT).findFirst().orElseThrow()
                     .entry().detail().toString();
             assertThat(detail).contains("\"hashPrefixMatched\":false").doesNotContain("ffffffffffff");
-            assertThat(scan(x, id, SignSetup.STRANGER, null).rejections()).contains(SignRejection.AGENT_NOT_ASSIGNED);
+            // 6A: 다른 설계사는 범위 밖(인가 거부), 담당 검사는 같은 주체의 CLI 대리 실행에서
+            assertThatThrownBy(() -> scan(x, id, SignSetup.STRANGER, null)).isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);
+            assertThat(scan(x, id, Callers.cli(x.w.tenant, SignSetup.STRANGER), null).rejections()).contains(SignRejection.AGENT_NOT_ASSIGNED);
         }
     }
 
@@ -85,13 +92,16 @@ class PaperScanIT {
             SignService.Outcome agent = x.agentSigns(id);
             assertThat(agent.completed()).as("the open review holds completion").isFalse();
             assertThat(x.status(id)).isEqualTo("PARTIALLY_SIGNED");
-            SignService.Outcome held = x.signService.complete(x.w.tenant, SignSetup.AGENT, id);
+            SignService.Outcome held = x.signService.complete(Callers.of(x.w.tenant, SignSetup.AGENT), id);
             assertThat(held.rejections()).as("%s", held.completionResults()).containsExactly(SignRejection.PAPER_SCAN_REVIEW_OPEN);
-            assertThat(x.signService.reviewPaperScan(x.w.tenant, SignSetup.AGENT, id).rejections())
+            // 6A: 설계사에게 검토 칸이 없다(인가 거부) — 업무 규칙(exceptionApproval.role)은 CLI 대리 실행에서
+            assertThatThrownBy(() -> x.signService.reviewPaperScan(Callers.of(x.w.tenant, SignSetup.AGENT), id))
+                    .isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);
+            assertThat(x.signService.reviewPaperScan(Callers.cli(x.w.tenant, SignSetup.AGENT), id).rejections())
                     .containsExactly(SignRejection.REVIEW_ROLE_REQUIRED);
-            assertThat(x.signService.reviewPaperScan(x.w.tenant, SignSetup.MANAGER, id).accepted()).isTrue();
-            assertThat(x.signService.reviewPaperScan(x.w.tenant, SignSetup.MANAGER, id).rejections()).containsExactly(SignRejection.NO_REVIEW_PENDING);
-            SignService.Outcome done = x.signService.complete(x.w.tenant, SignSetup.AGENT, id);
+            assertThat(x.signService.reviewPaperScan(Callers.of(x.w.tenant, SignSetup.MANAGER), id).accepted()).isTrue();
+            assertThat(x.signService.reviewPaperScan(Callers.of(x.w.tenant, SignSetup.MANAGER), id).rejections()).containsExactly(SignRejection.NO_REVIEW_PENDING);
+            SignService.Outcome done = x.signService.complete(Callers.of(x.w.tenant, SignSetup.AGENT), id);
             assertThat(done.completed()).isTrue();
             assertThat(x.status(id)).isEqualTo("COMPLETED");
         }

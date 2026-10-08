@@ -33,7 +33,8 @@ class OperatorCliIT {
                 "--spring.profiles.active=cli",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
                 "--spring.flyway.url=" + DB.jdbcUrl(),
-                "--ga.tenant-directory.url=" + DB.jdbcUrl()));
+                "--ga.tenant-directory.url=" + DB.jdbcUrl(),
+                "--ga.job-lock.url=" + DB.jdbcUrl()));
         all.addAll(List.of(args));
         PrintStream original = System.out;
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -44,6 +45,7 @@ class OperatorCliIT {
             return buffer.toString(StandardCharsets.UTF_8);
         } finally {
             System.setOut(original);
+            CliOutputScan.assertClean(buffer.toString(StandardCharsets.UTF_8));   // 실패 경로의 출력도(6A §9.3)
         }
     }
 
@@ -192,13 +194,16 @@ class OperatorCliIT {
                         .extracting(t -> ((org.springframework.boot.ExitCodeGenerator) t).getExitCode()).isEqualTo(2));
         Path reason = java.nio.file.Files.createTempFile("void-reason", ".txt");
         java.nio.file.Files.writeString(reason, "(가상) 고객 상담 철회");
+        // 6A 승인 Q9: --role은 폐기 — 조용히 무시하지 않고 거부한다(감사 역할은 OPERATOR, 업무 역할은 identity_link)
+        assertThatThrownBy(() -> run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-code", "CUSTOMER_CANCELLED",
+                "--operator", "demo-manager", "--role", "MANAGER"))).hasStackTraceContaining("--role is no longer accepted");
         // V8: 사유 코드는 고정 룰의 닫힌 목록(voidReasons) — 모르는 코드는 거부(종료 코드 2), 텍스트는 파일로만
         assertThatThrownBy(() -> run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-code", "NOT_A_REASON",
-                "--operator", "manager-1", "--role", "MANAGER")))
+                "--operator", "demo-manager")))
                 .hasStackTraceContaining("REASON_CODE_UNKNOWN")
                 .satisfies(e -> assertThat(rootCause(e)).isInstanceOf(org.springframework.boot.ExitCodeGenerator.class));
         assertThat(run(with(storage, "disclosure", "void", "--tenant", tenant, "--id", sealedId, "--reason-code", "CUSTOMER_CANCELLED",
-                "--reason-file", reason.toString(), "--operator", "manager-1", "--role", "MANAGER")))
+                "--reason-file", reason.toString(), "--operator", "demo-manager")))
                 .contains("VOID " + tenant + " " + sealedId + " VOID")
                 .doesNotContain("고객 상담 철회");
         assertThat(column(tenant, "SELECT status || ':' || coalesce(disclosure_no, '-') || ':' || void_reason_code FROM disclosure"
@@ -226,9 +231,10 @@ class OperatorCliIT {
                 .contains("A-4-SCAN id=", "PAPER_SCAN -> COMPLETED");
 
         String first = run(with(storage, "demo", "signatures", "--tenant", tenant, "--file", demo.resolve("demo/signatures.json").toString()));
-        assertThat(first).contains("A-2 id=", "TOUCH_PAD -> COMPLETED", "A-3-REMOTE id=", "REMOTE_LINK sent=true")
-                .contains("SIGN LINK https://sign.example.invalid/sign/" + tenant + "~");
-        String token = first.lines().filter(l -> l.startsWith("SIGN LINK ")).findFirst().orElseThrow().replaceFirst("^SIGN LINK .*/sign/", "");
+        // 6A: 원격 링크는 발급 때 아웃박스에 적재되고(queued=) 같은 명령 끝의 통지 발송(작업 NOTIFY)이 보낸다 — 토큰은 프래그먼트(/s#)
+        assertThat(first).contains("A-2 id=", "TOUCH_PAD -> COMPLETED", "A-3-REMOTE id=", "REMOTE_LINK queued=", "NOTIFY " + tenant + " sent=1")
+                .contains("SIGN LINK https://sign.example.invalid/s#" + tenant + "~");
+        String token = first.lines().filter(l -> l.startsWith("SIGN LINK ")).findFirst().orElseThrow().replaceFirst("^SIGN LINK .*/s#", "");
         String remoteId = first.lines().filter(l -> l.startsWith("DEMO_SIGN " + tenant + " A-3-REMOTE id=")).findFirst().orElseThrow()
                 .replaceFirst("^.* id=([0-9a-f-]+) .*$", "$1");
 

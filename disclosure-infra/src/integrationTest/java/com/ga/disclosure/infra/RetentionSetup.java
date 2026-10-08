@@ -30,6 +30,8 @@ import java.util.function.Consumer;
 final class RetentionSetup implements AutoCloseable {
 
     static final Actor OPERATOR = new Actor("ops-retention@test", "OPERATOR");
+    /** 보류 해제자(4-eyes — 설정자와 다른 주체, V12 ck_legal_hold_four_eyes). */
+    static final Actor RELEASER = new Actor("ops-retention-2@test", "OPERATOR");
     static final Actor SYSTEM = new Actor("system:destruction", "SYSTEM");
     /** B3: {@code RETENTION_ALREADY_ELAPSED}를 의도적으로 만드는 테넌트(감사 스캔이 이 밖의 발생을 실패로 본다). */
     static final Set<String> ELAPSED_TENANTS = ConcurrentHashMap.newKeySet();
@@ -97,24 +99,24 @@ final class RetentionSetup implements AutoCloseable {
 
     DestructionJob job(DestroyerPort destroyerPort, Instant clock) {
         return new DestructionJob(store, erasure, destroyerPort, x.s.records, x.s.store, new RuleResolver(x.w.rules), x.w.audit, x.w.outbox, x.w.tx,
-                at(clock));
+                at(clock), Callers.authz(at(clock)));
     }
 
     /** 시계와 판정 시각이 같은 실행. */
     DestructionJob.Report destroyAt(Instant asOf) {
-        return conforming(job(destroyer, asOf).run(x.w.tenant, asOf, false, SYSTEM, 100));
+        return conforming(job(destroyer, asOf).run(Callers.of(x.w.tenant, SYSTEM), asOf, false, 100));
     }
 
     /** {@code asOf} 시계의 재적용(보존 종료 뒤면 {@code RETENTION_ALREADY_ELAPSED}). */
     void reconcileAt(Instant asOf) {
-        x.s.artifactsAt(at(asOf), x.s.store).reconcile(x.w.tenant, OPERATOR, 1000);
+        x.s.artifactsAt(at(asOf), x.s.store).reconcile(Callers.of(x.w.tenant, OPERATOR), 1000);
         if (!asOf.isBefore(AFTER)) {
             RECONCILED_TENANTS.add(x.w.tenant.value());
         }
     }
 
     DestructionJob.Report destroy() {
-        return conforming(job().run(x.w.tenant, AFTER, false, SYSTEM, 100));
+        return conforming(job().run(Callers.of(x.w.tenant, SYSTEM), AFTER, false, 100));
     }
 
     /** 보고서는 계약 스키마({@code contracts/verify/v1/destruction-report.schema.json})를 따른다 — 이 조립의 모든 실행에서 확인한다. */
@@ -127,7 +129,7 @@ final class RetentionSetup implements AutoCloseable {
     }
 
     LegalHoldService holdService(Clock clock) {
-        return new LegalHoldService(holds, store, x.s.records, x.s.store, new RuleResolver(x.w.rules), x.w.audit, x.w.tx, clock, UUID::randomUUID);
+        return new LegalHoldService(holds, store, x.s.records, x.s.store, new RuleResolver(x.w.rules), x.w.audit, x.w.tx, clock, UUID::randomUUID, Callers.authz(clock));
     }
 
     SealChainRepository chain() {

@@ -28,7 +28,8 @@ class DemoClockProfileIT {
                 "--spring.main.web-application-type=none",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
                 "--spring.flyway.url=" + DB.jdbcUrl(),
-                "--ga.tenant-directory.url=" + DB.jdbcUrl()));
+                "--ga.tenant-directory.url=" + DB.jdbcUrl(),
+                "--ga.job-lock.url=" + DB.jdbcUrl()));
         args.addAll(List.of(extra));
         return new SpringApplicationBuilder(DisclosureApplication.class).run(args.toArray(String[]::new));
     }

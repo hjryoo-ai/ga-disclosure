@@ -1,8 +1,5 @@
 package com.ga.disclosure.infra;
 
-import com.ga.disclosure.workflow.customer.RegistrationKey;
-import com.ga.disclosure.workflow.customer.RegisterCustomer;
-import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
@@ -16,8 +13,11 @@ import com.ga.disclosure.infra.json.SensitiveGuardModule;
 import com.ga.disclosure.infra.testing.PiiSentinels;
 import com.ga.disclosure.infra.testing.PostgresHarness;
 import com.ga.disclosure.workflow.customer.Customer;
+import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import com.ga.disclosure.workflow.customer.NewCustomer;
 import com.ga.disclosure.workflow.customer.NotificationPurpose;
+import com.ga.disclosure.workflow.customer.RegisterCustomer;
+import com.ga.disclosure.workflow.customer.RegistrationKey;
 import com.ga.platform.core.tenant.TenantId;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -134,27 +134,26 @@ class PlaintextLeakScanIT {
         System.setErr(tee);
         try (SealSetup seal = new SealSetup()) {
             WorkflowSetup w = seal.w;
-            CustomerRef sentinel = new com.ga.disclosure.workflow.customer.CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant,
-                    WorkflowSetup.AGENT, new NewCustomer(CustomerName.of(PiiSentinels.NAME), PhoneNumber.of(PiiSentinels.PHONE),
+            CustomerRef sentinel = new com.ga.disclosure.workflow.customer.CustomerRefService(w.vault, w.audit, w.tx, w.clock, Callers.authz(w.clock)).register(Callers.of(w.tenant, CatalogCustomerSetup.OPERATOR), new NewCustomer(CustomerName.of(PiiSentinels.NAME), PhoneNumber.of(PiiSentinels.PHONE),
                             BirthDate.parse(PiiSentinels.BIRTH_DATE)));
             com.ga.disclosure.domain.vo.DisclosureId id;
             try {
-                id = w.service.createDraft(w.tenant, WorkflowSetup.AGENT, sentinel, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
+                id = w.service.createDraft(Callers.of(w.tenant, WorkflowSetup.AGENT), sentinel, WorkflowSetup.GROUP, WorkflowSetup.CONSULT,
                         com.ga.disclosure.domain.enums.TemplateType.STANDARD);
-                w.service.replaceItems(w.tenant, WorkflowSetup.AGENT, id, WorkflowSetup.threeItems());
-                w.service.compare(w.tenant, WorkflowSetup.AGENT, id);
-                w.service.requestGrades(w.tenant, WorkflowSetup.AGENT, id);
-                w.service.setRecommendations(w.tenant, WorkflowSetup.AGENT, id, List.of(
+                w.service.replaceItems(Callers.of(w.tenant, WorkflowSetup.AGENT), id, WorkflowSetup.threeItems());
+                w.service.compare(Callers.of(w.tenant, WorkflowSetup.AGENT), id);
+                w.service.requestGrades(Callers.of(w.tenant, WorkflowSetup.AGENT), id);
+                w.service.setRecommendations(Callers.of(w.tenant, WorkflowSetup.AGENT), id, List.of(
                         new com.ga.disclosure.domain.disclosure.AgentReason(1, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("PREMIUM")), null),
                         new com.ga.disclosure.domain.disclosure.AgentReason(3, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("COVERAGE")), null)));
-                capture(() -> seal.seal.seal(w.tenant, WorkflowSetup.AGENT, id));
+                capture(() -> seal.seal.seal(Callers.of(w.tenant, WorkflowSetup.AGENT), id));
                 for (com.ga.disclosure.domain.enums.ArtifactKind kind : List.of(com.ga.disclosure.domain.enums.ArtifactKind.CANONICAL_JSON,
                         com.ga.disclosure.domain.enums.ArtifactKind.PDF)) {
-                    com.ga.disclosure.workflow.disclosure.ArtifactService.View view = seal.artifacts.view(w.tenant, SealSetup.MANAGER, id, kind);
+                    com.ga.disclosure.workflow.disclosure.ArtifactService.View view = seal.artifacts.view(Callers.of(w.tenant, SealSetup.MANAGER), id, kind);
                     outputs.add(view instanceof com.ga.disclosure.workflow.disclosure.ArtifactService.View.Granted g
                             ? g.record().toString() : view.toString());
                 }
-                capture(() -> seal.lifecycle.voidDisclosure(w.tenant, SealSetup.MANAGER, id,
+                capture(() -> seal.lifecycle.voidDisclosure(Callers.of(w.tenant, SealSetup.MANAGER), id,
                         new com.ga.disclosure.workflow.disclosure.LifecycleReason("CUSTOMER_CANCELLED", null)));
             } finally {
                 System.setOut(out);
@@ -208,15 +207,15 @@ class PlaintextLeakScanIT {
         String secret;
         try (SignSetup x = new SignSetup()) {
             WorkflowSetup w = x.w;
-            CustomerRef sentinel = new com.ga.disclosure.workflow.customer.CustomerRefService(w.vault, w.audit, w.tx, w.clock).register(w.tenant,
-                    WorkflowSetup.AGENT, new NewCustomer(CustomerName.of(PiiSentinels.NAME), PhoneNumber.of(PiiSentinels.PHONE),
+            CustomerRef sentinel = new com.ga.disclosure.workflow.customer.CustomerRefService(w.vault, w.audit, w.tx, w.clock, Callers.authz(w.clock)).register(Callers.of(w.tenant, CatalogCustomerSetup.OPERATOR), new NewCustomer(CustomerName.of(PiiSentinels.NAME), PhoneNumber.of(PiiSentinels.PHONE),
                             BirthDate.parse(PiiSentinels.BIRTH_DATE)));
             com.ga.disclosure.domain.vo.DisclosureId id;
             try {
                 id = x.sealedFor(sentinel);
-                capture(() -> x.sessionService.issue(w.tenant, SignSetup.AGENT, id,
+                capture(() -> x.sessionService.issue(Callers.of(w.tenant, SignSetup.AGENT), id,
                         com.ga.disclosure.domain.enums.SignatureChannel.REMOTE_LINK));
-                String token = x.notify.last().reveal();
+                capture(x::dispatch);                                          // 6A: 링크는 통지 디스패처가 보낸다
+                String token = x.notify.lastToken();
                 secret = token.substring(token.indexOf('~') + 1);
                 capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate(" " + PiiSentinels.BIRTH_DATE + "x")));
                 capture(() -> x.sessionService.verify(token, com.ga.disclosure.workflow.sign.IdentityInputs.birthDate("1931-07-20")));
@@ -271,8 +270,8 @@ class PlaintextLeakScanIT {
                 BirthDate.parse(PiiSentinels.BIRTH_DATE));
         outputs.add(sentinel.toString());
         outputs.add(sentinel.name().toString() + sentinel.phone() + sentinel.birthDate());
-        CustomerRef ref = s.customers.register(t, CatalogCustomerSetup.OPERATOR, sentinel);
-        CustomerRef second = s.customers.register(t, CatalogCustomerSetup.OPERATOR,
+        CustomerRef ref = s.customers.register(Callers.of(t, CatalogCustomerSetup.OPERATOR), sentinel);
+        CustomerRef second = s.customers.register(Callers.of(t, CatalogCustomerSetup.OPERATOR),
                 new NewCustomer(CustomerName.of(PiiSentinels.NAME), null, null));
         capture(() -> s.customers.lookup(t, CatalogCustomerSetup.OPERATOR, ref));
         Customer customer = s.customers.lookup(t, CatalogCustomerSetup.OPERATOR, ref);
@@ -297,25 +296,25 @@ class PlaintextLeakScanIT {
         capture(() -> guarded.writeValueAsString(customer));
         capture(() -> plain.writeValueAsString(customer.phone().orElseThrow()));
         // Phase 3A W9: RegisterCustomer(등록 멱등 키) — 새 등록, 같은 키 재등록(NOOP), 그리고 고객 파일(센티널 값·형식 오류 행) 경로
-        RegisterCustomer register = new RegisterCustomer(s.vault, s.audit, s.tx, s.clock);
-        capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, new RegistrationKey("leak:file.json#S1"), sentinel));
-        capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, new RegistrationKey("leak:file.json#S1"), sentinel));
+        RegisterCustomer register = new RegisterCustomer(s.vault, s.audit, s.tx, s.clock, Callers.authz(s.clock));
+        capture(() -> register.execute(Callers.of(t, CatalogCustomerSetup.OPERATOR), new RegistrationKey("leak:file.json#S1"), sentinel));
+        capture(() -> register.execute(Callers.of(t, CatalogCustomerSetup.OPERATOR), new RegistrationKey("leak:file.json#S1"), sentinel));
         String file = """
                 {"schemaVersion":1,"source":"leak","customers":[{"id":"S2","name":"%s","phone":"%s","birthDate":"%s"}]}"""
                 .formatted(PiiSentinels.NAME, PiiSentinels.PHONE, PiiSentinels.BIRTH_DATE);
         for (CustomerFileParser.Row row : CustomerFileParser.parse("customers.json", file.getBytes(StandardCharsets.UTF_8))) {
             outputs.add(row.toString());
-            capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, row.key(), row.customer()));
+            capture(() -> register.execute(Callers.of(t, CatalogCustomerSetup.OPERATOR), row.key(), row.customer()));
         }
         capture(() -> CustomerFileParser.parse("customers.json", file.replace(PiiSentinels.PHONE, "02-" + PiiSentinels.PHONE)
                 .getBytes(StandardCharsets.UTF_8)));
         // 데모 파일(disclosure-demo customers.json, 허구 값)도 같은 유스케이스로 — 이름은 감사·출력에 나오지 않는다
         byte[] demo = readDemoCustomers();
         for (CustomerFileParser.Row row : CustomerFileParser.parse("customers.json", demo)) {
-            capture(() -> register.execute(t, CatalogCustomerSetup.OPERATOR, row.key(), row.customer()));
+            capture(() -> register.execute(Callers.of(t, CatalogCustomerSetup.OPERATOR), row.key(), row.customer()));
         }
         // 키 순환(전 경로) 후 다시 조회
-        capture(() -> s.rekey.rekey(t, CatalogCustomerSetup.OPERATOR, 1));
+        capture(() -> s.rekey.rekey(Callers.of(t, CatalogCustomerSetup.OPERATOR), 1));
         capture(() -> s.customers.lookup(t, CatalogCustomerSetup.OPERATOR, ref));
         // AAD 불일치: 두 행의 이름 암호문을 바꿔치기한 뒤 조회
         swapNameCiphertexts(t, ref, second);
@@ -336,13 +335,13 @@ class PlaintextLeakScanIT {
     @Test
     void demoCustomerFileRegistersOnceAndItsNamesStayEncrypted() {
         TenantId t = s.freshTenant("LEAK_DEMO");
-        RegisterCustomer register = new RegisterCustomer(s.vault, s.audit, s.tx, s.clock);
+        RegisterCustomer register = new RegisterCustomer(s.vault, s.audit, s.tx, s.clock, Callers.authz(s.clock));
         List<CustomerFileParser.Row> rows = CustomerFileParser.parse("customers.json", readDemoCustomers());
         assertThat(rows).hasSize(3);
         List<String> printed = new ArrayList<>();
         for (int round = 0; round < 2; round++) {
             for (CustomerFileParser.Row row : rows) {
-                RegisterCustomer.Registration r = register.execute(t, CatalogCustomerSetup.OPERATOR, row.key(), row.customer());
+                RegisterCustomer.Registration r = register.execute(Callers.of(t, CatalogCustomerSetup.OPERATOR), row.key(), row.customer());
                 printed.add(r.toString());
                 assertThat(r.created()).as("두 번째 수입은 NOOP").isEqualTo(round == 0);
             }

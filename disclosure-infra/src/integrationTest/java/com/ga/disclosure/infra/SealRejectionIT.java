@@ -4,8 +4,8 @@ import com.ga.disclosure.audit.AuditAction;
 import com.ga.disclosure.audit.AuditRecord;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.vo.DisclosureId;
-import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.disclosure.SealService.Rejection;
+import com.ga.disclosure.workflow.disclosure.SealService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -63,7 +63,7 @@ class SealRejectionIT {
     }
 
     private SealService.Outcome sealNow(DisclosureId id) {
-        return s.seal.seal(s.w.tenant, WorkflowSetup.AGENT, id);
+        return s.seal.seal(Callers.of(s.w.tenant, WorkflowSetup.AGENT), id);
     }
 
     @Test
@@ -92,7 +92,7 @@ class SealRejectionIT {
     void snapshotStale() {
         DisclosureId id = s.w.reasoned();
         SealService stale = SealScenarios.staleSeal(s);
-        rejected(id, x -> stale.seal(s.w.tenant, WorkflowSetup.AGENT, x), Rejection.SNAPSHOT_STALE);
+        rejected(id, x -> stale.seal(Callers.of(s.w.tenant, WorkflowSetup.AGENT), x), Rejection.SNAPSHOT_STALE);
     }
 
     @Test
@@ -126,7 +126,7 @@ class SealRejectionIT {
         SealScenarios.retroactiveTenantRule(s.w);
         SealScenarios.retroactiveTemplate(s.w);
         SealService stale = SealScenarios.staleSeal(s);
-        rejected(id, x -> stale.seal(s.w.tenant, WorkflowSetup.AGENT, x), Rejection.RULE_SUPERSEDED, Rejection.TEMPLATE_SUPERSEDED,
+        rejected(id, x -> stale.seal(Callers.of(s.w.tenant, WorkflowSetup.AGENT), x), Rejection.RULE_SUPERSEDED, Rejection.TEMPLATE_SUPERSEDED,
                 Rejection.SNAPSHOT_STALE, Rejection.VALIDATION_BLOCKED, Rejection.APPROVAL_MISSING, Rejection.CUSTOMER_NAME_UNAVAILABLE);
     }
 }

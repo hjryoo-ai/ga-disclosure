@@ -16,6 +16,7 @@ import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.disclosure.workflow.retention.DestroyerPort;
@@ -85,33 +86,34 @@ public class RetentionConfiguration {
     }
 
     @Bean
-    public AnchorJob anchorJob(AnchorStore anchors, AuditPort audit, WorkflowTransactions tx, RuleResolver rules, TimestampClient tsa, Clock clock) {
-        return new AnchorJob(anchors, audit, tx, rules, tsa, clock, UUID::randomUUID);
+    public AnchorJob anchorJob(AnchorStore anchors, AuditPort audit, WorkflowTransactions tx, RuleResolver rules, TimestampClient tsa, Clock clock,
+                               AuthorizationPort authz) {
+        return new AnchorJob(anchors, audit, tx, rules, tsa, clock, UUID::randomUUID, authz);
     }
 
     @Bean
     public ReceiptExporter receiptExporter(SealChainReader chain, AnchorStore anchors, ArtifactService artifacts, AuditPort audit,
-                                           WorkflowTransactions tx, Clock clock) {
-        return new ReceiptExporter(chain, anchors, artifacts, audit, tx, clock);
+                                           WorkflowTransactions tx, Clock clock, AuthorizationPort authz) {
+        return new ReceiptExporter(chain, anchors, artifacts, audit, tx, clock, authz);
     }
 
     @Bean
     public TenantVerifier tenantVerifier(AuditPort audit, SealChainReader chain, AnchorStore anchors, DocumentRecordStore records,
                                          DocumentCryptoPort crypto, ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags,
-                                         WorkflowTransactions tx, Clock clock) {
-        return new TenantVerifier(audit, chain, anchors, records, crypto, storage, rules, flags, tx, clock);
+                                         WorkflowTransactions tx, Clock clock, AuthorizationPort authz) {
+        return new TenantVerifier(audit, chain, anchors, records, crypto, storage, rules, flags, tx, clock, authz);
     }
 
     @Bean
     public DestructionJob destructionJob(RetentionStore store, ErasureReader erasure, DestroyerPort destroyer, DocumentRecordStore records,
                                          ArtifactStore storage, RuleResolver rules, AuditPort audit, OutboxPort outbox, WorkflowTransactions tx,
-                                         Clock clock) {
-        return new DestructionJob(store, erasure, destroyer, records, storage, rules, audit, outbox, tx, clock);
+                                         Clock clock, AuthorizationPort authz) {
+        return new DestructionJob(store, erasure, destroyer, records, storage, rules, audit, outbox, tx, clock, authz);
     }
 
     @Bean
     public LegalHoldService legalHoldService(LegalHoldStore holds, RetentionStore retention, DocumentRecordStore records, ArtifactStore storage,
-                                             RuleResolver rules, AuditPort audit, WorkflowTransactions tx, Clock clock) {
-        return new LegalHoldService(holds, retention, records, storage, rules, audit, tx, clock, UUID::randomUUID);
+                                             RuleResolver rules, AuditPort audit, WorkflowTransactions tx, Clock clock, AuthorizationPort authz) {
+        return new LegalHoldService(holds, retention, records, storage, rules, audit, tx, clock, UUID::randomUUID, authz);
     }
 }

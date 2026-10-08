@@ -26,12 +26,18 @@ CREATE ROLE disclosure_destroyer NOLOGIN
 CREATE ROLE disclosure_destroy_definer NOLOGIN
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 GRANT disclosure_destroyer TO disclosure_app WITH INHERIT FALSE, SET TRUE;
+
+-- 작업 잠금(Phase 6A V12, 승인 Q8). 테넌트·작업 종류별 세션 advisory lock을 작업 동안 쥐는 전용 커넥션의 롤. 테이블·스키마 권한 0 —
+-- 실행하는 SQL은 pg_try_advisory_lock·pg_advisory_unlock·pg_locks 조회뿐이다(전부 pg_catalog, 잠금 공간은 롤과 무관한 DB 전체).
+CREATE ROLE disclosure_job_lock LOGIN PASSWORD 'job_lock_local_only'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 GRANT disclosure_destroy_definer TO disclosure_migrator WITH INHERIT FALSE, SET TRUE;
 
 ALTER DATABASE disclosure OWNER TO disclosure_migrator;
 REVOKE ALL ON DATABASE disclosure FROM PUBLIC;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_app;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_operator;
+GRANT CONNECT ON DATABASE disclosure TO disclosure_job_lock;
 
 ALTER SCHEMA public OWNER TO disclosure_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;

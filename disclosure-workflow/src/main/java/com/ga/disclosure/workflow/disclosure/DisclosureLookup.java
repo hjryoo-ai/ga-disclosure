@@ -26,6 +26,29 @@ public interface DisclosureLookup {
     record Footnote(String disclosureNo, String canonicalHash) {
     }
 
+    /** 한 건(잠그지 않는다 — 조회 API). 없으면 빈 값. */
+    Optional<DisclosureRecord> load(DisclosureId id);
+
+    /** 파기 시각(보존기간 종료 파기 뒤의 묘비). */
+    Optional<java.time.Instant> destroyedAt(DisclosureId id);
+
+    /**
+     * 목록 한 쪽(6A 계획 §4.1): 범위 조건을 SQL로 건다 — 범위 밖 행은 없는 행이다. 정렬은 상담일 내림차순, 같은 날은 ID 내림차순(키셋 {@link Position}).
+     * {@code limit}행까지.
+     */
+    List<Listed> page(com.ga.disclosure.workflow.authz.ListScope scope, Optional<com.ga.disclosure.domain.enums.DisclosureStatus> status,
+                      Optional<Position> after, int limit);
+
+    /** 목록 키셋 위치. */
+    record Position(LocalDate consultDate, DisclosureId id) {
+    }
+
+    /** 목록 한 행(본문 없음 — 고객은 가명 참조만). */
+    record Listed(DisclosureId id, Optional<String> disclosureNo, int version, com.ga.disclosure.domain.enums.DisclosureStatus status, String agentId,
+                  CustomerRef customerRef, GroupCode group, LocalDate consultDate, Optional<java.time.Instant> sealedAt,
+                  Optional<java.time.Instant> destroyedAt) {
+    }
+
     /** 상태·버전·계보만(본문 없음). */
     record Summary(DisclosureId id, com.ga.disclosure.domain.enums.DisclosureStatus status, int version, DisclosureId supersedesIdOrNull) {
     }

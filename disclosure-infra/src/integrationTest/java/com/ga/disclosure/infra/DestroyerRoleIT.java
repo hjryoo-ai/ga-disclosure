@@ -315,7 +315,7 @@ class DestroyerRoleIT {
                 + " VALUES (?, ?, ?, 'OTHER', '허구 메모', 'compliance@x', now())";
         DB.seed(T, c -> {
             SeedData.exec(c, place, T, released, d.id());
-            SeedData.exec(c, "UPDATE legal_hold SET released_at = now(), released_by = 'compliance@x', release_reason_code = 'CASE_CLOSED'"
+            SeedData.exec(c, "UPDATE legal_hold SET released_at = now(), released_by = 'compliance-2@x', release_reason_code = 'CASE_CLOSED'"
                     + " WHERE tenant_id = ? AND hold_id = ?", T, released);
             SeedData.exec(c, place, T, active, d.id());
         });
@@ -430,7 +430,7 @@ class DestroyerRoleIT {
             SeedData.exec(c, "SET LOCAL ROLE disclosure_destroyer");
             return SeedData.call(c, DESTROY_CUSTOMER, T, d.customer(), AT, "RETENTION:test");
         }))).as("customer hold").isEqualTo("GD114");
-        DB.seed(T, c -> SeedData.exec(c, "UPDATE legal_hold SET released_at = now(), released_by = 'c@x', release_reason_code = 'CLOSED' WHERE tenant_id = ? AND hold_id = ?",
+        DB.seed(T, c -> SeedData.exec(c, "UPDATE legal_hold SET released_at = now(), released_by = 'c2@x', release_reason_code = 'CLOSED' WHERE tenant_id = ? AND hold_id = ?",
                 T, hold));
         DB.asAppCommitting(T, c -> {
             SeedData.exec(c, "SET LOCAL ROLE disclosure_destroyer");

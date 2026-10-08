@@ -1,0 +1,19 @@
+{
+  "note": "6A 데모 주체(계획 §10): 준법 2명(4-eyes 해제용 둘째), 스케줄러·피드 서비스 주체. 개인정보 없음 — 주체 이름과 역할뿐. 역할은 토큰 클레임이 아니라 identity_link.",
+  "tenants": [
+    { "tenantId": "DEMO1", "name": "데모GA 1(대형)", "engineBaseUrl": "http://engine-stub.local/demo1", "largeGa": true,
+      "identityLinks": [
+        { "subject": "demo-compliance", "roles": ["COMPLIANCE"] },
+        { "subject": "demo-compliance-2", "roles": ["COMPLIANCE"] },
+        { "subject": "demo-scheduler", "roles": ["SCHEDULER"] },
+        { "subject": "demo-feed", "roles": ["FEED_CONSUMER"] }
+      ] },
+    { "tenantId": "DEMO2", "name": "데모GA 2", "engineBaseUrl": "http://engine-stub.local/demo2", "largeGa": false,
+      "identityLinks": [
+        { "subject": "demo-compliance", "roles": ["COMPLIANCE"] },
+        { "subject": "demo-compliance-2", "roles": ["COMPLIANCE"] },
+        { "subject": "demo-scheduler", "roles": ["SCHEDULER"] },
+        { "subject": "demo-feed", "roles": ["FEED_CONSUMER"] }
+      ] }
+  ]
+}

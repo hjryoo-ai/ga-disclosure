@@ -3,6 +3,7 @@ package com.ga.disclosure.workflow.disclosure;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.rules.validation.ValidationResult;
+import com.ga.disclosure.workflow.RejectionCategory;
 
 import java.util.List;
 import java.util.Objects;
@@ -16,10 +17,21 @@ import java.util.Objects;
 public record CommandResult(DisclosureId id, DisclosureStatus status, Rejection rejectionOrNull, List<ValidationResult> results,
                             List<String> engineViolations) {
 
-    public enum Rejection {
-        VALIDATION_BLOCKED,
-        GRADE_REJECTED,
-        GRADE_STALE
+    public enum Rejection implements RejectionCategory.Categorized {
+        VALIDATION_BLOCKED(RejectionCategory.INVALID),
+        GRADE_REJECTED(RejectionCategory.INVALID),
+        GRADE_STALE(RejectionCategory.CONFLICT);
+
+        private final RejectionCategory category;
+
+        Rejection(RejectionCategory category) {
+            this.category = category;
+        }
+
+        @Override
+        public RejectionCategory category() {
+            return category;
+        }
     }
 
     public CommandResult {

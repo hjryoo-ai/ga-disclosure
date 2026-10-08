@@ -113,5 +113,30 @@ public enum AuditAction {
     /** 법적 보류 설정(대상 DISCLOSURE|CUSTOMER_REF): 보류 ID·사유 코드·텍스트 길이(텍스트 자체는 행에만)·룰 버전. 저장소 보류 결과는 보고서에. */
     LEGAL_HOLD_PLACED,
     /** 법적 보류 해제: 보류 ID·해제 사유 코드. 저장소 보류 해제 결과는 보고서에. */
-    LEGAL_HOLD_RELEASED
+    LEGAL_HOLD_RELEASED,
+
+    // ---------------------------------------------------------------- Phase 6A: 인가·작업·통지·피드
+    /** 인가 거부(대상 = 요청한 대상 종류·ID, 별도 트랜잭션): 행위·채널·사유(NO_LINK·CHANNEL·ROLE·SCOPE·NOT_FOUND). 응답은 404 하나다. */
+    AUTHZ_DENIED,
+    /** 작업 제출(대상 JOB, 잠금을 잡은 뒤 같은 트랜잭션): 종류·채널·매개변수. */
+    JOB_QUEUED,
+    /** 잠금을 잡은 제출이 남아 있던 활성 행을 닫았다(대상 = 닫힌 작업): 이전 상태·닫은 작업 ID. */
+    JOB_INTERRUPTED,
+    /** 작업 종단(대상 JOB): 상태, 성공이면 보고서 평문 SHA-256, 실패면 오류 코드와 예외 클래스 이름(메시지 없음). */
+    JOB_FINISHED,
+    /** 작업 보고서 열람(대상 JOB): 보고서 평문 SHA-256(행의 값과 대조한 뒤). */
+    JOB_REPORT_VIEW,
+    /** 통지 발송 실패 1회(대상 NOTIFICATION): 세션 ID, 닫힌 오류 코드, 시도 수, 다음 시도 시각, 적용 룰 버전. */
+    NOTIFY_RETRY,
+    /** 통지 소진(대상 NOTIFICATION): 세션 ID, 오류 코드(소진 코드 또는 NO_PHONE), 시도 수, 룰 버전, 올린 플래그 ID. */
+    NOTIFY_DEAD,
+    /** 통지 취소(대상 NOTIFICATION): 세션이 닫혔거나 만료됐다(SESSION_CLOSED·SESSION_EXPIRED). */
+    NOTIFY_CANCELLED,
+    /**
+     * 준법의 확인서 조회(6A, 설계서 §9 "준법은 테넌트 전체 — 전 건 VIEW 감사"): 요청마다 1행. 상세는 대상 DISCLOSURE·{@code view: DETAIL}, 목록은 대상
+     * 없음·{@code view: LIST}·행 수(행 ID는 싣지 않는다).
+     */
+    DISCLOSURE_VIEW,
+    /** 이벤트 피드 ack(대상 없음, 같은 트랜잭션): 요청한 {@code upToSeq}, 이번에 발행 기록한 행 수, 이제 ack한 지점. 읽기는 감사하지 않는다(상태 불변·개인정보 없음). */
+    EVENT_FEED_ACK
 }

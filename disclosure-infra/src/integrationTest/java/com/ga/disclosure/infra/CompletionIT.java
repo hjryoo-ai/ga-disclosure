@@ -62,11 +62,11 @@ class CompletionIT {
         List<ArtifactRecord> artifacts = x.s.artifactsOf(id);
         assertThat(artifacts).extracting(ArtifactRecord::kind).contains(ArtifactKind.SIGNED_PDF, ArtifactKind.EVIDENCE_ZIP);
         Actor viewer = SealSetup.COMPLIANCE;
-        byte[] original = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, viewer, id, ArtifactKind.PDF)).plaintext();
-        byte[] signed = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, viewer, id, ArtifactKind.SIGNED_PDF)).plaintext();
+        byte[] original = ((ArtifactService.View.Granted) x.s.artifacts.view(Callers.of(x.w.tenant, viewer), id, ArtifactKind.PDF)).plaintext();
+        byte[] signed = ((ArtifactService.View.Granted) x.s.artifacts.view(Callers.of(x.w.tenant, viewer), id, ArtifactKind.SIGNED_PDF)).plaintext();
         assertThat(signed.length).isGreaterThan(original.length);
         assertThat(Arrays.equals(signed, 0, original.length, original, 0, original.length)).as("sealed PDF is a byte prefix").isTrue();
-        byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, viewer, id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
+        byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(Callers.of(x.w.tenant, viewer), id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
         assertThat(EvidencePackageReader.verify(zip)).isEmpty();
         assertThat(manifestOf(zip).get("anchor").isNull()).as("완료 전 앵커가 없으면 null").isTrue();
 
@@ -86,7 +86,7 @@ class CompletionIT {
         com.ga.disclosure.infra.persistence.AnchorRepository anchors = new com.ga.disclosure.infra.persistence.AnchorRepository(x.w.gateway);
         com.ga.disclosure.audit.tsa.stub.LocalStubTsa tsa = com.ga.disclosure.audit.tsa.stub.LocalStubTsa.ephemeral(x.clock);
         new com.ga.disclosure.workflow.anchor.AnchorJob(anchors, x.w.audit, x.w.tx, new com.ga.disclosure.rules.resolve.RuleResolver(x.w.rules),
-                new com.ga.disclosure.audit.tsa.TimestampClient(tsa, com.ga.disclosure.audit.tsa.NonceSource.secure(), tsa.trustAnchors()), x.clock)
+                new com.ga.disclosure.audit.tsa.TimestampClient(tsa, com.ga.disclosure.audit.tsa.NonceSource.secure(), tsa.trustAnchors()), x.clock, Callers.authz(x.clock))
                 .run(List.of(x.w.tenant), LocalDate.parse("2026-09-23"), AnchorJobIT.SYSTEM);
         com.ga.disclosure.audit.anchor.AnchorRecord anchor = x.w.tx.inTenant(x.w.tenant, anchors::latest).orElseThrow().record();
 
@@ -96,7 +96,7 @@ class CompletionIT {
         x.clock.advance(java.time.Duration.ofMinutes(5));
         assertThat(x.managerConfirms(id).completed()).isTrue();
 
-        byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(x.w.tenant, SealSetup.COMPLIANCE, id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
+        byte[] zip = ((ArtifactService.View.Granted) x.s.artifacts.view(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id, ArtifactKind.EVIDENCE_ZIP)).plaintext();
         assertThat(EvidencePackageReader.verify(zip)).isEmpty();
         tools.jackson.databind.JsonNode ref = manifestOf(zip).get("anchor");
         assertThat(ref.get("anchorSeq").asLong()).isEqualTo(anchor.anchorSeq());
@@ -141,7 +141,7 @@ class CompletionIT {
         DisclosureId id = x.sealed();
         String token = x.issue(id, SignatureChannel.TOUCH_PAD);
         x.readyTouchPad(token);
-        assertThatThrownBy(() -> x.signService.uploadPaperScan(token, SignSetup.AGENT,
+        assertThatThrownBy(() -> x.signService.uploadPaperScan(Callers.of(x.w.tenant, SignSetup.AGENT), token,
                 new com.ga.disclosure.workflow.sign.PaperScan(SignSetup.png(), "X", "000000000000"))).isInstanceOf(IllegalArgumentException.class);
     }
 }

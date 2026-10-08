@@ -5,6 +5,11 @@ import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -42,19 +47,24 @@ public final class CatalogImportService {
     private final AuditPort audit;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
-    public CatalogImportService(CatalogStore store, AuditPort audit, WorkflowTransactions transactions, Clock clock) {
+    public CatalogImportService(CatalogStore store, AuditPort audit, WorkflowTransactions transactions, Clock clock, AuthorizationPort authz) {
         this.store = Objects.requireNonNull(store, "store");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
     /** @param fileName 출처 기록용 파일 이름(경로는 버리고 이름만 남긴다) */
-    public CatalogImportOutcome importFile(TenantId tenant, Actor actor, String fileName, byte[] content) {
+    @UseCaseEntry(Action.CATALOG_IMPORT)
+    public CatalogImportOutcome importFile(Caller caller, String fileName, byte[] content) {
         String name = Path.of(Objects.requireNonNull(fileName, "fileName")).getFileName().toString();
         CatalogFile file = CatalogFileParser.parse(content);
+        TenantId tenant = caller.tenant();
         return transactions.inTenant(tenant, () -> {
+            Actor actor = authz.require(caller, Action.CATALOG_IMPORT, Target.none());
             var existing = store.findImport(file.kind(), file.sha256());
             if (existing.isPresent()) {
                 ObjectNode detail = header(file, name).put("outcome", "NOOP").put("originalImportId", existing.get().importId().toString());

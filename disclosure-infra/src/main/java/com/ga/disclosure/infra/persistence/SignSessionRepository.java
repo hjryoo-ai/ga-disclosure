@@ -46,14 +46,22 @@ public class SignSessionRepository extends TenantScopedRepository implements Sig
 
     @Override
     public void insert(SignSession s) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("sessionId", s.sessionId());
+        p.put("disclosureId", s.disclosureId().value());
+        p.put("channel", s.channel().name());
+        p.put("tokenHash", s.tokenHash().map(Sha256::hex).orElse(null));          // 원격 링크는 보낼 때(V12 GD123)
+        p.put("issuedBy", s.issuedBy());
+        p.put("issuedAt", Timestamp.from(s.issuedAt()));
+        p.put("expiresAt", Timestamp.from(s.expiresAt()));
+        p.put("docHash", s.signedDocHash().hex());
+        p.put("pdfHash", s.signedPdfHash().hex());
         update("""
                 INSERT INTO sign_session (tenant_id, session_id, disclosure_id, signer_role, channel, token_hash, issued_by, issued_at, expires_at,
                                           signed_doc_hash, signed_pdf_hash, status)
                 VALUES (:tenantId, :sessionId, :disclosureId, 'CUSTOMER', :channel, :tokenHash, :issuedBy, :issuedAt, :expiresAt,
                         :docHash, :pdfHash, 'OPEN')
-                """, Map.of("sessionId", s.sessionId(), "disclosureId", s.disclosureId().value(), "channel", s.channel().name(),
-                "tokenHash", s.tokenHash().hex(), "issuedBy", s.issuedBy(), "issuedAt", Timestamp.from(s.issuedAt()),
-                "expiresAt", Timestamp.from(s.expiresAt()), "docHash", s.signedDocHash().hex(), "pdfHash", s.signedPdfHash().hex()));
+                """, p);
     }
 
     @Override
@@ -86,6 +94,7 @@ public class SignSessionRepository extends TenantScopedRepository implements Sig
         p.put("passed", s.state().identityPassed().stream().map(Enum::name).sorted().toArray(String[]::new));
         p.put("view", s.view().map(v -> JSON.writeValueAsString(v.toJson())).orElse(null));
         p.put("sentAt", s.sentAt().map(Timestamp::from).orElse(null));
+        p.put("tokenHash", s.tokenHash().map(Sha256::hex).orElse(null));
         p.put("usedAt", s.usedAtOrNull() == null ? null : Timestamp.from(s.usedAtOrNull()));
         p.put("revokedAt", s.revokedAtOrNull() == null ? null : Timestamp.from(s.revokedAtOrNull()));
         p.put("revokeReason", s.state().revokeReason() == null ? null : s.state().revokeReason().name());
@@ -96,6 +105,7 @@ public class SignSessionRepository extends TenantScopedRepository implements Sig
                        identity_passed = :passed,
                        view_evidence = CAST(:view AS jsonb),
                        sent_at = :sentAt,
+                       token_hash = :tokenHash,
                        used_at = :usedAt,
                        revoked_at = :revokedAt,
                        revoke_reason = :revokeReason
@@ -141,7 +151,7 @@ public class SignSessionRepository extends TenantScopedRepository implements Sig
         SignSessionState state = new SignSessionState(SessionStatus.valueOf(rs.getString("status")), rs.getInt("identity_failures"), passed,
                 view != null, reason == null ? null : SessionRevokeReason.valueOf(reason));
         return new SignSession(rs.getObject("session_id", UUID.class), DisclosureId.of(rs.getObject("disclosure_id", UUID.class)),
-                SignatureChannel.valueOf(rs.getString("channel")), Sha256.of(rs.getString("token_hash")), rs.getString("issued_by"),
+                SignatureChannel.valueOf(rs.getString("channel")), rs.getString("token_hash") == null ? null : Sha256.of(rs.getString("token_hash")), rs.getString("issued_by"),
                 instant(rs, "issued_at"), instant(rs, "expires_at"), Sha256.of(rs.getString("signed_doc_hash")), Sha256.of(rs.getString("signed_pdf_hash")),
                 state, view == null ? null : ViewEvidence.fromJson(JSON.readTree(view)), instant(rs, "sent_at"), instant(rs, "used_at"),
                 instant(rs, "revoked_at"));

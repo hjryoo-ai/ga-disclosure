@@ -12,14 +12,14 @@ import com.ga.disclosure.infra.engine.EngineClientSettings;
 import com.ga.disclosure.infra.engine.EngineGradeClient;
 import com.ga.disclosure.infra.engine.HttpEngineTransport;
 import com.ga.disclosure.infra.engine.stub.TableEngineStub;
+import com.ga.disclosure.infra.outbox.OutboxRepository;
 import com.ga.disclosure.infra.persistence.AuditLogRepository;
 import com.ga.disclosure.infra.persistence.CatalogRepository;
-import com.ga.disclosure.infra.outbox.OutboxRepository;
 import com.ga.disclosure.infra.persistence.ComplianceFlagRepository;
-import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
 import com.ga.disclosure.infra.persistence.CustomerVaultRepository;
 import com.ga.disclosure.infra.persistence.DisclosureRepository;
 import com.ga.disclosure.infra.persistence.FormTemplateRepository;
+import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
 import com.ga.disclosure.infra.persistence.ReviewRepository;
 import com.ga.disclosure.infra.persistence.RuleVersionRepository;
 import com.ga.disclosure.infra.persistence.TenantRepository;
@@ -128,9 +128,9 @@ final class WorkflowSetup implements AutoCloseable {
         this.service = new DisclosureService(disclosures, reviews, flags, new TenantRepository(gateway),
                 new EngineGradeClient(new HttpEngineTransport(settings, t -> Optional.of(TOKEN), t -> engine.baseUrl())),
                 catalog, catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx,
-                clock, agents, outbox);
+                clock, agents, outbox, Callers.authz(clock));
         this.tenant = freshTenant(bundles);
-        this.customer = new CustomerRefService(vault, audit, tx, clock).register(tenant, CatalogCustomerSetup.OPERATOR,
+        this.customer = new CustomerRefService(vault, audit, tx, clock, Callers.authz(clock)).register(Callers.of(tenant, CatalogCustomerSetup.OPERATOR),
                 new NewCustomer(CustomerName.of("가상고객"), null, null));
     }
 
@@ -140,6 +140,7 @@ final class WorkflowSetup implements AutoCloseable {
             SeedData.tenant(c, t);
             SeedData.identityLink(c, t, AGENT.subject(), AGENT_ID, "AGENT");
             SeedData.identityLink(c, t, MANAGER.subject(), MANAGER_ID, "MANAGER");
+            SeedData.roleLink(c, t, SealSetup.COMPLIANCE.subject(), "COMPLIANCE");
         });
         TenantId tenant = TenantId.of(t);
         Governance g = new Governance();
@@ -149,15 +150,15 @@ final class WorkflowSetup implements AutoCloseable {
         for (String day : List.of("2026-09-23", "2027-01-01")) {
             new Governance(LocalDate.parse(day).atStartOfDay(Governance.SEOUL).toInstant().toString()).activation.run(tenant, Governance.OPERATOR);
         }
-        CatalogImportService imports = new CatalogImportService(catalog, audit, tx, clock);
-        imports.importFile(tenant, CatalogCustomerSetup.OPERATOR, "groups.json", CatalogFiles.groups("2026-09-01",
+        CatalogImportService imports = new CatalogImportService(catalog, audit, tx, clock, Callers.authz(clock));
+        imports.importFile(Callers.of(tenant, CatalogCustomerSetup.OPERATOR), "groups.json", CatalogFiles.groups("2026-09-01",
                 CatalogFiles.group(GROUP.value(), "2026-07-01", null), CatalogFiles.group("PG-CANCER", "2026-07-01", null))
                 .getBytes(StandardCharsets.UTF_8));
-        imports.importFile(tenant, CatalogCustomerSetup.OPERATOR, "panel.json", CatalogFiles.panel("2026-09-01",
+        imports.importFile(Callers.of(tenant, CatalogCustomerSetup.OPERATOR), "panel.json", CatalogFiles.panel("2026-09-01",
                 CatalogFiles.insurer("INS-A", "2026-01-01", null), CatalogFiles.insurer("INS-B", "2026-01-01", null),
                 CatalogFiles.insurer("INS-C", "2026-01-01", null), CatalogFiles.insurer("INS-D", "2026-01-01", null),
                 CatalogFiles.insurer("INS-E", "2026-01-01", null)).getBytes(StandardCharsets.UTF_8));
-        imports.importFile(tenant, CatalogCustomerSetup.OPERATOR, "products.json", CatalogFiles.products("2026-09-01",
+        imports.importFile(Callers.of(tenant, CatalogCustomerSetup.OPERATOR), "products.json", CatalogFiles.products("2026-09-01",
                 product("INS-A:PRD-1001", GROUP.value()), product("INS-B:PRD-2044", GROUP.value()), product("INS-C:PRD-3120", GROUP.value()),
                 product("INS-D:PRD-4410", GROUP.value()), product("INS-E:PRD-5001", GROUP.value()), product("INS-A:PRD-1101", "PG-CANCER"))
                 .getBytes(StandardCharsets.UTF_8));
@@ -192,7 +193,7 @@ final class WorkflowSetup implements AutoCloseable {
     com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps deps(Clock at) {
         return new com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps(disclosures, reviews, flags, new TenantRepository(gateway), catalog,
                 catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx, at, agents,
-                outbox);
+                outbox, Callers.authz(at));
     }
 
     /** 3사 비교 → 산출 → 추천사유(항목 1·3)까지 = 봉인 직전(REASONED). */
@@ -202,25 +203,25 @@ final class WorkflowSetup implements AutoCloseable {
 
     /** 그 고객의 확인서로 봉인 직전(REASONED)까지(Phase 4: 연락처·생년월일이 있는 고객). */
     DisclosureId reasoned(CustomerRef who) {
-        DisclosureId id = service.createDraft(tenant, AGENT, who, GROUP, CONSULT, TemplateType.STANDARD);
-        service.replaceItems(tenant, AGENT, id, threeItems());
-        service.compare(tenant, AGENT, id);
-        service.requestGrades(tenant, AGENT, id);
-        service.setRecommendations(tenant, AGENT, id, List.of(
+        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, CONSULT, TemplateType.STANDARD);
+        service.replaceItems(Callers.of(tenant, AGENT), id, threeItems());
+        service.compare(Callers.of(tenant, AGENT), id);
+        service.requestGrades(Callers.of(tenant, AGENT), id);
+        service.setRecommendations(Callers.of(tenant, AGENT), id, List.of(
                 new com.ga.disclosure.domain.disclosure.AgentReason(1, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("PREMIUM")), null),
                 new com.ga.disclosure.domain.disclosure.AgentReason(3, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("COVERAGE")), null)));
         return id;
     }
 
     DisclosureId draft() {
-        return service.createDraft(tenant, AGENT, customer, GROUP, CONSULT, TemplateType.STANDARD);
+        return service.createDraft(Callers.of(tenant, AGENT), customer, GROUP, CONSULT, TemplateType.STANDARD);
     }
 
     /** 초안 → 항목 3건 → 비교까지. */
     DisclosureId compared() {
         DisclosureId id = draft();
-        service.replaceItems(tenant, AGENT, id, threeItems());
-        service.compare(tenant, AGENT, id);
+        service.replaceItems(Callers.of(tenant, AGENT), id, threeItems());
+        service.compare(Callers.of(tenant, AGENT), id);
         return id;
     }
 

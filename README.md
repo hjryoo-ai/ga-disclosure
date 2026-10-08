@@ -17,27 +17,35 @@
 ./gradlew resolveAndLockAll --write-locks   # 의존성 추가 후 락 파일 갱신
 docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + 봉인 산출물 저장소(SeaweedFS, digest 고정, 허구 S3 키)
 disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정 + 서명·완료·만료(운영자 CLI, 멱등)
+disclosure-demo/scripts/http-demo.sh   # (6A) seed.sh 뒤, 같은 DB에서 HTTP 흐름 — 데모 OIDC 토큰 → 초안~봉인 → 원격 링크·NOTIFY 작업 → 고객 공개 경로 → 서명·완료 → 피드 → VERIFY_TENANT → 거부 3종 바이트 비교(curl·jq 필요, 같은 날 두 번째 실행은 전부 재생)
+GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest   # (opt-in) 실 TSA 계약 시험 — check에 없다, 두 값이 없으면 스킵이 아니라 실패
 ```
 
-운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다).
+운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다 — `--role`은 6A에서 폐기, 업무 역할은 `--operator` 주체의 `identity_link`). 작업 잠금은 전용 롤 `disclosure_job_lock`으로 따로 연결한다(`DISCLOSURE_JOB_LOCK_USER`·`DISCLOSURE_JOB_LOCK_PASSWORD`, 로컬 기본값은 `init-roles.sql`의 허구 자격 증명).
 
 ```bash
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
 # rules approve --tenant T1 --rule <id> | rules activate [--as-of 2027-01-01] | rules reconcile | demo seed --file <json>
 # catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | crypto init-kek --file <path> [--kek-id KEK-LOCAL-1]
-# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-code <CODE> [--reason-file <path>] --role <ROLE>
+# (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-code <CODE> [--reason-file <path>] --operator <id>
 #      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out <path> | artifacts gc|reconcile --tenants all
 # (4) sign session --tenant T1 --id <uuid> --channel TOUCH_PAD|REMOTE_LINK|PAPER_SCAN | sign open|verify|capture|scan --token <token> (입력은 --*-file)
 #     sign agent|manager|review-scan --tenant T1 --id <uuid> | disclosure complete --tenant T1 --id <uuid> | disclosure expire [--as-of <instant>|P30D]
 # (5) anchor run [--date YYYY-MM-DD] | anchor receipt export --tenant T1 --id <uuid> --out <json> (스텁 TSA: --ga.tsa.mode=stub)
 #     verify package --package <zip> [--receipt <json>] [--tsa-trust <pem>] (0 일치, 2 불일치, 3 입력 오류) | verify tenant [--tenants all]
 #     retention destroy [--tenants all] [--dry-run yes] | legal-hold place --tenant T1 --id <uuid> --reason-code <CODE> | legal-hold release --hold <uuid>
-# 업무 거부(봉인 조건 실패 등)는 종료 코드 2, 인자·명령 오류는 1
+# (6A) jobs list --tenant T1 [--limit 20] | jobs show --tenant T1 --id <uuid> | jobs report --tenant T1 --id <uuid> --out <json>
+#      demo token --tenant T1 --subject <sub> [--ttl PT15M] — 데모 프로파일만(--spring.profiles.active=cli,demo), JWT를 표준 출력으로(클레임 sub·tenant_id·iss·aud·exp, 역할 없음)
+#      notify dispatch [--tenants all] [--limit 100] — 원격 링크는 발급 때 아웃박스에 적재되고(sign session … queued=) 이 명령이 보낸다(링크는 …/s#{token})
+#      배치 명령(anchor run·verify tenant·retention destroy·disclosure expire·artifacts reconcile)은 작업 실행기를 지나며 테넌트마다 `JOB <id> <status>` 줄을 더한다
+# 업무 거부(봉인 조건 실패 등)·같은 종류 작업이 이미 도는 테넌트·FAILED 작업은 종료 코드 2, 인자·명령 오류는 1
 ```
+
+데모 웹 앱(`--spring.profiles.active=demo`, `application-demo.yaml`)은 데모 OIDC 발급자의 공개키로 JWT를 검증한다(발급자 `ga-demo`, 대상 `ga-disclosure`). 서명 키는 처음 `demo token`을 부를 때 **저장소 밖** `~/.ga-disclosure/demo-oidc.key`(PKCS#8, 권한 600)에 만들고, 공개키만 gitignore된 `build/demo/demo-oidc.pem`으로 내보낸다 — 웹 앱이 기동 때 그 PEM을 읽으므로 토큰을 먼저 만든다(`http-demo.sh`가 그렇게 한다). 운영 프로파일은 `ga.api.jwt.jwk-set-uri`(IdP)이고 `ga.demo.*` 키가 있으면 기동하지 않는다. 역할은 토큰이 아니라 `identity_link`에서 온다 — 데모 주체는 `phase6a-seed.json`(준법 2·스케줄러·피드).
 
 고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).
 
-`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`.
+`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`. Phase 6A는 작업 잠금 롤 `disclosure_job_lock`을 더했고(V12가 롤이 없으면 실패), 룰 번들 네 개를 제자리로 다시 해시했으며(6A 룰 키), 앵커 날짜를 생성 시각의 KST 날짜로 묶는 CHECK가 옛 데모의 소급 앵커("어제 날짜로 지금 머리")를 거부한다 — 5 이전 볼륨은 `down -v`(사용자 결정, 스크립트는 볼륨을 지우지 않는다).
 
 ## 룰은 코드가 아니라 데이터다 (Phase 1)
 
@@ -102,7 +110,7 @@ dependencyResolutionManagement {
 |---|---|---|
 | `platform-core` | (공유) `Won`·`Ratio`·`Ym`·`TenantId`·`AgentId`, `TenantContext`(ScopedValue), ArchUnit 규칙 라이브러리 `ArchRules`, 테스트 픽스처 `SeededCases` | Spring·DB 무의존. `com.ga.platform:platform-core:0.1.0` 발행 |
 | `platform-canonical` | (공유) RFC 8785 JCS `Canonicalizer`, `Sha256` | Spring·DB 무의존. rules·seal·audit·compliance가 의존. `com.ga.platform:platform-canonical:0.1.0` 발행 |
-| `platform-spring` | (공유) `TenantSessionBinder`(트랜잭션마다 `app.tenant_id` 설정), `TenantScopedRepository`·`TenantJdbcGateway`, `TenantDirectoryReader`, `IdentityResolver`, OIDC 골격 | infra·api·app만 의존 가능. `com.ga.platform:platform-spring:0.1.0` 발행 |
+| `platform-spring` | (공유) `TenantSessionBinder`(트랜잭션마다 `app.tenant_id` 설정), `TenantScopedRepository`·`TenantJdbcGateway`, `TenantDirectoryReader`, `IdentityResolver` (Phase 0의 OIDC 골격은 6A에서 폐기 — 보안 체인은 소비 애플리케이션 몫) | infra·api·app만 의존 가능. `com.ga.platform:platform-spring:0.1.0` 발행 |
 | `disclosure-domain` | 값객체·상태 열거형·`GradeSnapshot`/`GradeSnapshotItem`/`RatioLabel`, 개인정보 래퍼 `Sensitive<T>`(Phase 2) | Spring·DB 무의존 |
 | `disclosure-rules` | 번들 로더, 기준일 룰 해석기(scope별 단건·Ambiguous fail-fast·`tenantOverridable` 병합), 검증 규칙 12종·단계별 레지스트리(`ValidationStage`), 서식 해석, 마스킹(`MaskedView`), `GradeConsistencyCheck`, 계약 스키마 테스트 | Spring·DB 무의존 |
 | `disclosure-workflow` | 유스케이스·포트: 카탈로그 수입·조회, 고객 참조 등록·조회·재암호화(Phase 2), 확인서(Phase 3~4) | |
@@ -110,9 +118,9 @@ dependencyResolutionManagement {
 | `disclosure-sign` | 서명 세션·채널·증거(Phase 4) | |
 | `disclosure-audit` | 감사 해시체인 append(Phase 1), 앵커·verify(Phase 5) | |
 | `disclosure-compliance` | 룰 거버넌스(번들 배포·사규 승인·활성화 배치·번들 대사, Phase 1), 대상 판정·징구율·큐·리포트(Phase 6) | |
-| `disclosure-api` | API·DTO 매퍼(Phase 6) | |
+| `disclosure-api` | 내부 REST(`/api/v1` 사람 역할·`/internal/v1` 서비스 주체 — 6A): JWT 체인·테넌트 바인딩·오류 본문, 컨트롤러·DTO 매퍼 | 컨트롤러는 유스케이스 진입점만 부른다 |
 | `disclosure-infra` | Flyway(스키마·RLS·불변 트리거·배타 제약), 저장소, 컬럼 암호화(`crypto`, Phase 2), (Phase 3~) 엔진 클라이언트·S3 | app만 의존 가능 |
-| `disclosure-app` | Spring Boot 조립, `/actuator/health`, 운영자 CLI(`cli` 프로파일), 아키텍처 테스트(`archTest`) | |
+| `disclosure-app` | Spring Boot 조립, `/actuator/health`, 운영자 CLI(`cli` 프로파일), 아키텍처 테스트(`archTest`) | 웹 모드는 `ga.api.jwt.issuer`·`ga.api.jwt.audience`와 `ga.api.jwt.jwk-set-uri` 또는 `ga.api.jwt.public-key-location` 중 하나, 목록 커서 키 `ga.api.cursor-key-file`(저장소 밖, 없으면 소유자 전용으로 생성), 고객 공개 서명 응답 하한 `ga.public-sign.min-response-millis`(1 이상)가 없으면 기동하지 않는다(기본값 없음) |
 | `disclosure-demo` | 데모 테넌트·사규 시드와 시드 스크립트(Phase 1), 가상 카탈로그 파일(Phase 2), 확인서·엔진 스텁(Phase 8) | 어떤 모듈도 의존하지 않음 |
 | `contracts/` | 엔진·내부 OpenAPI, 이벤트 스키마(v1, 포털 §4.1 Envelope), 룰·서식·번들 스키마, 규제 번들, `CHECKSUMS` | |
 | `web/` | 프론트(Phase 7) | |

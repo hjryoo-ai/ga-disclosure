@@ -4,6 +4,7 @@ import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.json.SensitiveGuardModule;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.catalog.CatalogImportService;
 import com.ga.disclosure.workflow.catalog.CatalogStore;
 import com.ga.disclosure.workflow.customer.CustomerRefService;
@@ -28,18 +29,21 @@ import java.util.concurrent.atomic.AtomicReference;
 public class CatalogCustomerConfiguration {
 
     @Bean
-    public CatalogImportService catalogImportService(CatalogStore store, AuditPort audit, WorkflowTransactions tx, Clock clock) {
-        return new CatalogImportService(store, audit, tx, clock);
+    public CatalogImportService catalogImportService(CatalogStore store, AuditPort audit, WorkflowTransactions tx, Clock clock,
+                                                     AuthorizationPort authz) {
+        return new CatalogImportService(store, audit, tx, clock, authz);
     }
 
     @Bean
-    public CustomerRefService customerRefService(CustomerVault vault, AuditPort audit, WorkflowTransactions tx, Clock clock) {
-        return new CustomerRefService(vault, audit, tx, clock);
+    public CustomerRefService customerRefService(CustomerVault vault, AuditPort audit, WorkflowTransactions tx, Clock clock,
+                                                 AuthorizationPort authz) {
+        return new CustomerRefService(vault, audit, tx, clock, authz);
     }
 
     @Bean
-    public CustomerRekeyService customerRekeyService(CustomerVault vault, AuditPort audit, WorkflowTransactions tx, Clock clock) {
-        return new CustomerRekeyService(vault, audit, tx, clock);
+    public CustomerRekeyService customerRekeyService(CustomerVault vault, AuditPort audit, WorkflowTransactions tx, Clock clock,
+                                                     AuthorizationPort authz) {
+        return new CustomerRekeyService(vault, audit, tx, clock, authz);
     }
 
     @Bean

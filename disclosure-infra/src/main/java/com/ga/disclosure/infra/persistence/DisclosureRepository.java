@@ -26,6 +26,7 @@ import com.ga.disclosure.domain.vo.Sha256;
 import com.ga.disclosure.domain.vo.SnapshotId;
 import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.rules.validation.ValidationSubject;
+import com.ga.disclosure.workflow.authz.ListScope;
 import com.ga.disclosure.workflow.disclosure.CanonicalValue;
 import com.ga.disclosure.workflow.disclosure.Disclosure;
 import com.ga.disclosure.workflow.disclosure.DisclosureItem;
@@ -37,6 +38,7 @@ import com.ga.disclosure.workflow.disclosure.Lineage;
 import com.ga.disclosure.workflow.disclosure.SealStamp;
 import com.ga.disclosure.workflow.disclosure.VoidMark;
 import com.ga.platform.canonical.Canonicalizer;
+import com.ga.platform.core.tenant.OrgPath;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.stereotype.Repository;
@@ -75,7 +77,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     }
 
     @Override
-    public void insert(Disclosure d) {
+    public void insert(Disclosure d, OrgPath orgPath) {
         Map<String, Object> params = new HashMap<>();
         params.put("id", d.id().value());
         params.put("agentId", d.agentId());
@@ -90,11 +92,14 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         params.put("consultDate", d.consultDate());
         params.put("version", d.lineage().version());
         params.put("supersedesId", d.lineage().supersedesIdOrNull() == null ? null : d.lineage().supersedesIdOrNull().value());
+        params.put("orgPath", orgPath.value());
         update("""
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
-                                        rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date, version, supersedes_id)
+                                        rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date, version, supersedes_id,
+                                        org_path)
                 VALUES (:tenantId, :id, :agentId, :customerRef, :groupCode, :templateId, :templateVersion,
-                        :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate, :version, :supersedesId)
+                        :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate, :version, :supersedesId,
+                        :orgPath)
                 """, params);
         writeChildren(d);
     }
@@ -137,20 +142,88 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
                 """, Map.of("limit", limit), (rs, n) -> DisclosureId.of(rs.getObject("disclosure_id", UUID.class)));
     }
 
+    private static final String HEADER_COLUMNS = """
+            SELECT disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, rule_version_id,
+                   tenant_rule_version_id, issuer_mode, status, consult_date, grade_snapshot_id, grading_policy_version_id,
+                   ranking_policy_version_id, tie_break, grade_basis::text AS grade_basis, snapshot_generated_at, version, supersedes_id,
+                   superseded_by_id, disclosure_no, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq, retention_until,
+                   voided_at, void_reason_code, void_reason_text, supersede_reason_code, supersede_reason_text, completed_at
+            """;
+
     @Override
     public Optional<DisclosureRecord> loadForUpdate(DisclosureId id) {
-        Optional<Header> header = queryAtMostOne("""
-                SELECT disclosure_id, agent_id, customer_ref, group_code, template_id, template_version, rule_version_id,
-                       tenant_rule_version_id, issuer_mode, status, consult_date, grade_snapshot_id, grading_policy_version_id,
-                       ranking_policy_version_id, tie_break, grade_basis::text AS grade_basis, snapshot_generated_at, version, supersedes_id,
-                       superseded_by_id, disclosure_no, sealed_at, canonical_hash, pdf_hash, chain_hash, chain_seq, retention_until,
-                       voided_at, void_reason_code, void_reason_text, supersede_reason_code, supersede_reason_text, completed_at
+        Optional<Header> header = queryAtMostOne(HEADER_COLUMNS + """
                   FROM disclosure
                  WHERE tenant_id = :tenantId
                    AND disclosure_id = :id
                    FOR UPDATE
                 """, Map.of("id", id.value()), (rs, n) -> header(rs));
         return header.map(this::withChildren);
+    }
+
+    @Override
+    public Optional<DisclosureRecord> load(DisclosureId id) {
+        Optional<Header> header = queryAtMostOne(HEADER_COLUMNS + """
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :id
+                """, Map.of("id", id.value()), (rs, n) -> header(rs));
+        return header.map(this::withChildren);
+    }
+
+    @Override
+    public Optional<java.time.Instant> destroyedAt(DisclosureId id) {
+        return queryAtMostOne("""
+                SELECT destroyed_at
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :id
+                   AND destroyed_at IS NOT NULL
+                """, Map.of("id", id.value()), (rs, n) -> rs.getTimestamp("destroyed_at").toInstant());
+    }
+
+    /**
+     * 목록: 범위 조건 — 설계사({@code agent_id}) 또는 조직(작성 시점 {@code org_path}가 같거나 세그먼트 접두 아래 — {@code starts_with}이므로 LIKE 와일드카드가
+     * 없다, 조직 없는 V12 이전 행은 조직 범위에 들지 않는다).
+     */
+    @Override
+    public List<Listed> page(ListScope scope, Optional<DisclosureStatus> status, Optional<Position> after, int limit) {
+        Map<String, Object> p = new HashMap<>();
+        StringBuilder where = new StringBuilder();
+        switch (scope) {
+            case ListScope.WholeTenant w -> {
+            }
+            case ListScope.OwnedBy o -> {
+                where.append(" AND agent_id = :agentId");
+                p.put("agentId", o.agent().value());
+            }
+            case ListScope.UnderOrg u -> {
+                where.append(" AND org_path IS NOT NULL AND (org_path = :org OR starts_with(org_path, :org || '/'))");
+                p.put("org", u.org().value());
+            }
+        }
+        status.ifPresent(st -> {
+            where.append(" AND status = :status");
+            p.put("status", st.name());
+        });
+        after.ifPresent(a -> {
+            where.append(" AND (consult_date, disclosure_id) < (:afterDate, :afterId)");
+            p.put("afterDate", a.consultDate());
+            p.put("afterId", a.id().value());
+        });
+        p.put("limit", limit);
+        return query("""
+                SELECT disclosure_id, disclosure_no, version, status, agent_id, customer_ref, group_code, consult_date, sealed_at, destroyed_at
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId""" + where + """
+
+                 ORDER BY consult_date DESC, disclosure_id DESC
+                 LIMIT :limit
+                """, p, (rs, n) -> new Listed(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), Optional.ofNullable(rs.getString("disclosure_no")),
+                rs.getInt("version"), DisclosureStatus.valueOf(rs.getString("status")), rs.getString("agent_id"), CustomerRef.of(rs.getString("customer_ref")),
+                GroupCode.of(rs.getString("group_code")), rs.getObject("consult_date", java.time.LocalDate.class),
+                Optional.ofNullable(rs.getTimestamp("sealed_at")).map(java.sql.Timestamp::toInstant),
+                Optional.ofNullable(rs.getTimestamp("destroyed_at")).map(java.sql.Timestamp::toInstant)));
     }
 
     @Override

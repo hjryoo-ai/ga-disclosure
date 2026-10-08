@@ -1,6 +1,7 @@
 package com.ga.disclosure.workflow.disclosure;
 
 import com.ga.disclosure.domain.vo.DisclosureId;
+import com.ga.platform.core.tenant.OrgPath;
 
 import java.util.List;
 import java.util.Optional;
@@ -12,7 +13,11 @@ import java.util.Optional;
  */
 public interface DisclosureStore {
 
-    void insert(Disclosure disclosure);
+    /**
+     * 새 확인서(초안·정정 새 버전). {@code orgPath}는 작성 행위의 조직 스냅샷이다 — 작성 행위자의 <b>현재</b> {@code identity_link.org_path}
+     * (V12 GD124: INSERT 필수·이후 불변, 6A 승인 Q1 — 정정 새 버전도 이전 버전 값을 복사하지 않고 다시 읽는다).
+     */
+    void insert(Disclosure disclosure, OrgPath orgPath);
 
     /** 행 잠금({@code FOR UPDATE})으로 읽는다. 명령은 전부 이 경로로 읽고 같은 트랜잭션에서 {@link #save}한다. */
     Optional<DisclosureRecord> loadForUpdate(DisclosureId id);

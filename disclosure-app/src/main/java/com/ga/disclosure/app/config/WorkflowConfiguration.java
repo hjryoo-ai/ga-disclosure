@@ -2,7 +2,7 @@ package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.audit.outbox.OutboxPort;
-import com.ga.disclosure.workflow.identity.AgentDirectory;
+import com.ga.disclosure.infra.authz.IdentityLinkAuthorization;
 import com.ga.disclosure.infra.engine.EngineClientSettings;
 import com.ga.disclosure.infra.engine.EngineCredentialPort;
 import com.ga.disclosure.infra.engine.EngineEndpoints;
@@ -12,6 +12,7 @@ import com.ga.disclosure.infra.engine.EnvironmentEngineCredentials;
 import com.ga.disclosure.infra.engine.HttpEngineTransport;
 import com.ga.disclosure.infra.engine.stub.StubEngineTransport;
 import com.ga.disclosure.infra.engine.stub.TableEngineStub;
+import com.ga.disclosure.infra.persistence.AuthzFactsRepository;
 import com.ga.disclosure.infra.persistence.TenantRecord;
 import com.ga.disclosure.infra.persistence.TenantRepository;
 import com.ga.disclosure.rules.resolve.RuleResolver;
@@ -19,6 +20,7 @@ import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.rules.validation.ValidationRegistry;
 import com.ga.disclosure.rules.validation.standard.StandardValidations;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.catalog.InsurerPanelPort;
 import com.ga.disclosure.workflow.catalog.ProductCatalogPort;
 import com.ga.disclosure.workflow.customer.CustomerVault;
@@ -29,6 +31,7 @@ import com.ga.disclosure.workflow.disclosure.DisclosureStore;
 import com.ga.disclosure.workflow.disclosure.GradeSnapshotPort;
 import com.ga.disclosure.workflow.disclosure.ReviewStore;
 import com.ga.disclosure.workflow.disclosure.TenantProfilePort;
+import com.ga.disclosure.workflow.identity.AgentDirectory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -104,13 +107,21 @@ public class WorkflowConfiguration {
                                                GradeSnapshotPort engine, ProductCatalogPort catalog, InsurerPanelPort panel,
                                                CustomerVault customers, RuleResolver rules, TemplateResolver templates,
                                                ValidationRegistry registry, AuditPort audit, WorkflowTransactions tx, Clock clock,
-                                               AgentDirectory agents, OutboxPort outbox) {
+                                               AgentDirectory agents, OutboxPort outbox, AuthorizationPort authz) {
         return new DisclosureService(store, reviews, flags, tenants, engine, catalog, panel, customers, rules, templates, registry, audit, tx,
-                clock, agents, outbox);
+                clock, agents, outbox, authz);
+    }
+
+    /** 인가 어댑터(6A 계획 §3): identity_link·대상 사실은 RLS 아래에서, 거부 감사는 별도 트랜잭션. */
+    @Bean
+    public IdentityLinkAuthorization authorizationPort(AgentDirectory agents, AuthzFactsRepository facts, AuditPort audit, WorkflowTransactions tx,
+                                               Clock clock) {
+        return new IdentityLinkAuthorization(agents, facts, audit, tx, clock);
     }
 
     @Bean
-    public RegisterCustomer registerCustomer(CustomerVault vault, AuditPort audit, WorkflowTransactions tx, Clock clock) {
-        return new RegisterCustomer(vault, audit, tx, clock);
+    public RegisterCustomer registerCustomer(CustomerVault vault, AuditPort audit, WorkflowTransactions tx, Clock clock,
+                                             AuthorizationPort authz) {
+        return new RegisterCustomer(vault, audit, tx, clock, authz);
     }
 }

@@ -55,9 +55,9 @@ class RenderDeterminismIT {
     void storedDocumentRerendersByteForByteInTwoDifferentJvms() throws Exception {
         SealService.Outcome o = s.sealReasoned();
         DisclosureId id = o.id();
-        byte[] canonicalBytes = ((ArtifactService.View.Granted) s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.CANONICAL_JSON))
+        byte[] canonicalBytes = ((ArtifactService.View.Granted) s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.CANONICAL_JSON))
                 .plaintext();
-        byte[] sealedPdf = ((ArtifactService.View.Granted) s.artifacts.view(s.w.tenant, SealSetup.MANAGER, id, ArtifactKind.PDF)).plaintext();
+        byte[] sealedPdf = ((ArtifactService.View.Granted) s.artifacts.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.PDF)).plaintext();
         FormTemplate pinned = s.w.in(() -> s.w.templates.findByRef(s.w.tenant, com.ga.disclosure.domain.vo.TemplateRef.of("STANDARD", 1))
                 .orElseThrow());
         Path dir = Files.createTempDirectory("ga-rerender");

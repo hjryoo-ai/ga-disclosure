@@ -41,7 +41,7 @@ class PinnedRuleGuardIT {
     }
 
     private void assertMismatchAndFailureAudited(DisclosureId id) {
-        RuleResolutionException e = catchThrowableOfType(RuleResolutionException.class, () -> w.service.compare(w.tenant, WorkflowSetup.AGENT, id));
+        RuleResolutionException e = catchThrowableOfType(RuleResolutionException.class, () -> w.service.compare(Callers.of(w.tenant, WorkflowSetup.AGENT), id));
         assertThat(e.failure()).isEqualTo(ResolutionFailure.PINNED_BODY_MISMATCH);
         assertThat(w.auditLog()).anyMatch(r -> r.entry().action() == AuditAction.COMMAND_FAILED
                 && r.entry().detail().path("code").asString().equals("RULE_PINNED_BODY_MISMATCH"));
@@ -50,7 +50,7 @@ class PinnedRuleGuardIT {
     @Test
     void aRuleBodyForgedPastItsGuardIsRefusedOnLoad() {
         DisclosureId id = w.draft();
-        w.service.replaceItems(w.tenant, WorkflowSetup.AGENT, id, WorkflowSetup.threeItems());
+        w.service.replaceItems(Callers.of(w.tenant, WorkflowSetup.AGENT), id, WorkflowSetup.threeItems());
         // 소유 롤이 불변 트리거를 끄고 고정 룰 본문을 바꿨다고 가정(정상 경로에는 없다)
         w.db.seed(w.tenant.value(), c -> {
             SeedData.exec(c, "ALTER TABLE rule_version DISABLE TRIGGER trg_rule_version_guard_update");
@@ -67,9 +67,9 @@ class PinnedRuleGuardIT {
         // 감사 기록 없이 들어간 확인서(정상 경로에는 없다 — 생성은 언제나 같은 트랜잭션에서 DISCLOSURE_CREATE를 남긴다)
         UUID id = UUID.randomUUID();
         w.db.seed(w.tenant.value(), c -> SeedData.exec(c, """
-                INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
+                INSERT INTO disclosure (tenant_id, disclosure_id, org_path, agent_id, customer_ref, group_code, template_id, template_version,
                                         rule_version_id, issuer_mode, status, consult_date)
-                VALUES (?, ?, ?, ?, 'PG-HEALTH-SIMPLE-NR', 'STANDARD', 1, 'DISC-2026-07', 'SELF', 'DRAFT', DATE '2026-09-23')
+                VALUES (?, ?, '/HQ/B1', ?, ?, 'PG-HEALTH-SIMPLE-NR', 'STANDARD', 1, 'DISC-2026-07', 'SELF', 'DRAFT', DATE '2026-09-23')
                 """, w.tenant.value(), id, WorkflowSetup.AGENT_ID, w.customer.value()));
         assertMismatchAndFailureAudited(DisclosureId.of(id));
     }

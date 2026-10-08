@@ -10,8 +10,13 @@ import com.ga.disclosure.seal.evidence.EvidencePackageReader;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.anchor.AnchorReceipt;
-import com.ga.disclosure.workflow.anchor.AnchorStore;
 import com.ga.disclosure.workflow.anchor.AnchorStore.StoredAnchor;
+import com.ga.disclosure.workflow.anchor.AnchorStore;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.canonical.Sha256;
@@ -56,20 +61,26 @@ public final class ReceiptExporter {
     private final AuditPort audit;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
     public ReceiptExporter(SealChainReader chain, AnchorStore anchors, ArtifactService artifacts, AuditPort audit, WorkflowTransactions transactions,
-                           Clock clock) {
+                           Clock clock, AuthorizationPort authz) {
         this.chain = Objects.requireNonNull(chain, "chain");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public Result export(TenantId tenant, Actor actor, DisclosureId id) {
+    /** 준법 전용(5 수용심사 결정 2) — 먼저 내보내기를 인가하고, 증거 패키지는 같은 호출자의 감사되는 열람으로 읽는다. */
+    @UseCaseEntry(Action.RECEIPT_EXPORT)
+    public Result export(Caller caller, DisclosureId id) {
+        TenantId tenant = caller.tenant();
+        Actor actor = transactions.inTenant(tenant, () -> authz.require(caller, Action.RECEIPT_EXPORT, Target.disclosure(id)));
         JsonNode manifest;
-        switch (artifacts.view(tenant, actor, id, ArtifactKind.EVIDENCE_ZIP)) {
+        switch (artifacts.view(caller, id, ArtifactKind.EVIDENCE_ZIP)) {
             case ArtifactService.View.Granted g -> manifest = Canonicalizer.parseStrict(new String(EvidencePackageReader.entries(g.plaintext())
                     .get("manifest.json"), StandardCharsets.UTF_8));
             case ArtifactService.View.Denied d -> {

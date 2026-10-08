@@ -76,8 +76,8 @@ class WorkflowAuditIT {
     @Test
     void everySuccessfulCommandLeavesItsAuditRowsAndTheChainHolds() {
         DisclosureId id = s.compared();
-        s.service.requestGrades(s.tenant, WorkflowSetup.AGENT, id);
-        s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT, id, List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
+        s.service.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
+        s.service.setRecommendations(Callers.of(s.tenant, WorkflowSetup.AGENT), id, List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null),
                 new AgentReason(3, List.of(ReasonCode.of("COVERAGE")), null)));
         assertThat(rowsOf(id)).extracting(a -> a.entry().action()).containsExactly(
                 AuditAction.DISCLOSURE_CREATE,
@@ -119,9 +119,9 @@ class WorkflowAuditIT {
         DisclosureService failing = new DisclosureService(s.disclosures, s.reviews, s.flags, new TenantRepository(s.gateway),
                 new EngineGradeClient(new HttpEngineTransport(s.settings, t -> Optional.of(WorkflowSetup.TOKEN), t -> s.engine.baseUrl())),
                 s.catalog, s.catalog, s.vault, new RuleResolver(s.rules), new TemplateResolver(s.templates), StandardValidations.registry(),
-                failingAfterTransition, s.tx, s.clock, s.agents, s.outbox);
+                failingAfterTransition, s.tx, s.clock, s.agents, s.outbox, Callers.authz(s.clock));
         int before = rowsOf(id).size();
-        assertThatThrownBy(() -> failing.requestGrades(s.tenant, WorkflowSetup.AGENT, id)).hasMessageContaining("injected");
+        assertThatThrownBy(() -> failing.requestGrades(Callers.of(s.tenant, WorkflowSetup.AGENT), id)).hasMessageContaining("injected");
         assertThat(status(id)).as("업무 행도 롤백").isEqualTo("COMPARED");
         List<AuditRecord> after = rowsOf(id);
         assertThat(after).hasSize(before + 1);
@@ -137,9 +137,9 @@ class WorkflowAuditIT {
     @Test
     void aBusinessRejectionCommitsItsAuditRowsWithoutChangingState() {
         DisclosureId id = s.draft();
-        s.service.replaceItems(s.tenant, WorkflowSetup.AGENT, id, WorkflowSetup.threeItems().subList(0, 1));
+        s.service.replaceItems(Callers.of(s.tenant, WorkflowSetup.AGENT), id, WorkflowSetup.threeItems().subList(0, 1));
         int before = rowsOf(id).size();
-        CommandResult r = s.service.compare(s.tenant, WorkflowSetup.AGENT, id);
+        CommandResult r = s.service.compare(Callers.of(s.tenant, WorkflowSetup.AGENT), id);
         assertThat(r.applied()).isFalse();
         assertThat(status(id)).isEqualTo("DRAFT");
         assertThat(rowsOf(id).subList(before, rowsOf(id).size())).extracting(a -> a.entry().action())
@@ -150,7 +150,7 @@ class WorkflowAuditIT {
     void aCommandErrorLeavesOnlyCommandFailedInTheSameTenant() {
         DisclosureId id = s.draft();
         int before = rowsOf(id).size();
-        IllegalTransition e = catchThrowableOfType(IllegalTransition.class, () -> s.service.setRecommendations(s.tenant, WorkflowSetup.AGENT,
+        IllegalTransition e = catchThrowableOfType(IllegalTransition.class, () -> s.service.setRecommendations(Callers.of(s.tenant, WorkflowSetup.AGENT),
                 id, List.of(new AgentReason(1, List.of(ReasonCode.of("PREMIUM")), null))));
         assertThat(e.from()).isEqualTo(DisclosureStatus.DRAFT);
         List<AuditRecord> added = rowsOf(id).subList(before, rowsOf(id).size());
@@ -166,8 +166,8 @@ class WorkflowAuditIT {
     void anUnboundTenantIsNeverAudited() {
         DisclosureId id = s.draft();
         long before = globalCommandFailed();
-        assertThatThrownBy(() -> s.service.compare(null, WorkflowSetup.AGENT, id)).isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("not bound");
+        // 6A: 테넌트는 호출자(Caller)가 들고 오고 Caller는 테넌트 없이 만들어지지 않는다 — 호출자 없음은 바인딩 전에 거부된다
+        assertThatThrownBy(() -> s.service.compare(null, id)).isInstanceOf(NullPointerException.class).hasMessageContaining("caller");
         assertThat(globalCommandFailed()).isEqualTo(before);
     }
 }

@@ -63,9 +63,9 @@ class SignRulesAsDataIT {
     void aDisabledChannelIssuesNoSession() {
         try (SignSetup x = tenant(body -> ((ObjectNode) body.get("channels").get("PAPER_SCAN")).put("enabled", false))) {
             DisclosureId id = x.sealed();
-            SignSessionService.IssueOutcome o = x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.PAPER_SCAN);
+            SignSessionService.IssueOutcome o = x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.PAPER_SCAN);
             assertThat(o.rejections()).containsExactly(SignRejection.CHANNEL_DISABLED);
-            assertThat(x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.TOUCH_PAD).issued()).isTrue();
+            assertThat(x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.TOUCH_PAD).issued()).isTrue();
         }
     }
 
@@ -87,9 +87,9 @@ class SignRulesAsDataIT {
         try (SignSetup x = tenant(body -> body.put("signDeadlineDays", 0))) {
             DisclosureId id = x.sealed();                               // 봉인 2026-09-23 10:00 KST → 기한 끝 같은 날 23:59:59.999999 KST
             x.clock.set(java.time.Instant.parse("2026-09-23T14:59:59Z"));
-            assertThat(x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.TOUCH_PAD).issued()).isTrue();
+            assertThat(x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.TOUCH_PAD).issued()).isTrue();
             x.clock.advance(Duration.ofSeconds(1));
-            assertThat(x.sessionService.issue(x.w.tenant, SignSetup.AGENT, id, SignatureChannel.TOUCH_PAD).rejections())
+            assertThat(x.sessionService.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.TOUCH_PAD).rejections())
                     .containsExactly(SignRejection.DEADLINE_PASSED);
         }
     }

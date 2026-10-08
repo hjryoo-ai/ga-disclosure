@@ -5,6 +5,11 @@ import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Action;
+import com.ga.disclosure.workflow.authz.AuthorizationPort;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.authz.Target;
+import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -28,18 +33,23 @@ public final class CustomerRekeyService {
     private final AuditPort audit;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final AuthorizationPort authz;
 
-    public CustomerRekeyService(CustomerVault vault, AuditPort audit, WorkflowTransactions transactions, Clock clock) {
+    public CustomerRekeyService(CustomerVault vault, AuditPort audit, WorkflowTransactions transactions, Clock clock, AuthorizationPort authz) {
         this.vault = Objects.requireNonNull(vault, "vault");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.authz = Objects.requireNonNull(authz, "authz");
     }
 
-    public RekeyReport rekey(TenantId tenant, Actor actor, int batchSize) {
+    @UseCaseEntry(Action.CUSTOMER_REKEY)
+    public RekeyReport rekey(Caller caller, int batchSize) {
         if (batchSize < 1) {
             throw new IllegalArgumentException("batch size must be >= 1");
         }
+        TenantId tenant = caller.tenant();
+        Actor actor = transactions.inTenant(tenant, () -> authz.require(caller, Action.CUSTOMER_REKEY, Target.none()));
         CustomerVault.KeyRotation rotation = transactions.inTenant(tenant, () -> {
             CustomerVault.KeyRotation r = vault.rotate(clock.instant());
             ObjectNode detail = JSON.createObjectNode().put("retired", r.retiredKeyId().orElse(null));

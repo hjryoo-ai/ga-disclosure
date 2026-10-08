@@ -1,25 +1,6 @@
 package com.ga.disclosure.app.cli;
 
-import com.ga.disclosure.workflow.disclosure.ArtifactService;
-import com.ga.disclosure.workflow.disclosure.DisclosureService;
-import com.ga.disclosure.workflow.disclosure.LifecycleReason;
-import com.ga.disclosure.workflow.disclosure.LifecycleService;
-import com.ga.disclosure.workflow.disclosure.SealService;
-import com.ga.disclosure.workflow.sign.SignatureStore;
-import com.ga.disclosure.workflow.WorkflowTransactions;
-import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
-import com.ga.disclosure.workflow.disclosure.ExpireService;
-import com.ga.disclosure.workflow.disclosure.SignService;
-import com.ga.disclosure.workflow.disclosure.SignSessionService;
-import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
-import com.ga.disclosure.workflow.anchor.AnchorJob;
-import com.ga.disclosure.workflow.retention.DestructionJob;
-import com.ga.disclosure.workflow.retention.LegalHoldService;
-import com.ga.disclosure.workflow.verify.ReceiptExporter;
-import com.ga.disclosure.workflow.verify.TenantVerifier;
-import com.ga.disclosure.workflow.customer.RegisterCustomer;
-import com.ga.disclosure.workflow.customer.CustomerVault;
-import com.ga.disclosure.workflow.customer.CustomerFileParser;
+import com.ga.disclosure.app.demo.DemoOidcIssuer;
 import com.ga.disclosure.compliance.rules.ActivationReport;
 import com.ga.disclosure.compliance.rules.DistributionOutcome;
 import com.ga.disclosure.compliance.rules.GovernanceRejectedException;
@@ -34,8 +15,8 @@ import com.ga.disclosure.compliance.rules.TenantDirectory;
 import com.ga.disclosure.compliance.rules.TenantTransactions;
 import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.enums.RuleScope;
-import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.enums.RuleStatus;
+import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
@@ -44,14 +25,41 @@ import com.ga.disclosure.rules.bundle.Bundle;
 import com.ga.disclosure.rules.bundle.BundleLoader;
 import com.ga.disclosure.rules.version.RuleVersion;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.anchor.AnchorJob;
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.catalog.CatalogImportOutcome;
 import com.ga.disclosure.workflow.catalog.CatalogImportRejectedException;
 import com.ga.disclosure.workflow.catalog.CatalogImportService;
 import com.ga.disclosure.workflow.catalog.InvalidCatalogFileException;
+import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import com.ga.disclosure.workflow.customer.CustomerRekeyService;
+import com.ga.disclosure.workflow.customer.CustomerVault;
+import com.ga.disclosure.workflow.customer.RegisterCustomer;
 import com.ga.disclosure.workflow.customer.RekeyReport;
+import com.ga.disclosure.workflow.disclosure.ArtifactService;
+import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
+import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
+import com.ga.disclosure.workflow.disclosure.DisclosureService;
+import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.disclosure.LifecycleReason;
+import com.ga.disclosure.workflow.disclosure.LifecycleService;
+import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
+import com.ga.disclosure.workflow.disclosure.SealService;
+import com.ga.disclosure.workflow.disclosure.SignService;
+import com.ga.disclosure.workflow.disclosure.SignSessionService;
+import com.ga.disclosure.workflow.job.JobKind;
+import com.ga.disclosure.workflow.job.JobQueryService;
+import com.ga.disclosure.workflow.job.JobRunner;
+import com.ga.disclosure.workflow.job.StandardJobs;
+import com.ga.disclosure.workflow.retention.DestructionJob;
+import com.ga.disclosure.workflow.retention.LegalHoldService;
+import com.ga.disclosure.workflow.sign.SignatureStore;
+import com.ga.disclosure.workflow.verify.ReceiptExporter;
+import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
@@ -66,6 +74,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,8 +82,9 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * 운영자 CLI(프로파일 {@code cli}, 웹 서버 없이 실행 후 종료). 인가는 Phase 6이므로 지금은 운영자 CLI만 있고, 모든 행위는
- * {@code audit_log}에 {@code actor_role=OPERATOR}로 남는다. 실패(인자 오류·거부)는 예외로 전파되어 종료 코드가 0이 아니다.
+ * 운영자 CLI(프로파일 {@code cli}, 웹 서버 없이 실행 후 종료). 호출자는 {@code Caller.cli(테넌트, --operator)} — 감사 역할은 언제나
+ * OPERATOR이고 범위 검사가 없다(6A 승인 Q9, {@code --role}은 거부). 업무 역할을 요구하는 명령(정정·스캔 검토·설계사 서명 등)은
+ * {@code --operator}가 그 역할로 {@code identity_link}에 연결된 주체여야 한다. 실패(인자 오류·거부)는 예외로 전파되어 종료 코드가 0이 아니다.
  *
  * <pre>
  * rules distribute --bundle &lt;path&gt; --tenants all|T1,T2 --operator &lt;id&gt; [--bundles-dir contracts/rules/bundles]
@@ -82,21 +92,23 @@ import java.util.stream.Stream;
  * rules activate   [--as-of 2027-01-01] [--tenants all|T1,T2] --operator &lt;id&gt;
  * rules reconcile  [--tenants all|T1,T2] [--bundles-dir contracts/rules/bundles[,dir2]] --operator &lt;id&gt;
  * demo seed        --file &lt;seed.json&gt; --operator &lt;id&gt;
+ * demo token       --tenant T1 --subject &lt;sub&gt; [--ttl PT15M] (데모 프로파일만 — JWT를 표준 출력으로, 역할 클레임 없음)
  * catalog import   --tenant T1 --file &lt;catalog.json&gt; --operator &lt;id&gt;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
  * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
- * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]       (거부면 종료 코드 2와 거부 코드 목록)
- * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
- * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt; --role &lt;ROLE&gt;
- * disclosure rebase     --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; [--role AGENT]
- * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out &lt;path&gt; --operator &lt;id&gt; [--role COMPLIANCE]
+ * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; (거부면 종료 코드 2와 거부 코드 목록)
+ * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
+ * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
+ * disclosure rebase     --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt;
+ * artifacts get         --tenant T1 --id &lt;uuid&gt; --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out &lt;path&gt; --operator &lt;id&gt;
  * artifacts gc          --tenants all|T1,T2 [--grace PT24H] --operator &lt;id&gt;
  * artifacts reconcile   --tenants all|T1,T2 [--limit 500] --operator &lt;id&gt;
  * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
  * sign …·disclosure complete|expire — {@link SignCommands}(Phase 4)
  * anchor run|receipt export·verify package|tenant·retention destroy·legal-hold place|release — {@link RetentionCommands}(Phase 5)
+ * jobs list|show|report — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다)
  * </pre>
  * 무효·정정 사유는 파일로만 받는다 — 자유 텍스트에 개인정보가 섞일 수 있다(CLAUDE.md 규칙 6). 출력에는 사유를 싣지 않는다.
  * 고객 개인정보는 CLI 인자·환경변수로 받지 않는다(셸 기록·프로세스 목록에 남는다) — 파일(허구 데이터) 또는 API로만(CLAUDE.md 규칙 6).
@@ -129,6 +141,9 @@ public class OperatorCli implements ApplicationRunner {
     private final SignCommands sign;
     private final DemoSignatureSeeder demoSignatures;
     private final RetentionCommands retention;
+    private final JobCommands jobs;
+    private final NotificationDispatcher dispatcher;
+    private final ObjectProvider<DemoOidcIssuer> demoOidc;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
@@ -138,7 +153,9 @@ public class OperatorCli implements ApplicationRunner {
                        SealService seal, LifecycleService lifecycle, ArtifactService artifacts, IdentityLinkRepository identityLinks,
                        SignSessionService signSessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags,
                        WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock, AnchorJob anchorJob,
-                       ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds) {
+                       ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds,
+                       JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications,
+                       ObjectProvider<DemoOidcIssuer> demoOidc) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -157,9 +174,13 @@ public class OperatorCli implements ApplicationRunner {
         this.lifecycle = lifecycle;
         this.artifacts = artifacts;
         this.identityLinks = identityLinks;
-        this.sign = new SignCommands(signSessions, signing, expiry, flags, workflowTransactions, this::tenants, clock, out);
+        this.jobs = new JobCommands(jobRunner, jobQueries, out);
+        this.dispatcher = notifications;
+        this.demoOidc = demoOidc;
+        this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
-        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, this::tenants, clock, out);
+        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, jobs, this::tenants, clock,
+                out);
     }
 
     @Override
@@ -173,6 +194,10 @@ public class OperatorCli implements ApplicationRunner {
             retention.run(args);
             return;
         }
+        if (jobs.handles(args.command())) {
+            jobs.run(args);
+            return;
+        }
         switch (args.command()) {
             case "demo signatures" -> demoSignatures(args);
             case "rules distribute" -> distribute(args);
@@ -180,6 +205,7 @@ public class OperatorCli implements ApplicationRunner {
             case "rules activate" -> activate(args);
             case "rules reconcile" -> reconcile(args);
             case "demo seed" -> seed(args);
+            case "demo token" -> demoToken(args);
             case "catalog import" -> importCatalog(args);
             case "customer rekey" -> rekey(args);
             case "customer import" -> importCustomers(args);
@@ -246,6 +272,21 @@ public class OperatorCli implements ApplicationRunner {
         out.println("RECONCILE total drift=" + drift);
     }
 
+    /** 데모 OIDC 토큰(6A 계획 §10): 데모 프로파일만. 출력은 JWT 한 줄뿐이다. */
+    private void demoToken(CliArguments args) {
+        DemoOidcIssuer issuer = demoOidc.getIfAvailable();
+        if (issuer == null) {
+            throw new CliFailure("demo token needs the demo profile (--spring.profiles.active=cli,demo)");
+        }
+        Duration ttl;
+        try {
+            ttl = Duration.parse(args.optional("ttl").orElse("PT15M"));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new CliFailure("--ttl is an ISO-8601 duration (e.g. PT15M)");
+        }
+        out.println(issuer.token(TenantId.of(args.required("tenant")), args.required("subject"), ttl));
+    }
+
     /** 데모·시드: 테넌트 행과 DRAFT 사규를 넣는다(이미 있으면 건너뛴다). 사규 승인·활성화는 별도 명령으로. */
     private void seed(CliArguments args) {
         new Operator(args.required("operator"));
@@ -258,9 +299,13 @@ public class OperatorCli implements ApplicationRunner {
             for (JsonNode link : t.path("identityLinks")) {
                 java.util.List<String> roles = new java.util.ArrayList<>();
                 link.get("roles").forEach(r -> roles.add(r.asString()));
-                int linked = transactions.inTenant(tenant, () -> identityLinks.linkIfAbsent(link.get("subject").asString(),
-                        link.get("agentId").asString(), roles, link.get("orgPath").asString()));
-                out.println("SEED IDENTITY_LINK " + tenant + " " + link.get("agentId").asString() + (linked == 1 ? " CREATED" : " EXISTS"));
+                // 설계사가 아닌 주체(COMPLIANCE·SCHEDULER·FEED_CONSUMER)는 agentId가 없고 서비스 주체는 조직도 없다(V12)
+                String agentId = link.hasNonNull("agentId") ? link.get("agentId").asString() : null;
+                String orgPath = link.hasNonNull("orgPath") ? link.get("orgPath").asString() : null;
+                int linked = transactions.inTenant(tenant, () -> identityLinks.linkIfAbsent(link.get("subject").asString(), agentId, roles,
+                        orgPath));
+                out.println("SEED IDENTITY_LINK " + tenant + " " + (agentId != null ? agentId : link.get("subject").asString())
+                        + (linked == 1 ? " CREATED" : " EXISTS"));
             }
         }
         for (JsonNode r : seed.path("tenantRules")) {
@@ -279,12 +324,11 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void importCatalog(CliArguments args) {
-        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
         TenantId tenant = TenantId.of(args.required("tenant"));
         Path file = Path.of(args.required("file"));
         CatalogImportOutcome o;
         try {
-            o = catalog.importFile(tenant, actor, file.getFileName().toString(), Files.readAllBytes(file));
+            o = catalog.importFile(caller(args, tenant), file.getFileName().toString(), Files.readAllBytes(file));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InvalidCatalogFileException | CatalogImportRejectedException e) {
@@ -296,17 +340,15 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void rekey(CliArguments args) {
-        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
         TenantId tenant = TenantId.of(args.required("tenant"));
         int batch = Integer.parseInt(args.optional("batch").orElse("500"));
-        RekeyReport r = rekey.rekey(tenant, actor, batch);
+        RekeyReport r = rekey.rekey(caller(args, tenant), batch);
         out.println("REKEY " + tenant + " retired=" + r.retiredKeyId().orElse("-") + " active=" + r.activeKeyId() + " reencrypted="
                 + r.reencrypted() + " destroyed=" + r.destroyedKeyIds());
     }
 
     /** 고객 파일 등록(등록 멱등 키 — 두 번 돌려도 한 명). 개인정보는 파일에서만 읽고 출력하지 않는다. */
     private void importCustomers(CliArguments args) {
-        Actor actor = new Actor(args.required("operator"), Operator.ROLE);
         TenantId tenant = TenantId.of(args.required("tenant"));
         Path file = Path.of(args.required("file"));
         List<CustomerFileParser.Row> rows;
@@ -318,7 +360,7 @@ public class OperatorCli implements ApplicationRunner {
             throw new CliFailure(e.getMessage());
         }
         for (CustomerFileParser.Row row : rows) {
-            RegisterCustomer.Registration r = registerCustomer.execute(tenant, actor, row.key(), row.customer());
+            RegisterCustomer.Registration r = registerCustomer.execute(caller(args, tenant), row.key(), row.customer());
             out.println("CUSTOMER_IMPORT " + tenant + " " + row.id() + " " + (r.created() ? "CREATED" : "NOOP") + " ref=" + r.ref());
         }
     }
@@ -343,18 +385,27 @@ public class OperatorCli implements ApplicationRunner {
         out.println("KEK_INIT " + kekId + " " + file.toAbsolutePath() + " (owner read/write only; keep it outside the repository)");
     }
 
-    /** Phase 4 데모 서명(3자 터치·종이 스캔 완료, 원격 링크 발송 — 고객 경로는 스크립트가 콘솔 토큰으로 잇는다). 파일 경로는 서명 파일 기준. */
+    /**
+     * Phase 4 데모 서명(3자 터치·종이 스캔 완료, 원격 링크 발급 — 고객 경로는 스크립트가 콘솔 토큰으로 잇는다). 파일 경로는 서명 파일 기준. 6A: 원격 링크는
+     * 아웃박스에 적재되므로 끝에 그 테넌트의 통지 발송(작업 NOTIFY)을 한 번 돌린다 — 콘솔 통지가 {@code SIGN LINK} 줄을 찍는다.
+     */
     private void demoSignatures(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         Path file = Path.of(args.required("file"));
         demoSignatures.seed(tenant, new Actor(args.optional("agent").orElse("demo-agent"), "AGENT"),
                 new Actor(args.optional("manager").orElse("demo-manager"), "MANAGER"), read(file), file.toAbsolutePath().getParent());
+        int limit = StandardJobs.DEFAULT_NOTIFY_LIMIT;
+        jobs.one(Caller.cli(tenant, args.optional("operator").orElse("demo-seeder")), JobKind.NOTIFY,
+                tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode().put("limit", limit), StandardJobs.notify(dispatcher, limit))
+                .ifPresent(r -> out.println("NOTIFY " + tenant + " sent=" + r.sent().size() + " dead=" + r.dead().size()));
+        jobs.failIfIncomplete();
     }
 
     // ------------------------------------------------------------------ 3B: 봉인·정정·무효·재기준·산출물
 
-    private static Actor actor(CliArguments args, String defaultRole) {
-        return new Actor(args.required("operator"), args.optional("role").orElse(defaultRole));
+    /** 운영자 CLI 호출자(감사 역할 OPERATOR, 6A 승인 Q9 — {@code --role} 폐기). */
+    private static Caller caller(CliArguments args, TenantId tenant) {
+        return Caller.cli(tenant, args.required("operator"));
     }
 
     private static DisclosureId disclosureId(CliArguments args) {
@@ -372,7 +423,7 @@ public class OperatorCli implements ApplicationRunner {
 
     private void sealDisclosure(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        SealService.Outcome o = seal.seal(tenant, actor(args, "AGENT"), disclosureId(args));
+        SealService.Outcome o = seal.seal(caller(args, tenant), disclosureId(args));
         if (!o.sealed()) {
             out.println("SEAL " + tenant + " " + o.id() + " REJECTED " + o.rejections());
             throw new CliRejection("seal rejected: " + o.rejections());
@@ -383,21 +434,19 @@ public class OperatorCli implements ApplicationRunner {
 
     private void voidDisclosure(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        LifecycleService.Outcome o = lifecycle.voidDisclosure(tenant, new Actor(args.required("operator"), args.required("role")),
-                disclosureId(args), reason(args));
+        LifecycleService.Outcome o = lifecycle.voidDisclosure(caller(args, tenant), disclosureId(args), reason(args));
         lifecycleResult("VOID", tenant, o);
     }
 
     private void supersede(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        LifecycleService.Outcome o = lifecycle.supersede(tenant, new Actor(args.required("operator"), args.required("role")), disclosureId(args),
-                reason(args));
+        LifecycleService.Outcome o = lifecycle.supersede(caller(args, tenant), disclosureId(args), reason(args));
         lifecycleResult("SUPERSEDE", tenant, o);
     }
 
     private void rebase(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
-        lifecycleResult("REBASE", tenant, lifecycle.rebase(tenant, actor(args, "AGENT"), disclosureId(args)));
+        lifecycleResult("REBASE", tenant, lifecycle.rebase(caller(args, tenant), disclosureId(args)));
     }
 
     private void lifecycleResult(String command, TenantId tenant, LifecycleService.Outcome o) {
@@ -411,7 +460,7 @@ public class OperatorCli implements ApplicationRunner {
     private void artifactGet(CliArguments args) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         ArtifactKind kind = ArtifactKind.valueOf(args.required("kind"));
-        ArtifactService.View view = artifacts.view(tenant, actor(args, "COMPLIANCE"), disclosureId(args), kind);
+        ArtifactService.View view = artifacts.view(caller(args, tenant), disclosureId(args), kind);
         switch (view) {
             case ArtifactService.View.Granted g -> {
                 Path target = Path.of(args.required("out"));
@@ -431,12 +480,11 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void artifactGc(CliArguments args) {
-        Actor actor = actor(args, "OPERATOR");
         java.time.Duration grace = java.time.Duration.parse(args.optional("grace").orElse("PT24H"));
         for (TenantId tenant : tenants(args.optional("tenants").orElse("all"))) {
             ArtifactService.GcReport r;
             try {
-                r = artifacts.gc(tenant, actor, grace);
+                r = artifacts.gc(caller(args, tenant), grace);
             } catch (IllegalArgumentException e) {
                 throw new CliFailure(e.getMessage());
             }
@@ -446,12 +494,13 @@ public class OperatorCli implements ApplicationRunner {
     }
 
     private void artifactReconcile(CliArguments args) {
-        Actor actor = actor(args, "OPERATOR");
         int limit = Integer.parseInt(args.optional("limit").orElse("500"));
+        tools.jackson.databind.node.ObjectNode params = tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode().put("limit", limit);
         for (TenantId tenant : tenants(args.optional("tenants").orElse("all"))) {
-            ArtifactService.ReconcileReport r = artifacts.reconcile(tenant, actor, limit);
-            out.println("ARTIFACT_RECONCILE " + tenant + " applied=" + r.applied() + " failed=" + r.failed());
+            jobs.one(caller(args, tenant), JobKind.RECONCILE, params, StandardJobs.reconcile(artifacts, limit))
+                    .ifPresent(r -> out.println("ARTIFACT_RECONCILE " + tenant + " applied=" + r.applied() + " failed=" + r.failed()));
         }
+        jobs.failIfIncomplete();
     }
 
     // ------------------------------------------------------------------
