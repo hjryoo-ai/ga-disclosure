@@ -94,7 +94,8 @@ public class ApiSecurityConfiguration {
                 .authorizeHttpRequests(a -> a.anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(j -> j.decoder(apiJwtDecoder)).authenticationEntryPoint(entryPoint))
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
-                .addFilterAfter(new TenantBindingFilter(tenants), BearerTokenAuthenticationFilter.class);
+                .addFilterAfter(new TenantBindingFilter(tenants), BearerTokenAuthenticationFilter.class)
+                .addFilterAfter(new IdempotencyCaptureFilter(), TenantBindingFilter.class);
         return http.build();
     }
 

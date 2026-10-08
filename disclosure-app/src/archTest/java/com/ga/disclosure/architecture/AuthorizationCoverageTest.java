@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>컨트롤러는 진입점만 부른다</b>(계획 §3.4 규칙 3): {@code disclosure-api}의 클래스가 유스케이스 클래스(진입점이 하나라도 있는
  *       {@code workflow} 클래스)에서 부르는 메서드는 {@link UseCaseEntry}뿐이다. 결과 레코드의 접근자 등 유스케이스 클래스가 아닌 타입은 대상이 아니다.</li>
  *   <li><b>내부 단계는 밖에서 부를 수 없다</b>: {@link NotAnEntry} 메서드 목록은 아래 닫힌 FQN 열거와 같고, {@code workflow} 밖(컨트롤러·CLI)에서
- *       호출되지 않는다.</li>
+ *       호출되지 않는다 — 예외는 (메서드, 호출 클래스) 쌍의 닫힌 열거 {@link #OUTSIDE_CALLERS}뿐(멱등 인터셉터).</li>
  * </ol>
  * 규칙이 거짓 양성을 내면 규칙을 좁히지 않고 코드를 옮긴다(CLAUDE.md).
  */
@@ -54,7 +54,19 @@ class AuthorizationCoverageTest {
             new Allowed(WORKFLOW + ".customer.CustomerRefService#lookup",
                     "vault read with a CUSTOMER_VIEW audit row; no HTTP or CLI caller — customer APIs are a separate 6B plan (6A approval Q17)"),
             new Allowed(WORKFLOW + ".customer.CustomerRefService#phoneForNotification",
-                    "internal step of the notification dispatcher, which has authorized NOTIFY_DISPATCH in the same transaction"));
+                    "internal step of the notification dispatcher, which has authorized NOTIFY_DISPATCH in the same transaction"),
+            new Allowed(WORKFLOW + ".idempotency.IdempotencyService#claim",
+                    "write-path plumbing called only by the API idempotency interceptor; the use case behind it authorizes, rows live in the caller's own key space"),
+            new Allowed(WORKFLOW + ".idempotency.IdempotencyService#complete",
+                    "write-path plumbing called only by the API idempotency interceptor after the use case answered; records the closed receipt tuple"));
+
+    /**
+     * 규칙 4의 예외 — {@code workflow} 밖에서 내부 단계를 부를 수 있는 (메서드, 호출 클래스) 쌍. 닫힌 FQN 열거이고 실제로 없는 쌍은 실패한다(폐기 항목).
+     * 멱등 청구·완료는 유스케이스 앞뒤에 도는 HTTP 장치라 진입점이 될 수 없다(6A 계획 §4.2).
+     */
+    static final List<String> OUTSIDE_CALLERS = List.of(
+            WORKFLOW + ".idempotency.IdempotencyService#claim <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
+            WORKFLOW + ".idempotency.IdempotencyService#complete <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor");
 
     static JavaClasses classes;
 
@@ -161,9 +173,13 @@ class AuthorizationCoverageTest {
             String reason = (String) m.getAnnotationOfType(NotAnEntry.class.getName()).get("value").orElseThrow();
             assertThat(NOT_AN_ENTRY).as("reason in the list matches the source mark").contains(new Allowed(id(m), reason));
         }
-        List<String> outside = marked.stream().flatMap(m -> m.getCallsOfSelf().stream())
-                .filter(c -> !c.getOriginOwner().getPackageName().startsWith(WORKFLOW))
+        List<JavaMethodCall> outsideCalls = marked.stream().flatMap(m -> m.getCallsOfSelf().stream())
+                .filter(c -> !c.getOriginOwner().getPackageName().startsWith(WORKFLOW)).toList();
+        List<String> outside = outsideCalls.stream()
+                .filter(c -> !OUTSIDE_CALLERS.contains(id(c.getTarget().resolveMember().orElseThrow()) + " <- " + c.getOriginOwner().getName()))
                 .map(JavaMethodCall::getDescription).sorted().toList();
         assertThat(outside).isEmpty();
+        assertThat(outsideCalls.stream().map(c -> id(c.getTarget().resolveMember().orElseThrow()) + " <- " + c.getOriginOwner().getName()).distinct())
+                .as("no stale outside-caller entries").containsExactlyInAnyOrderElementsOf(OUTSIDE_CALLERS);
     }
 }
