@@ -100,6 +100,10 @@ class ScopePolicyTest {
         assertThat(ScopePolicy.permits(only(Role.COMPLIANCE), Channel.API, Action.DISCLOSURE_READ, new TargetFacts.Missing())).isEmpty();
         assertThat(ScopePolicy.whyDenied(only(Role.FEED_CONSUMER), Channel.API, Action.SEAL, new TargetFacts.Missing()))
                 .isEqualTo(AuthorizationDenied.Reason.NOT_FOUND);
+        Principal operator = new Principal("ops", Set.of(Role.OPERATOR), Optional.empty(), Optional.empty());
+        assertThat(ScopePolicy.permits(operator, Channel.CLI, Action.JOB_READ, new TargetFacts.Missing())).as("ANY still needs a target").isEmpty();
+        assertThat(ScopePolicy.whyDenied(operator, Channel.CLI, Action.JOB_READ, new TargetFacts.Missing()))
+                .isEqualTo(AuthorizationDenied.Reason.NOT_FOUND);
     }
 
     /** 운영자 CLI는 서명 토큰·피드 밖의 모든 행위(범위 검사 없음), 고객 칸은 서명 행위의 SESSION뿐. */

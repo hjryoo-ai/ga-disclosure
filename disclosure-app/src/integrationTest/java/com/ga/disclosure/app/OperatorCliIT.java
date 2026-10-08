@@ -33,7 +33,8 @@ class OperatorCliIT {
                 "--spring.profiles.active=cli",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
                 "--spring.flyway.url=" + DB.jdbcUrl(),
-                "--ga.tenant-directory.url=" + DB.jdbcUrl()));
+                "--ga.tenant-directory.url=" + DB.jdbcUrl(),
+                "--ga.job-lock.url=" + DB.jdbcUrl()));
         all.addAll(List.of(args));
         PrintStream original = System.out;
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();

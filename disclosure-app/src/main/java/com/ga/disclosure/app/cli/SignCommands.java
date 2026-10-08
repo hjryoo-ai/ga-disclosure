@@ -1,16 +1,18 @@
 package com.ga.disclosure.app.cli;
 
-import com.ga.disclosure.sign.token.SignToken;
-import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.vo.DisclosureId;
+import com.ga.disclosure.sign.token.SignToken;
 import com.ga.disclosure.sign.token.SignTokenRejected;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
 import com.ga.disclosure.workflow.disclosure.SignService;
 import com.ga.disclosure.workflow.disclosure.SignSessionService;
+import com.ga.disclosure.workflow.job.JobKind;
+import com.ga.disclosure.workflow.job.StandardJobs;
 import com.ga.disclosure.workflow.sign.DeviceInfo;
 import com.ga.disclosure.workflow.sign.IdentityInputs;
 import com.ga.disclosure.workflow.sign.PaperScan;
@@ -18,6 +20,8 @@ import com.ga.disclosure.workflow.sign.SignatureCapture;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -32,6 +36,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -60,17 +65,20 @@ final class SignCommands {
     private final SignSessionService sessions;
     private final SignService signing;
     private final ExpireService expiry;
+    private final JobCommands jobs;
     private final DisclosureFlagPort flags;
     private final WorkflowTransactions transactions;
     private final Function<String, List<TenantId>> tenants;
     private final Clock clock;
     private final PrintStream out;
 
-    SignCommands(SignSessionService sessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags, WorkflowTransactions transactions,
+    SignCommands(SignSessionService sessions, SignService signing, ExpireService expiry, JobCommands jobs, DisclosureFlagPort flags,
+                 WorkflowTransactions transactions,
                  Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.signing = Objects.requireNonNull(signing, "signing");
         this.expiry = Objects.requireNonNull(expiry, "expiry");
+        this.jobs = Objects.requireNonNull(jobs, "jobs");
         this.flags = Objects.requireNonNull(flags, "flags");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.tenants = Objects.requireNonNull(tenants, "tenants");
@@ -194,11 +202,17 @@ final class SignCommands {
     private void expire(CliArguments args) {
         Instant asOf = asOf(args.optional("as-of").orElse(null));
         int limit = Integer.parseInt(args.optional("limit").orElse("500"));
+        ObjectNode params = JsonMapper.builder().build().createObjectNode().put("asOf", asOf.toString()).put("limit", limit);
         for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
-            ExpireService.Report r = expiry.run(caller(args, tenant), asOf, limit);
+            Optional<ExpireService.Report> ran = jobs.one(caller(args, tenant), JobKind.EXPIRE, params, StandardJobs.expire(expiry, asOf, limit));
+            if (ran.isEmpty()) {
+                continue;
+            }
+            ExpireService.Report r = ran.get();
             out.println("EXPIRE " + tenant + " asOf=" + asOf + " expired=" + r.expired().size() + " stillOpen=" + r.stillOpen() + " sessionsExpired="
                     + r.sessionsExpired() + (r.expired().isEmpty() ? " NOOP" : " " + r.expired()));
         }
+        jobs.failIfIncomplete();
     }
 
     /** 판정 시각: 없으면 시계, ISO 순간이면 그대로, ISO 기간(P30D)이면 시계 + 기간(데모·점검용 — 운영 배치는 시계). */

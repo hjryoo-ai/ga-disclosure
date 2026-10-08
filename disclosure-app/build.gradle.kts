@@ -53,6 +53,9 @@ testing {
             dependencies {
                 implementation(project())
                 implementation(testFixtures(project(":disclosure-infra")))
+                // 6A: 작업 잠금을 직접 쥐어 CLI의 "그 테넌트만 실패"를 본다(JobLockGateway·JobKind)
+                implementation(project(":disclosure-infra"))
+                implementation(project(":disclosure-workflow"))
                 implementation(project(":platform-spring"))
                 implementation(project(":disclosure-domain"))
                 implementation(libs.jackson.databind)

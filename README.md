@@ -19,7 +19,7 @@ docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + �
 disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정 + 서명·완료·만료(운영자 CLI, 멱등)
 ```
 
-운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다).
+운영자 CLI는 `cli` 프로파일로 웹 서버 없이 실행된다(모든 행위는 `audit_log`에 `actor_role=OPERATOR`로 남는다 — `--role`은 6A에서 폐기, 업무 역할은 `--operator` 주체의 `identity_link`). 작업 잠금은 전용 롤 `disclosure_job_lock`으로 따로 연결한다(`DISCLOSURE_JOB_LOCK_USER`·`DISCLOSURE_JOB_LOCK_PASSWORD`, 로컬 기본값은 `init-roles.sql`의 허구 자격 증명).
 
 ```bash
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
@@ -32,7 +32,9 @@ disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배�
 # (5) anchor run [--date YYYY-MM-DD] | anchor receipt export --tenant T1 --id <uuid> --out <json> (스텁 TSA: --ga.tsa.mode=stub)
 #     verify package --package <zip> [--receipt <json>] [--tsa-trust <pem>] (0 일치, 2 불일치, 3 입력 오류) | verify tenant [--tenants all]
 #     retention destroy [--tenants all] [--dry-run yes] | legal-hold place --tenant T1 --id <uuid> --reason-code <CODE> | legal-hold release --hold <uuid>
-# 업무 거부(봉인 조건 실패 등)는 종료 코드 2, 인자·명령 오류는 1
+# (6A) jobs list --tenant T1 [--limit 20] | jobs show --tenant T1 --id <uuid> | jobs report --tenant T1 --id <uuid> --out <json>
+#      배치 명령(anchor run·verify tenant·retention destroy·disclosure expire·artifacts reconcile)은 작업 실행기를 지나며 테넌트마다 `JOB <id> <status>` 줄을 더한다
+# 업무 거부(봉인 조건 실패 등)·같은 종류 작업이 이미 도는 테넌트·FAILED 작업은 종료 코드 2, 인자·명령 오류는 1
 ```
 
 고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).

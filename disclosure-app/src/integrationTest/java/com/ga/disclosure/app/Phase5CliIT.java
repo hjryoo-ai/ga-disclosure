@@ -45,7 +45,8 @@ class Phase5CliIT {
                 "--spring.profiles.active=cli",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
                 "--spring.flyway.url=" + DB.jdbcUrl(),
-                "--ga.tenant-directory.url=" + DB.jdbcUrl()));
+                "--ga.tenant-directory.url=" + DB.jdbcUrl(),
+                "--ga.job-lock.url=" + DB.jdbcUrl()));
         all.addAll(List.of(args));
         PrintStream original = System.out;
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -204,6 +205,20 @@ class Phase5CliIT {
         String destroyed = run(with(env, "retention", "destroy", "--tenants", tenant, "--report-dir", reports.toString(), "--operator", "cli-test"));
         assertThat(destroyed).contains("destroyed=1", "  DESTROYED " + shortId, "  SKIPPED " + heldId + " HOLD");
         assertThat(Files.readString(reports.resolve("destruction-" + tenant + ".json"))).contains("\"reportVersion\":1");
+        // 6A 계획 §6.2: 배치 명령은 작업 실행기를 지난다 — JOB 줄, 작업 목록·한 건, 암호화 보고서의 평문이 --report-dir 파일과 같은 바이트
+        java.util.regex.Matcher job = java.util.regex.Pattern.compile("JOB ([0-9a-f-]{36}) SUCCEEDED report=([0-9a-f]{64})").matcher(destroyed);
+        assertThat(job.find()).as(destroyed).isTrue();
+        String jobId = job.group(1);
+        assertThat(run(with(env, "jobs", "list", "--tenant", tenant, "--operator", "auditor-1")))
+                .contains("JOB " + jobId + " DESTROY SUCCEEDED", "by=cli-test via=CLI", "DESTROY_DRY_RUN SUCCEEDED");
+        assertThat(run(with(env, "jobs", "show", "--tenant", tenant, "--id", jobId, "--operator", "auditor-1"))).contains("  params {");
+        Path jobReport = tmp.resolve("job-report.json");
+        assertThat(run(with(env, "jobs", "report", "--tenant", tenant, "--id", jobId, "--out", jobReport.toString(), "--operator", "auditor-1")))
+                .contains("JOB_REPORT " + jobId + " sha256=" + job.group(2));
+        assertThat(Files.readAllBytes(jobReport)).isEqualTo(Files.readAllBytes(reports.resolve("destruction-" + tenant + ".json")));
+        assertThat(column(tenant, "SELECT count(*) FROM audit_log WHERE tenant_id = ? AND action = 'JOB_REPORT_VIEW'")).containsExactly("1");
+        assertThatThrownBy(() -> run(with(env, "jobs", "show", "--tenant", tenant, "--id", java.util.UUID.randomUUID().toString(), "--operator",
+                "auditor-1"))).hasStackTraceContaining("AuthorizationDenied");
         assertThat(run(with(env, "verify", "tenant", "--tenants", tenant, "--operator", "auditor-1"))).contains("VERIFY_TENANT " + tenant + " MATCH");
         assertThat(run(with(env, "retention", "destroy", "--tenants", tenant, "--operator", "cli-test"))).contains("destroyed=0");
 
@@ -212,5 +227,39 @@ class Phase5CliIT {
                 "compliance-2"))).contains("LEGAL_HOLD_RELEASE " + tenant + " hold=" + hold);
         assertThat(run(with(env, "retention", "destroy", "--tenants", tenant, "--operator", "cli-test"))).contains("  DESTROYED " + heldId);
         assertThat(column(tenant, "SELECT count(*) FROM disclosure WHERE tenant_id = ? AND destroyed_at IS NOT NULL")).containsExactly("2");
+    }
+
+    /**
+     * 6A 계획 §6.2: 잠긴 테넌트는 그 테넌트만 실패한다 — 다른 프로세스가 같은 잠금 키를 쥐고 있으면 그 테넌트에는 작업 행이 생기지 않고, 나머지 테넌트는 돌며,
+     * 명령은 종료 코드 2로 끝난다.
+     */
+    @Test
+    void aLockedTenantIsBusyWhileTheOthersRun() throws Exception {
+        String busy = SeedData.uniqueTenant("BUSY");
+        String free = SeedData.uniqueTenant("FREE");
+        DB.seed(busy, c -> SeedData.tenant(c, busy));
+        DB.seed(free, c -> SeedData.tenant(c, free));
+        SeaweedHarness s3 = SeaweedHarness.get();
+        String[] noKek = {"--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + s3.freshBucket(),
+                "--ga.storage.s3.access-key-id=" + SeaweedHarness.ACCESS_KEY, "--ga.storage.s3.secret-access-key=" + SeaweedHarness.SECRET_KEY};
+        Path kek = Files.createTempDirectory("cli-busy").resolve("kek.json");
+        run("crypto", "init-kek", "--file", kek.toString());
+        String[] storage = with(noKek, "--ga.crypto.local-kek-file=" + kek);
+        com.ga.disclosure.infra.jobs.JobLockGateway locks = new com.ga.disclosure.infra.jobs.JobLockGateway(DB.jdbcUrl(), PostgresHarness.JOB_LOCK,
+                PostgresHarness.JOB_LOCK_PASSWORD);
+        try (var held = locks.tryAcquire(com.ga.platform.core.tenant.TenantId.of(busy), com.ga.disclosure.workflow.job.JobKind.RECONCILE).orElseThrow()) {
+            assertThatThrownBy(() -> run(with(storage, "artifacts", "reconcile", "--tenants", busy + "," + free, "--operator", "cli-test")))
+                    .hasStackTraceContaining("already running").satisfies(e -> assertThat(exitCode(e)).isEqualTo(2));
+            assertThat(held.stillHeld()).isTrue();
+        }
+        assertThat(column(busy, "SELECT count(*) FROM async_job WHERE tenant_id = ?")).containsExactly("0");
+        assertThat(column(free, "SELECT status || ':' || kind || ':' || channel FROM async_job WHERE tenant_id = ?"))
+                .containsExactly("SUCCEEDED:RECONCILE:CLI");
+
+        // 본체는 끝났지만 보고서를 저장하지 못한 작업(여기서는 KEK 없음)도 종료 코드 2 — 작업은 FAILED이고 보고서가 없다
+        assertThatThrownBy(() -> run(with(noKek, "artifacts", "reconcile", "--tenants", free, "--operator", "cli-test")))
+                .hasStackTraceContaining("REPORT_STORE_FAILED").satisfies(e -> assertThat(exitCode(e)).isEqualTo(2));
+        assertThat(column(free, "SELECT status || ':' || coalesce(error_code, '-') FROM async_job WHERE tenant_id = ? ORDER BY requested_at, status"))
+                .contains("FAILED:REPORT_STORE_FAILED");
     }
 }

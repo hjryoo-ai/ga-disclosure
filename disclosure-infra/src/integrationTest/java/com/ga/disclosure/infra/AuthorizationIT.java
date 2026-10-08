@@ -149,5 +149,9 @@ class AuthorizationIT {
         assertThat(s.auditLog()).anyMatch(r -> r.entry().action() != AuditAction.AUTHZ_DENIED
                 && r.entry().actorSubject().equals("ops@test") && r.entry().actorRole().equals("OPERATOR"));
         assertThat(denials()).isEmpty();
+        // 범위 검사는 없지만 없는 대상은 다른 채널과 같은 NOT_FOUND(CLI 거부는 감사하지 않는다 — 운영자 콘솔 오류)
+        assertThat(denied(() -> s.service.compare(Caller.cli(s.tenant, "ops@test"), DisclosureId.of(java.util.UUID.randomUUID()))))
+                .isEqualTo(AuthorizationDenied.Reason.NOT_FOUND);
+        assertThat(denials()).isEmpty();
     }
 }

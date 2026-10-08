@@ -15,7 +15,7 @@ import java.util.Optional;
  *   <li>{@link Scope#ORG} — 확인서의 작성 시점 조직이 주체 조직의 세그먼트 접두 아래(조직 없는 V12 이전 확인서는 아니다).</li>
  *   <li>{@link Scope#TENANT} — 대상이 이 테넌트에 있다(대상 없는 행위는 항상).</li>
  *   <li>{@link Scope#SESSION} — 서명 토큰이 가리키는 세션이다(토큰 대조는 유스케이스가 먼저 한다).</li>
- *   <li>{@link Scope#ANY} — 운영자 CLI: 범위 검사 없음(6A 계획 §3.2 — 신뢰 경계는 클러스터·운영자 접근이다).</li>
+ *   <li>{@link Scope#ANY} — 운영자 CLI: 범위 검사 없음(6A 계획 §3.2 — 신뢰 경계는 클러스터·운영자 접근이다). 대상은 있어야 한다.</li>
  * </ul>
  * 역할 하나가 닿는 채널은 하나다({@link Role#channel()}). 주체가 역할을 여럿 가지면 {@link Role} 선언 순서(준법 → 관리자 → 설계사 → …)로 처음
  * 허가하는 역할이 감사 행위자가 된다. 업무 규칙의 역할 요구(예외 승인 역할 등)는 이 표가 아니라 유스케이스가 {@code identity_link}로 본다.
@@ -128,7 +128,7 @@ public final class ScopePolicy {
 
     private static boolean satisfied(Scope scope, Principal p, TargetFacts facts) {
         return switch (scope) {
-            case ANY -> true;
+            case ANY -> !(facts instanceof TargetFacts.Missing);
             case SELF -> facts instanceof TargetFacts.Tenant && p.agentId().isPresent();
             case TENANT, SESSION -> !(facts instanceof TargetFacts.Missing);
             case OWN -> facts instanceof TargetFacts.OfDisclosure d && p.agentId().map(d.agentId()::equals).orElse(false);

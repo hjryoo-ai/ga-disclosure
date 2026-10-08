@@ -1,26 +1,5 @@
 package com.ga.disclosure.app.cli;
 
-import com.ga.disclosure.workflow.authz.Caller;
-import com.ga.disclosure.workflow.disclosure.ArtifactService;
-import com.ga.disclosure.workflow.disclosure.DisclosureService;
-import com.ga.disclosure.workflow.disclosure.LifecycleReason;
-import com.ga.disclosure.workflow.disclosure.LifecycleService;
-import com.ga.disclosure.workflow.disclosure.SealService;
-import com.ga.disclosure.workflow.sign.SignatureStore;
-import com.ga.disclosure.workflow.WorkflowTransactions;
-import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
-import com.ga.disclosure.workflow.disclosure.ExpireService;
-import com.ga.disclosure.workflow.disclosure.SignService;
-import com.ga.disclosure.workflow.disclosure.SignSessionService;
-import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
-import com.ga.disclosure.workflow.anchor.AnchorJob;
-import com.ga.disclosure.workflow.retention.DestructionJob;
-import com.ga.disclosure.workflow.retention.LegalHoldService;
-import com.ga.disclosure.workflow.verify.ReceiptExporter;
-import com.ga.disclosure.workflow.verify.TenantVerifier;
-import com.ga.disclosure.workflow.customer.RegisterCustomer;
-import com.ga.disclosure.workflow.customer.CustomerVault;
-import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import com.ga.disclosure.compliance.rules.ActivationReport;
 import com.ga.disclosure.compliance.rules.DistributionOutcome;
 import com.ga.disclosure.compliance.rules.GovernanceRejectedException;
@@ -35,8 +14,8 @@ import com.ga.disclosure.compliance.rules.TenantDirectory;
 import com.ga.disclosure.compliance.rules.TenantTransactions;
 import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.enums.RuleScope;
-import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.enums.RuleStatus;
+import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.RuleVersionId;
 import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
@@ -45,12 +24,37 @@ import com.ga.disclosure.rules.bundle.Bundle;
 import com.ga.disclosure.rules.bundle.BundleLoader;
 import com.ga.disclosure.rules.version.RuleVersion;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.WorkflowTransactions;
+import com.ga.disclosure.workflow.anchor.AnchorJob;
+import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.catalog.CatalogImportOutcome;
 import com.ga.disclosure.workflow.catalog.CatalogImportRejectedException;
 import com.ga.disclosure.workflow.catalog.CatalogImportService;
 import com.ga.disclosure.workflow.catalog.InvalidCatalogFileException;
+import com.ga.disclosure.workflow.customer.CustomerFileParser;
 import com.ga.disclosure.workflow.customer.CustomerRekeyService;
+import com.ga.disclosure.workflow.customer.CustomerVault;
+import com.ga.disclosure.workflow.customer.RegisterCustomer;
 import com.ga.disclosure.workflow.customer.RekeyReport;
+import com.ga.disclosure.workflow.disclosure.ArtifactService;
+import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
+import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
+import com.ga.disclosure.workflow.disclosure.DisclosureService;
+import com.ga.disclosure.workflow.disclosure.ExpireService;
+import com.ga.disclosure.workflow.disclosure.LifecycleReason;
+import com.ga.disclosure.workflow.disclosure.LifecycleService;
+import com.ga.disclosure.workflow.disclosure.SealService;
+import com.ga.disclosure.workflow.disclosure.SignService;
+import com.ga.disclosure.workflow.disclosure.SignSessionService;
+import com.ga.disclosure.workflow.job.JobKind;
+import com.ga.disclosure.workflow.job.JobQueryService;
+import com.ga.disclosure.workflow.job.JobRunner;
+import com.ga.disclosure.workflow.job.StandardJobs;
+import com.ga.disclosure.workflow.retention.DestructionJob;
+import com.ga.disclosure.workflow.retention.LegalHoldService;
+import com.ga.disclosure.workflow.sign.SignatureStore;
+import com.ga.disclosure.workflow.verify.ReceiptExporter;
+import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
 import org.springframework.boot.ApplicationArguments;
@@ -99,6 +103,7 @@ import java.util.stream.Stream;
  * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
  * sign …·disclosure complete|expire — {@link SignCommands}(Phase 4)
  * anchor run|receipt export·verify package|tenant·retention destroy·legal-hold place|release — {@link RetentionCommands}(Phase 5)
+ * jobs list|show|report — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다)
  * </pre>
  * 무효·정정 사유는 파일로만 받는다 — 자유 텍스트에 개인정보가 섞일 수 있다(CLAUDE.md 규칙 6). 출력에는 사유를 싣지 않는다.
  * 고객 개인정보는 CLI 인자·환경변수로 받지 않는다(셸 기록·프로세스 목록에 남는다) — 파일(허구 데이터) 또는 API로만(CLAUDE.md 규칙 6).
@@ -131,6 +136,7 @@ public class OperatorCli implements ApplicationRunner {
     private final SignCommands sign;
     private final DemoSignatureSeeder demoSignatures;
     private final RetentionCommands retention;
+    private final JobCommands jobs;
     private final PrintStream out = System.out;
 
     public OperatorCli(RuleDistributionService distribution, RuleApprovalService approval, RuleActivationJob activation,
@@ -140,7 +146,8 @@ public class OperatorCli implements ApplicationRunner {
                        SealService seal, LifecycleService lifecycle, ArtifactService artifacts, IdentityLinkRepository identityLinks,
                        SignSessionService signSessions, SignService signing, ExpireService expiry, DisclosureFlagPort flags,
                        WorkflowTransactions workflowTransactions, SignatureStore signatures, Clock clock, AnchorJob anchorJob,
-                       ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds) {
+                       ReceiptExporter receiptExporter, TenantVerifier tenantVerifier, DestructionJob destructionJob, LegalHoldService legalHolds,
+                       JobRunner jobRunner, JobQueryService jobQueries) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -159,9 +166,11 @@ public class OperatorCli implements ApplicationRunner {
         this.lifecycle = lifecycle;
         this.artifacts = artifacts;
         this.identityLinks = identityLinks;
-        this.sign = new SignCommands(signSessions, signing, expiry, flags, workflowTransactions, this::tenants, clock, out);
+        this.jobs = new JobCommands(jobRunner, jobQueries, out);
+        this.sign = new SignCommands(signSessions, signing, expiry, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
-        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, this::tenants, clock, out);
+        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, jobs, this::tenants, clock,
+                out);
     }
 
     @Override
@@ -173,6 +182,10 @@ public class OperatorCli implements ApplicationRunner {
         }
         if (retention.handles(args.command())) {
             retention.run(args);
+            return;
+        }
+        if (jobs.handles(args.command())) {
+            jobs.run(args);
             return;
         }
         switch (args.command()) {
@@ -448,10 +461,12 @@ public class OperatorCli implements ApplicationRunner {
 
     private void artifactReconcile(CliArguments args) {
         int limit = Integer.parseInt(args.optional("limit").orElse("500"));
+        tools.jackson.databind.node.ObjectNode params = tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode().put("limit", limit);
         for (TenantId tenant : tenants(args.optional("tenants").orElse("all"))) {
-            ArtifactService.ReconcileReport r = artifacts.reconcile(caller(args, tenant), limit);
-            out.println("ARTIFACT_RECONCILE " + tenant + " applied=" + r.applied() + " failed=" + r.failed());
+            jobs.one(caller(args, tenant), JobKind.RECONCILE, params, StandardJobs.reconcile(artifacts, limit))
+                    .ifPresent(r -> out.println("ARTIFACT_RECONCILE " + tenant + " applied=" + r.applied() + " failed=" + r.failed()));
         }
+        jobs.failIfIncomplete();
     }
 
     // ------------------------------------------------------------------

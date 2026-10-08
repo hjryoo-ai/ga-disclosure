@@ -1,19 +1,23 @@
 package com.ga.disclosure.app.cli;
 
-import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.audit.verify.PackageVerifier;
 import com.ga.disclosure.audit.verify.VerifyInputException;
 import com.ga.disclosure.audit.verify.VerifyReport;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.workflow.anchor.AnchorJob;
+import com.ga.disclosure.workflow.authz.Caller;
+import com.ga.disclosure.workflow.job.JobKind;
+import com.ga.disclosure.workflow.job.StandardJobs;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.retention.LegalHoldRejectedException;
 import com.ga.disclosure.workflow.retention.LegalHoldService;
 import com.ga.disclosure.workflow.verify.ReceiptExporter;
 import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.platform.canonical.Canonicalizer;
+import com.ga.platform.canonical.Sha256;
 import com.ga.platform.core.tenant.TenantId;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -26,6 +30,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -45,22 +50,26 @@ import java.util.function.Function;
  */
 final class RetentionCommands {
 
+    private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
+
     private final AnchorJob anchors;
     private final ReceiptExporter receipts;
     private final TenantVerifier verifier;
     private final DestructionJob destruction;
     private final LegalHoldService holds;
+    private final JobCommands jobs;
     private final Function<String, List<TenantId>> tenants;
     private final Clock clock;
     private final PrintStream out;
 
     RetentionCommands(AnchorJob anchors, ReceiptExporter receipts, TenantVerifier verifier, DestructionJob destruction, LegalHoldService holds,
-                      Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
+                      JobCommands jobs, Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
         this.anchors = Objects.requireNonNull(anchors, "anchors");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.verifier = Objects.requireNonNull(verifier, "verifier");
         this.destruction = Objects.requireNonNull(destruction, "destruction");
         this.holds = Objects.requireNonNull(holds, "holds");
+        this.jobs = Objects.requireNonNull(jobs, "jobs");
         this.tenants = Objects.requireNonNull(tenants, "tenants");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.out = Objects.requireNonNull(out, "out");
@@ -91,8 +100,17 @@ final class RetentionCommands {
     private void anchorRun(CliArguments args) {
         List<TenantId> targets = tenants.apply(args.optional("tenants").orElse("all"));
         String operator = args.required("operator");
-        AnchorJob.Report r = args.optional("date").map(d -> anchors.run(targets, LocalDate.parse(d), operator))
-                .orElseGet(() -> anchors.run(targets, operator));
+        Optional<LocalDate> date = args.optional("date").map(LocalDate::parse);
+        ObjectNode params = JSON.createObjectNode();
+        date.ifPresent(d -> params.put("date", d.toString()));
+        // 6A 계획 §6.2: 테넌트마다 잠금·작업 행, 잡은 테넌트들로 앵커 배치 한 번(한 트리) — 잠긴 테넌트는 그 테넌트만 JOB_BUSY
+        Optional<AnchorJob.Report> ran = jobs.group(targets.stream().map(t -> Caller.cli(t, operator)).toList(), JobKind.ANCHOR, params,
+                StandardJobs.anchor(anchors, date, operator)).result();
+        if (ran.isEmpty()) {
+            jobs.failIfIncomplete();
+            return;
+        }
+        AnchorJob.Report r = ran.get();
         out.println("ANCHOR_RUN date=" + r.date() + " created=" + r.created() + " unchanged=" + r.unchanged() + " retries=" + r.retries()
                 + " batches=" + r.batches().size() + " second=" + r.secondBatches() + " receipts=" + r.receipts());
         r.batches().forEach(b -> out.println("  BATCH " + b.anchorDate() + " " + b.batchId() + " root=" + b.root() + " depth=" + b.depth() + " leaves="
@@ -102,6 +120,7 @@ final class RetentionCommands {
         if (!r.failures().isEmpty()) {
             throw new CliRejection("anchor run finished with " + r.failures().size() + " failure(s)");
         }
+        jobs.failIfIncomplete();
     }
 
     private void receiptExport(CliArguments args) {
@@ -141,8 +160,16 @@ final class RetentionCommands {
     private void verifyTenant(CliArguments args) {
         byte[] trust = args.optional("tsa-trust").map(RetentionCommands::read).orElse(null);
         int worst = VerifyReport.EXIT_MATCH;
+        ObjectNode params = JSON.createObjectNode();
+        if (trust != null) {
+            params.put("tsaTrustSha256", Sha256.of(trust));
+        }
         for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
-            VerifyReport report = verifier.run(caller(args, tenant), trust);
+            Optional<VerifyReport> ran = jobs.one(caller(args, tenant), JobKind.VERIFY_TENANT, params, StandardJobs.verifyTenant(verifier, trust));
+            if (ran.isEmpty()) {
+                continue;
+            }
+            VerifyReport report = ran.get();
             args.optional("report-dir").ifPresent(d -> write(Path.of(d).resolve("verify-" + tenant + ".json"), report.canonical()));
             print("VERIFY_TENANT " + tenant, report);
             worst = Math.max(worst, report.exitCode());
@@ -150,6 +177,7 @@ final class RetentionCommands {
         if (worst != VerifyReport.EXIT_MATCH) {
             throw new CliExit(worst, "verify tenant: mismatch");
         }
+        jobs.failIfIncomplete();
     }
 
     private void print(String head, VerifyReport report) {
@@ -163,8 +191,14 @@ final class RetentionCommands {
         boolean dryRun = args.optional("dry-run").map(v -> v.equals("yes")).orElse(false);
         int limit = Integer.parseInt(args.optional("limit").orElse("100"));
         boolean failed = false;
+        ObjectNode params = JSON.createObjectNode().put("asOf", asOf.toString()).put("limit", limit);
         for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
-            DestructionJob.Report r = destruction.run(caller(args, tenant), asOf, dryRun, limit);
+            Optional<DestructionJob.Report> ran = jobs.one(caller(args, tenant), dryRun ? JobKind.DESTROY_DRY_RUN : JobKind.DESTROY, params,
+                    StandardJobs.destroy(destruction, asOf, dryRun, limit));
+            if (ran.isEmpty()) {
+                continue;
+            }
+            DestructionJob.Report r = ran.get();
             args.optional("report-dir").ifPresent(d -> write(Path.of(d).resolve("destruction-" + tenant + ".json"),
                     Canonicalizer.canonicalize(r.toJson())));
             out.println("RETENTION_DESTROY " + tenant + " asOf=" + asOf + (dryRun ? " DRY_RUN" : "") + " candidates=" + r.candidates() + " destroyed="
@@ -180,6 +214,7 @@ final class RetentionCommands {
         if (failed) {
             throw new CliRejection("retention destroy finished with failures");
         }
+        jobs.failIfIncomplete();
     }
 
     private void place(CliArguments args) {

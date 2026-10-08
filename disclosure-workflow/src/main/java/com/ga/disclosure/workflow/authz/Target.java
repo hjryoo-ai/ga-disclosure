@@ -44,6 +44,10 @@ public sealed interface Target {
         return new Disclosure(id);
     }
 
+    static Target job(java.util.UUID id) {
+        return new Job(id);
+    }
+
     /** 감사용 종류·ID(응답에는 싣지 않는다). */
     default String kind() {
         return switch (this) {

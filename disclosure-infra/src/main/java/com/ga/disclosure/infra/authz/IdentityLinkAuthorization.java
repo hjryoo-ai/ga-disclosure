@@ -32,7 +32,7 @@ import java.util.Set;
  * <ul>
  *   <li><b>API·INTERNAL</b>: {@code identity_link(테넌트, 주체)} 행에서 역할·설계사·조직을 정한다 — 토큰 클레임은 주체·테넌트 외에 읽지 않는다(절대
  *       규칙 5). 행이 없으면 {@code NO_LINK}. 매 요청 해석, 캐시 없음.</li>
- *   <li><b>CLI</b>: 역할 OPERATOR, 범위 검사 없음(승인 Q9). 표가 OPERATOR를 허가하지 않는 행위(서명 토큰·피드)는 {@code CHANNEL}.</li>
+ *   <li><b>CLI</b>: 역할 OPERATOR, 범위 검사 없음(승인 Q9) — 단 대상은 있어야 한다(없으면 다른 채널과 같은 {@code NOT_FOUND}). 표가 OPERATOR를 허가하지 않는 행위(서명 토큰·피드)는 {@code CHANNEL}.</li>
  *   <li><b>SIGN_TOKEN</b>: 토큰이 곧 자격이다(유스케이스가 토큰을 먼저 대조했다). 대상은 토큰이 가리키는 세션 하나 — 세션이 있는지만 본다.</li>
  * </ul>
  * 거부는 {@link AuthorizationDenied} 하나이고, 감사 {@code AUTHZ_DENIED}(행위·채널·사유, 대상 종류·ID)를 <b>별도 트랜잭션</b>에 남긴다(유스케이스
@@ -70,7 +70,7 @@ public final class IdentityLinkAuthorization implements AuthorizationPort {
         switch (caller.channel()) {
             case CLI -> {
                 principal = new Principal(caller.subject(), Set.of(Role.OPERATOR), Optional.empty(), Optional.empty());
-                targetFacts = new TargetFacts.Tenant();                       // 범위 검사 없음 — 사실을 읽지 않는다
+                targetFacts = facts.facts(target);                            // 범위 검사는 없지만 없는 대상은 모든 채널에서 NOT_FOUND
             }
             case SIGN_TOKEN -> {
                 principal = new Principal(caller.subject(), Set.of(Role.CUSTOMER), Optional.empty(), Optional.empty());
