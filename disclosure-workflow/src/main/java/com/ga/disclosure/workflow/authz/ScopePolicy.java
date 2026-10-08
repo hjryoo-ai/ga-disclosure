@@ -57,6 +57,8 @@ public final class ScopePolicy {
                 Action.REPORT_VIEW}) {
             grant(m, a, Role.COMPLIANCE, Scope.TENANT);
         }
+        // 플래그 목록은 관리자·준법 전용 — 의심받는 설계사가 대리 서명 플래그를 보지 않는다(6A 수용심사 §2 ①)
+        grant(m, Action.FLAG_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
         grant(m, Action.VERIFY_TENANT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.JOB_READ, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         // 파기 실행·dry-run은 사람 역할에 없다 — 준법은 보고서 열람만(REPORT_VIEW). 앵커는 플랫폼 배치라 CLI만(6A 승인 Q7)

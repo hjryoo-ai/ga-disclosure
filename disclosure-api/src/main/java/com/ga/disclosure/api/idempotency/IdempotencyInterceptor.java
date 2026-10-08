@@ -37,7 +37,8 @@ import java.util.TreeMap;
  *   <li>요청 해시 = SHA-256(JCS{@code {method, routeTemplate, pathVariables, body}}) — 원문은 저장하지 않는다.</li>
  *   <li>청구(별도 트랜잭션): 진행 → 컨트롤러, 재생 → 저장 튜플로 바이트를 다시 만들어 응답 해시와 대조한 뒤 보낸다(다르면 500, 다른 본문을 내지 않는다),
  *       다른 요청 422 {@code IDEMPOTENCY_KEY_REUSED}, 진행 중 409 {@code IDEMPOTENCY_IN_PROGRESS}.</li>
- *   <li>완료(별도 트랜잭션): 2xx·409·422만 — 영수증 튜플 {@code {body, location?}}와 응답 바이트 해시. 404·5xx는 저장하지 않는다.</li>
+ *   <li>완료(별도 트랜잭션): 2xx·409·422만 — 영수증 튜플 {@code {body, location?}}와 응답 바이트 해시. 그 밖(400·401·404·5xx)은 저장하지 않고 청구를
+ *       해제한다 — 유스케이스에 닿은 요청만 키를 묶는다(6A 수용심사 §2 ②). 같은 키로 고친 요청은 새로 청구한다.</li>
  * </ol>
  * 재생 응답에는 {@code Idempotency-Replayed: true}를 붙인다(본문 바이트는 처음과 같다). 2xx 응답이 {@code Cache-Control: no-store}(일회용 자격 — 현장
  * 기기 토큰)이면 저장하지 않고 409 {@code IDEMPOTENCY_NOT_REPLAYABLE}을 완료로 남긴다 — 같은 키의 재요청은 그 409이고 효과는 한 번이다.
@@ -105,7 +106,16 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
-        if (!(request.getAttribute(PENDING) instanceof Pending pending) || !IdempotencyService.storable(response.getStatus())) {
+        if (!(request.getAttribute(PENDING) instanceof Pending pending)) {
+            return;
+        }
+        if (!IdempotencyService.storable(response.getStatus())) {
+            try {
+                service.release(pending.caller(), pending.key(), pending.claimSeq());
+            } catch (RuntimeException e) {
+                // 해제 실패는 응답을 바꾸지 않는다 — 행은 임차가 지나면 같은 요청이 인수하고, 만료 뒤 정리된다
+                LOG.log(System.Logger.Level.ERROR, "IDEMPOTENCY_RELEASE_FAILED " + e.getClass().getSimpleName());
+            }
             return;
         }
         String cacheControl = response.getHeader(HttpHeaders.CACHE_CONTROL);

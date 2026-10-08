@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 1.0.0
+  version: 1.1.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -315,6 +315,31 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { $ref: '#/components/responses/SignReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/flags:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: listDisclosureFlags
+      summary: 확인서 하나의 준법 플래그(관리자 조직 아래·준법 테넌트 — 설계사는 404). ID·유형·상태·열린 시각·대상만.
+      responses:
+        '200':
+          description: 플래그 전부(열림·닫힘, 열린 시각 순)
+          content: { application/json: { schema: { $ref: '#/components/schemas/FlagList' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/flags:
+    get:
+      operationId: listFlags
+      summary: 준법 플래그 목록(관리자 조직 아래 — 확인서 없는 플래그는 빠진다, 준법 테넌트 전체, 설계사는 404). 최근에 열린 순.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/After'
+        - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/FlagStatus' } }
+        - { name: type, in: query, required: false, schema: { $ref: '#/components/schemas/Code' } }
+      responses:
+        '200':
+          description: 목록 한 쪽
+          content: { application/json: { schema: { $ref: '#/components/schemas/FlagPage' } } }
         default: { $ref: '#/components/responses/Problem' }
   /api/v1/sign-sessions/face-to-face:
     post:
@@ -936,6 +961,33 @@ components:
         releasedBy: { $ref: '#/components/schemas/NullableString' }
         releasedAt: { $ref: '#/components/schemas/NullableInstant' }
         releaseReasonCode: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Code' } ] }
+    FlagStatus:
+      type: string
+      enum: [OPEN, RESOLVED]
+    Flag:
+      type: object
+      additionalProperties: false
+      required: [flagId, type, status, raisedAt, disclosureId, disclosureNo]
+      properties:
+        flagId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/Code' }
+        status: { $ref: '#/components/schemas/FlagStatus' }
+        raisedAt: { $ref: '#/components/schemas/Instant' }
+        disclosureId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+        disclosureNo: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/DisclosureNo' } ] }
+    FlagList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Flag' } }
+    FlagPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Flag' } }
+        next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }
     LegalHoldPage:
       type: object
       additionalProperties: false

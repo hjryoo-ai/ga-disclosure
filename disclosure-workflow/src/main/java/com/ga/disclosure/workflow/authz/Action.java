@@ -48,6 +48,7 @@ public enum Action {
     CUSTOMER_REKEY,
     JOB_READ,
     REPORT_VIEW,
+    FLAG_READ,
     EVENT_FEED_READ,
     EVENT_FEED_ACK
 }

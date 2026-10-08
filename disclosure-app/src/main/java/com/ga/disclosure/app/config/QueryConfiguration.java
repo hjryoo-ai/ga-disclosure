@@ -9,6 +9,8 @@ import com.ga.disclosure.workflow.disclosure.DisclosureLookup;
 import com.ga.disclosure.workflow.disclosure.DisclosureQueryService;
 import com.ga.disclosure.workflow.feed.EventFeed;
 import com.ga.disclosure.workflow.feed.EventFeedStore;
+import com.ga.disclosure.workflow.flag.FlagLookup;
+import com.ga.disclosure.workflow.flag.FlagQueryService;
 import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.retention.LegalHoldQueryService;
 import com.ga.disclosure.workflow.retention.LegalHoldStore;
@@ -23,7 +25,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 
 /**
- * 6A 조회 조립(계획 §4.1·§4.2): 확인서·보류 목록과 상세, 서명된 목록 커서, 이벤트 피드. 커서 키는 웹이면 {@code ga.api.cursor-key-file}(기본값 없음 — 저장소 밖, 없으면
+ * 6A 조회 조립(계획 §4.1·§4.2): 확인서·보류·플래그 목록과 상세, 서명된 목록 커서, 이벤트 피드. 커서 키는 웹이면 {@code ga.api.cursor-key-file}(기본값 없음 — 저장소 밖, 없으면
  * 소유자 전용으로 만들고 권한이 넓으면 기동 실패), CLI면 프로세스마다 새 키(CLI는 커서를 받지 않는다).
  */
 @Configuration
@@ -62,5 +64,11 @@ public class QueryConfiguration {
     @Bean
     public LegalHoldQueryService legalHoldQueryService(LegalHoldStore holds, WorkflowTransactions tx, AuthorizationPort authz, CursorPort cursors) {
         return new LegalHoldQueryService(holds, tx, authz, cursors);
+    }
+
+    /** 준법 플래그 조회 — 관리자·준법 전용(6A 수용심사 §2 ①). */
+    @Bean
+    public FlagQueryService flagQueryService(FlagLookup flags, WorkflowTransactions tx, AuthorizationPort authz, CursorPort cursors) {
+        return new FlagQueryService(flags, tx, authz, cursors);
     }
 }

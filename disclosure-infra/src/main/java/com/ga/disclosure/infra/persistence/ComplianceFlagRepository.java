@@ -6,6 +6,8 @@ import com.ga.disclosure.audit.outbox.EventType;
 import com.ga.disclosure.audit.outbox.OutboxPayloads;
 import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.compliance.rules.ComplianceFlagPort;
+import com.ga.disclosure.workflow.authz.ListScope;
+import com.ga.disclosure.workflow.flag.FlagLookup;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.stereotype.Repository;
@@ -15,15 +17,17 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * 준법 플래그 저장소(설계서 §5 {@code compliance_flag}). 플래그가 <b>새로 열리면</b> 같은 트랜잭션에서 아웃박스 {@code ComplianceFlagRaised}를
  * 적재한다(4 계획 승인 Q13) — 워크플로·준법 배치 어느 경로로 열려도 이 한 곳을 지나므로 누락이 없다. 이미 열린 플래그를 다시 돌려받는 경우는
- * 새 이벤트가 아니다. payload의 설계사는 확인서 플래그일 때 그 확인서의 {@code agent_id}.
+ * 새 이벤트가 아니다. payload의 설계사는 확인서 플래그일 때 그 확인서의 {@code agent_id}. 조회({@link FlagLookup})는 대상 확인서의 범위 사실과 번호만
+ * 함께 읽는다.
  */
 @Repository
-public class ComplianceFlagRepository extends TenantScopedRepository implements ComplianceFlagPort, DisclosureFlagPort {
+public class ComplianceFlagRepository extends TenantScopedRepository implements ComplianceFlagPort, DisclosureFlagPort, FlagLookup {
 
     private final OutboxPort outbox;
 
@@ -132,6 +136,64 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
                    AND flag_id = :flagId
                    AND resolved_at IS NULL
                 """, Map.of("flagId", flagId, "at", Timestamp.from(at), "by", resolvedBy, "resolution", resolution.name())) == 1;
+    }
+
+    private static final String LISTED = """
+            SELECT f.flag_id, f.type, f.resolved_at IS NULL AS open, f.raised_at, f.disclosure_id, d.disclosure_no
+              FROM compliance_flag f
+              LEFT JOIN disclosure d ON d.tenant_id = f.tenant_id AND d.tenant_id = :tenantId AND d.disclosure_id = f.disclosure_id
+             WHERE f.tenant_id = :tenantId""";
+
+    private static FlagLookup.Listed listed(java.sql.ResultSet rs) throws java.sql.SQLException {
+        UUID disclosureId = rs.getObject("disclosure_id", UUID.class);
+        return new FlagLookup.Listed(rs.getObject("flag_id", UUID.class), rs.getString("type"),
+                rs.getBoolean("open") ? FlagLookup.FlagStatus.OPEN : FlagLookup.FlagStatus.RESOLVED, rs.getTimestamp("raised_at").toInstant(),
+                Optional.ofNullable(disclosureId).map(DisclosureId::of), Optional.ofNullable(rs.getString("disclosure_no")));
+    }
+
+    @Override
+    public List<FlagLookup.Listed> forDisclosure(DisclosureId disclosureId) {
+        return query(LISTED + """
+
+                   AND f.disclosure_id = :disclosureId
+                 ORDER BY f.raised_at, f.flag_id
+                """, Map.of("disclosureId", disclosureId.value()), (rs, n) -> listed(rs));
+    }
+
+    /** 범위는 대상 확인서의 사실(작성 설계사·작성 시점 조직 — 세그먼트 접두, {@code starts_with}라 LIKE 와일드카드가 없다)로 건다. */
+    @Override
+    public List<FlagLookup.Listed> page(ListScope scope, Optional<FlagLookup.FlagStatus> status, Optional<String> type,
+                                        Optional<FlagLookup.Position> after, int limit) {
+        Map<String, Object> p = new HashMap<>();
+        StringBuilder where = new StringBuilder();
+        switch (scope) {
+            case ListScope.WholeTenant w -> {
+            }
+            case ListScope.OwnedBy o -> {
+                where.append(" AND d.agent_id = :agentId");
+                p.put("agentId", o.agent().value());
+            }
+            case ListScope.UnderOrg u -> {
+                where.append(" AND d.org_path IS NOT NULL AND (d.org_path = :org OR starts_with(d.org_path, :org || '/'))");
+                p.put("org", u.org().value());
+            }
+        }
+        status.ifPresent(st -> where.append(st == FlagLookup.FlagStatus.OPEN ? " AND f.resolved_at IS NULL" : " AND f.resolved_at IS NOT NULL"));
+        type.ifPresent(t -> {
+            where.append(" AND f.type = :type");
+            p.put("type", t);
+        });
+        after.ifPresent(a -> {
+            where.append(" AND (f.raised_at, f.flag_id) < (:afterAt, :afterId)");
+            p.put("afterAt", Timestamp.from(a.raisedAt()));
+            p.put("afterId", a.flagId());
+        });
+        p.put("limit", limit);
+        return query(LISTED + where + """
+
+                 ORDER BY f.raised_at DESC, f.flag_id DESC
+                 LIMIT :limit
+                """, p, (rs, n) -> listed(rs));
     }
 
     /** 미해소 플래그 ID(유형별). */
