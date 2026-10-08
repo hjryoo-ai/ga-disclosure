@@ -8,15 +8,23 @@ import com.ga.disclosure.workflow.authz.Channel;
 import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.sign.NotifyPort;
 import com.ga.platform.core.tenant.TenantId;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.Ordered;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.node.ObjectNode;
@@ -38,7 +46,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * G5·G7·B2(6A 계획 §5.2~§5.4): 공개 서명 거부는 사유와 무관하게 같은 응답이다(상태·헤더 − Date·본문). 사유 7종 — ① 형식 ② 없는 테넌트 ③ 틀린 비밀 ④ 만료
  * ⑤ 취소(재발급) ⑥ 사용됨 ⑦ 본인확인 실패 한도 — 과 추가 둘(토큰을 질의로·경로로), 그리고 테넌트 분당 한도 초과. 모든 응답(성공 포함)은 패딩 훅을 정확히 한 번
- * 지나고 요청된 대기는 {@code max(0, 하한 − 경과)}다 — 없는 테넌트(카운터 전 거부)와 한도 초과(카운터에서 거부)도 같은 식(B2).
+ * 지나고 요청된 대기는 {@code max(0, 하한 − 경과)}다 — 없는 테넌트(카운터 전 거부)와 한도 초과(카운터에서 거부)도 같은 식(B2). 실패도 같은 거부다:
+ * 알려진 테넌트의 룰 해석 실패(입장 검사의 예외), 게이트 안쪽의 {@code sendError}·리다이렉트·허용 밖 상태.
  */
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(PublicSignUniformResponseIT.Hooks.class)
@@ -46,6 +55,10 @@ class PublicSignUniformResponseIT {
 
     static final String T = SeedData.uniqueTenant("UNI");
     static final String LIMITED = SeedData.uniqueTenant("UNIL");
+    /** 테넌트 행만 있고 룰이 없다 — 한도 해석이 실패한다(입장 검사의 예외). */
+    static final String BARE = SeedData.uniqueTenant("UNIB");
+    /** 시험 전용 요청 헤더: 게이트 뒤에서 핸들러 대신 응답을 우회시키는 방법. */
+    static final String ESCAPE = "X-Test-Escape";
     static final int LIMIT = 3;
     static final Duration FLOOR = Duration.ofMillis(30);
     static final List<Duration[]> SLEEPS = new CopyOnWriteArrayList<>();
@@ -67,6 +80,34 @@ class PublicSignUniformResponseIT {
             return (requested, elapsed) -> SLEEPS.add(new Duration[] {requested, elapsed});
         }
 
+        /**
+         * 보안 체인 뒤(게이트 안쪽)에서 {@value #ESCAPE} 요청을 핸들러 대신 컨테이너 오류 처리·리다이렉트·허용 밖 상태로 끝낸다 — 게이트가 그 응답을
+         * 거부 바이트로 바꾸는지 본다(실패는 닫힌 쪽).
+         */
+        @Bean
+        FilterRegistrationBean<Filter> escapingFilter() {
+            FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>((ServletRequest req, ServletResponse res, FilterChain chain) -> {
+                HttpServletResponse response = (HttpServletResponse) res;
+                String escape = ((HttpServletRequest) req).getHeader(ESCAPE);
+                if (escape == null) {
+                    chain.doFilter(req, res);
+                    return;
+                }
+                switch (escape) {
+                    case "sendError" -> response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+                    case "redirect" -> response.sendRedirect("/elsewhere");
+                    case "status500" -> {
+                        response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                        response.getOutputStream().write("{\"code\":\"INTERNAL_ERROR\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                    default -> throw new IllegalArgumentException("unknown escape");
+                }
+            });
+            registration.setOrder(Ordered.LOWEST_PRECEDENCE);
+            registration.addUrlPatterns("/public/*");
+            return registration;
+        }
+
         /** 원격 링크를 받아 둔다(번호는 보지 않는다). */
         @Bean
         @Primary
@@ -81,6 +122,7 @@ class PublicSignUniformResponseIT {
         customer = FlowSupport.customerRef(T, "C01");
         FlowSupport.prepare(LIMITED, FlowSupport.variantBundle("UNI-IT-RATE3", body -> ((ObjectNode) body.get("publicSign")).put("tenantRatePerMinute", LIMIT)));
         limitedCustomer = FlowSupport.customerRef(LIMITED, "C03");
+        DB.seed(BARE, c -> SeedData.tenant(c, BARE));
     }
 
     @Value("${local.server.port}")
@@ -162,6 +204,15 @@ class PublicSignUniformResponseIT {
         rejections.put("token in the query", call("/public/v1/sign/status?token=" + fresh, fresh, null));
         rejections.put("token in the path", call("/public/v1/sign/status/" + fresh, fresh, null));
         rejections.put("GET instead of POST", ApiTestSupport.send(port, "GET", "/public/v1/sign/status", null, null, Map.of("X-Sign-Token", fresh)));
+
+        // 실패는 닫힌 쪽(보안 검토): 입장 검사의 예외(알려진 테넌트의 룰 해석 실패), 게이트 안쪽의 sendError·리다이렉트·허용 밖 상태
+        rejections.put("known tenant whose rules do not resolve", call("/public/v1/sign/status", BARE + fresh.substring(fresh.indexOf('~')), null));
+        for (String escape : List.of("sendError", "redirect", "status500")) {
+            SLEEPS.clear();
+            rejections.put("escape " + escape, ApiTestSupport.send(port, "POST", "/public/v1/sign/status", null, null, Map.of("X-Sign-Token", fresh, ESCAPE, escape)));
+            assertThat(SLEEPS).as("padding hook once for escape " + escape).hasSize(1);
+        }
+        assertThat(call("/public/v1/sign/status", fresh, null).status()).as("the fresh token still works").isEqualTo(200);
 
         ApiTestSupport.Response reference = rejections.get("1 malformed");
         assertThat(reference.status()).isEqualTo(404);
