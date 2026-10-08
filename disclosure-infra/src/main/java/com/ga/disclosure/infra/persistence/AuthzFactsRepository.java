@@ -45,6 +45,7 @@ public class AuthzFactsRepository extends TenantScopedRepository {
             case Target.Job j -> exists("""
                     SELECT 1 FROM async_job WHERE tenant_id = :tenantId AND job_id = :id
                     """, j.id());
+            case Target.Flag f -> flag(f);
         };
     }
 
@@ -57,6 +58,22 @@ public class AuthzFactsRepository extends TenantScopedRepository {
         Optional<TargetFacts> found = queryAtMostOne(sql, Map.of("id", id), (rs, n) -> new TargetFacts.OfDisclosure(
                 AgentId.of(rs.getString("agent_id")), Optional.ofNullable(rs.getString("org_path")).map(OrgPath::of)));
         return found.orElseGet(TargetFacts.Missing::new);
+    }
+
+    /** 확인서에 걸린 플래그는 그 확인서의 사실, 테넌트 수준 플래그는 소유 범위 없음(준법·운영자만 닿는다). */
+    private TargetFacts flag(Target.Flag f) {
+        Optional<Optional<java.util.UUID>> disclosure = queryAtMostOne("""
+                SELECT disclosure_id FROM compliance_flag WHERE tenant_id = :tenantId AND flag_id = :id
+                """, Map.of("id", f.id()), (rs, n) -> Optional.ofNullable(rs.getObject("disclosure_id", java.util.UUID.class)));
+        if (disclosure.isEmpty()) {
+            return new TargetFacts.Missing();
+        }
+        return disclosure.get().isEmpty() ? new TargetFacts.Tenant() : disclosure("""
+                SELECT agent_id, org_path
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId
+                   AND disclosure_id = :id
+                """, disclosure.get().get());
     }
 
     private TargetFacts exists(String sql, Object id) {

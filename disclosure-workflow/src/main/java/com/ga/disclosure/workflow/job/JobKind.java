@@ -12,7 +12,9 @@ public enum JobKind {
     DESTROY_DRY_RUN,
     VERIFY_TENANT,
     NOTIFY,
-    IDEMPOTENCY_PURGE;
+    IDEMPOTENCY_PURGE,
+    /** 6B: 준법 플래그 SLA 경과 표시(스케줄은 Phase 8). */
+    FLAG_SLA_SWEEP;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

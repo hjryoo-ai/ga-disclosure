@@ -110,7 +110,7 @@ public final class JobRunner {
      * 본체가 예외면 잡은 작업 전부 {@code FAILED(EXECUTION_FAILED)}로 닫고 예외를 다시 던진다.
      */
     @UseCaseEntry({Action.ANCHOR_RUN, Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN,
-            Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE})
+            Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP})
     public <R> Run<R> run(List<Caller> callers, JobKind kind, ObjectNode params, JobWork<R> work) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(params, "params");
@@ -124,6 +124,7 @@ public final class JobRunner {
             case VERIFY_TENANT -> Action.VERIFY_TENANT;
             case NOTIFY -> Action.NOTIFY_DISPATCH;
             case IDEMPOTENCY_PURGE -> Action.IDEMPOTENCY_PURGE;
+            case FLAG_SLA_SWEEP -> Action.FLAG_SLA_SWEEP;
         };
         List<Caller> sorted = callers.stream().sorted(Comparator.comparing(c -> c.tenant().value())).toList();
         if (sorted.stream().map(Caller::tenant).distinct().count() != sorted.size()) {
@@ -158,7 +159,7 @@ public final class JobRunner {
      * {@code QUEUED→FAILED(REJECTED)}로 닫고 {@link RejectedExecutionException}을 다시 던진다. 앵커는 HTTP가 아니다(승인 Q7).
      */
     @UseCaseEntry({Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN, Action.VERIFY_TENANT,
-            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE})
+            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP})
     public JobRecord submit(Caller caller, JobKind kind, ObjectNode params) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(params, "params");
@@ -171,6 +172,7 @@ public final class JobRunner {
             case VERIFY_TENANT -> Action.VERIFY_TENANT;
             case NOTIFY -> Action.NOTIFY_DISPATCH;
             case IDEMPOTENCY_PURGE -> Action.IDEMPOTENCY_PURGE;
+            case FLAG_SLA_SWEEP -> Action.FLAG_SLA_SWEEP;
         };
         Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, action, Target.none()));
         JobWork<?> work = handlers.work(kind, params)

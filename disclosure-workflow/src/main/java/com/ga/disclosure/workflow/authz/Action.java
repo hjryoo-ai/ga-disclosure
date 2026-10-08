@@ -49,6 +49,9 @@ public enum Action {
     JOB_READ,
     REPORT_VIEW,
     FLAG_READ,
+    FLAG_ASSIGN,
+    FLAG_RESOLVE,
+    FLAG_SLA_SWEEP,
     EVENT_FEED_READ,
     EVENT_FEED_ACK
 }

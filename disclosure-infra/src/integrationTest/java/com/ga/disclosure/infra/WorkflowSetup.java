@@ -77,7 +77,7 @@ final class WorkflowSetup implements AutoCloseable {
     final CatalogRepository catalog = new CatalogRepository(gateway);
     final OutboxRepository outbox = new OutboxRepository(gateway);
     final IdentityLinkRepository agents = new IdentityLinkRepository(gateway);
-    final ComplianceFlagRepository flags = new ComplianceFlagRepository(gateway, outbox);
+    final ComplianceFlagRepository flags = new ComplianceFlagRepository(gateway, outbox, new com.ga.disclosure.workflow.flag.FlagPolicyResolver(new com.ga.disclosure.rules.resolve.RuleResolver(new RuleVersionRepository(gateway))));
     final DisclosureRepository disclosures = new DisclosureRepository(gateway);
     final ReviewRepository reviews = new ReviewRepository(gateway);
     final RuleVersionRepository rules = new RuleVersionRepository(gateway);

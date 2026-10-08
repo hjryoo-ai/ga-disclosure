@@ -19,7 +19,37 @@ public interface FlagLookup {
      * 목록: 최근에 열린 순(열린 시각 내림차순, 같은 시각은 ID 내림차순). 범위 조건은 대상 확인서의 사실로 건다 — 조직·설계사 범위에서는 확인서가 없는 플래그
      * (테넌트 수준 {@code CHAIN_BROKEN}·룰 플래그)는 없는 행이다.
      */
-    List<Listed> page(ListScope scope, Optional<FlagStatus> status, Optional<String> type, Optional<Position> after, int limit);
+    List<Listed> page(ListScope scope, Filter filter, Optional<Position> after, int limit);
+
+    /** 플래그 하나의 상태(배정·해소 유스케이스 — 범위 판정은 인가가 먼저 한다). 없으면 빈 값. */
+    Optional<State> state(UUID flagId);
+
+    /**
+     * 목록 필터(6B 계획 §7): 상태·유형·담당 역할·기한({@code dueBefore} 미만, 기한 없는 플래그는 빠진다). 응답 필드는 6A 수용심사 §2 ①의 요약 그대로다.
+     */
+    record Filter(Optional<FlagStatus> status, Optional<String> type, Optional<String> assignedRole, Optional<Instant> dueBefore) {
+        public Filter {
+            Objects.requireNonNull(status, "status");
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(assignedRole, "assignedRole");
+            Objects.requireNonNull(dueBefore, "dueBefore");
+        }
+
+        public static Filter none() {
+            return new Filter(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        }
+    }
+
+    /** 배정·해소 판정에 쓰는 사실. */
+    record State(UUID flagId, String type, Optional<DisclosureId> disclosureId, Instant raisedAt, String assignedRole, boolean open) {
+        public State {
+            Objects.requireNonNull(flagId, "flagId");
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(disclosureId, "disclosureId");
+            Objects.requireNonNull(raisedAt, "raisedAt");
+            Objects.requireNonNull(assignedRole, "assignedRole");
+        }
+    }
 
     enum FlagStatus {
         OPEN, RESOLVED

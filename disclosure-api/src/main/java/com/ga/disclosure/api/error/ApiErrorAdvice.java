@@ -6,6 +6,7 @@ import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.authz.AuthorizationDenied;
 import com.ga.disclosure.workflow.disclosure.CommandRejectedException;
 import com.ga.disclosure.workflow.disclosure.DisclosureNotFoundException;
+import com.ga.disclosure.workflow.flag.FlagRejectedException;
 import com.ga.disclosure.workflow.job.JobAlreadyRunningException;
 import com.ga.disclosure.workflow.job.JobQueryService;
 import com.ga.disclosure.workflow.page.InvalidCursorException;
@@ -60,6 +61,11 @@ public class ApiErrorAdvice {
     @ExceptionHandler(LegalHoldRejectedException.class)
     ResponseEntity<byte[]> holdRejected(LegalHoldRejectedException e) {
         return Problem.rejections(status(e.category()), List.of(new Problem.Rejection(e.code(), null)));
+    }
+
+    @ExceptionHandler(FlagRejectedException.class)
+    ResponseEntity<byte[]> flagRejected(FlagRejectedException e) {
+        return Problem.rejections(status(e.rejection().category()), List.of(new Problem.Rejection(e.rejection().name(), null)));
     }
 
     @ExceptionHandler(RejectedOutcomeException.class)

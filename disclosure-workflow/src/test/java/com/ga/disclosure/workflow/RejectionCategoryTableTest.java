@@ -4,6 +4,7 @@ import com.ga.disclosure.workflow.disclosure.CommandResult;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.feed.EventFeed;
+import com.ga.disclosure.workflow.flag.FlagRejectedException;
 import com.ga.disclosure.workflow.retention.LegalHoldRejectedException;
 import com.ga.disclosure.workflow.sign.SignRejection;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,9 @@ class RejectionCategoryTableTest {
         }
         for (EventFeed.Rejection r : EventFeed.Rejection.values()) {
             out.put("EventFeed." + r.name(), r.category().name());
+        }
+        for (FlagRejectedException.Rejection r : FlagRejectedException.Rejection.values()) {
+            out.put("FlagRejection." + r.name(), r.category().name());
         }
         for (String code : List.of("UNKNOWN_REASON", "TEXT_REQUIRED", "TEXT_TOO_LONG", "ALREADY_HELD", "NOT_FOUND", "ALREADY_RELEASED",
                 "BAD_RELEASE_REASON", "FOUR_EYES_REQUIRED")) {

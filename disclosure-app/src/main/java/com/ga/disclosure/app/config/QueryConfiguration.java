@@ -80,4 +80,13 @@ public class QueryConfiguration {
     public FlagQueryService flagQueryService(FlagLookup flags, WorkflowTransactions tx, AuthorizationPort authz, CursorPort cursors) {
         return new FlagQueryService(flags, tx, authz, cursors);
     }
+
+    /** 준법 큐 명령(6B 계획 §7): 배정·수동 해소·SLA 경과 표시 — 해소 코드·근거 필요 여부는 해소 시점의 룰. */
+    @Bean
+    public com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService(FlagLookup flags,
+            com.ga.disclosure.workflow.flag.FlagCommandPort commands, com.ga.disclosure.workflow.flag.VerifyEvidencePort verify,
+            com.ga.disclosure.workflow.identity.AgentDirectory directory, com.ga.disclosure.rules.resolve.RuleResolver rules,
+            com.ga.disclosure.audit.AuditPort audit, WorkflowTransactions tx, AuthorizationPort authz, java.time.Clock clock) {
+        return new com.ga.disclosure.workflow.flag.FlagCommandService(flags, commands, verify, directory, rules, audit, tx, authz, clock);
+    }
 }

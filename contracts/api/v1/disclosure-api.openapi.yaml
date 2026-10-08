@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.0.0
+  version: 2.1.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -319,10 +319,48 @@ paths:
         - $ref: '#/components/parameters/After'
         - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/FlagStatus' } }
         - { name: type, in: query, required: false, schema: { $ref: '#/components/schemas/Code' } }
+        - { name: assignedRole, in: query, required: false, description: '(6B) 담당 역할(플래그가 열릴 때 룰에서 복사)', schema: { $ref: '#/components/schemas/FlagAssignedRole' } }
+        - { name: dueBefore, in: query, required: false, description: '(6B) 기한이 이 시각 이전(기한 없는 플래그는 빠진다)', schema: { $ref: '#/components/schemas/Instant' } }
       responses:
         '200':
           description: 목록 한 쪽
           content: { application/json: { schema: { $ref: '#/components/schemas/FlagPage' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/flags/{flagId}/assign:
+    parameters:
+      - { name: flagId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    post:
+      operationId: assignFlag
+      summary: (6B) 열린 플래그의 담당자 배정 — 준법(테넌트)·관리자(조직, 담당 역할이 MANAGER인 플래그만). 담당자는 그 담당 역할로 연결된 주체.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlagAssignRequest' }
+            example: { assignee: compliance-2 }
+      responses:
+        '200': { $ref: '#/components/responses/FlagReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/flags/{flagId}/resolve:
+    parameters:
+      - { name: flagId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    post:
+      operationId: resolveFlag
+      summary: >-
+        (6B) 수동 해소(준법) — 해소 코드는 해소 시점 룰의 그 유형 목록. CHAIN_BROKEN은 근거 verifyRunJobId(플래그 뒤에 시작해 MATCH로 끝난
+        VERIFY_TENANT 작업)가 필요하다. 재개 없음.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlagResolveRequest' }
+            example: { resolutionCode: VERIFIED_MATCH, evidence: { verifyRunJobId: 6b0c5a52-3f2e-4c1a-9f3b-2d1e0c9b8a7f } }
+      responses:
+        '200': { $ref: '#/components/responses/FlagReceipt' }
         default: { $ref: '#/components/responses/Problem' }
   /api/v1/sign-sessions/face-to-face:
     post:
@@ -505,6 +543,9 @@ components:
     LegalHoldReceipt:
       description: 적용됨
       content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldReceipt' } } }
+    FlagReceipt:
+      description: 적용됨
+      content: { application/json: { schema: { $ref: '#/components/schemas/FlagReceipt' } } }
     JobAccepted:
       description: 접수(비동기 실행) — `Location`이 작업 자원
       headers:
@@ -528,7 +569,7 @@ components:
       enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED]
     JobKind:
       type: string
-      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE]
+      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP]
       description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
     Problem:
       type: object
@@ -569,7 +610,7 @@ components:
       required: [jobId, kind, status, channel, requestedBy, requestedAt, startedAt, finishedAt, errorCode, reportSha256]
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
-        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE] }
+        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }
@@ -588,7 +629,7 @@ components:
     JobParams:
       type: object
       additionalProperties: false
-      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE는 limit, VERIFY_TENANT는 없음.
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP는 limit, VERIFY_TENANT는 없음.
       properties:
         asOf: { $ref: '#/components/schemas/Instant' }
         limit: { type: integer, minimum: 1 }
@@ -947,6 +988,37 @@ components:
     FlagStatus:
       type: string
       enum: [OPEN, RESOLVED]
+    FlagAssignedRole:
+      type: string
+      enum: [COMPLIANCE, MANAGER]
+    FlagAssignRequest:
+      type: object
+      additionalProperties: false
+      required: [assignee]
+      properties:
+        assignee: { type: string, minLength: 1, maxLength: 256 }
+    FlagResolveRequest:
+      type: object
+      additionalProperties: false
+      required: [resolutionCode]
+      properties:
+        resolutionCode: { $ref: '#/components/schemas/Code' }
+        evidence:
+          oneOf:
+            - { type: 'null' }
+            - type: object
+              additionalProperties: false
+              required: [verifyRunJobId]
+              properties:
+                verifyRunJobId: { type: string }
+    FlagReceipt:
+      type: object
+      additionalProperties: false
+      required: [flagId, type, status]
+      properties:
+        flagId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/Code' }
+        status: { $ref: '#/components/schemas/FlagStatus' }
     Flag:
       type: object
       additionalProperties: false

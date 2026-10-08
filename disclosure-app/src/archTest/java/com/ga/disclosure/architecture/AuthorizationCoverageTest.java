@@ -60,6 +60,8 @@ class AuthorizationCoverageTest {
                     "write-path plumbing called only by the API idempotency interceptor after the use case answered; records the closed receipt tuple"),
             new Allowed(WORKFLOW + ".idempotency.IdempotencyService#release",
                     "write-path plumbing called only by the API idempotency interceptor after an unstored response; deletes the caller's own in-progress claim"),
+            new Allowed(WORKFLOW + ".flag.FlagPolicyResolver#at",
+                    "flag raise plumbing: copies today's rule policy for the flag type inside the raising use case's transaction; reads rule data only"),
             new Allowed(WORKFLOW + ".sign.PublicSignLimits#perMinute",
                     "public sign gate plumbing: reads the known tenant's rate limit before any token is checked; reads rule data only"));
 

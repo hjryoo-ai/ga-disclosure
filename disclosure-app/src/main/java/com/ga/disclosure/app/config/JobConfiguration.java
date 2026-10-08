@@ -75,7 +75,8 @@ public class JobConfiguration {
 
     @Bean
     public JobHandlers jobHandlers(ExpireService expiry, ArtifactService artifacts, DestructionJob destruction, TenantVerifier verifier,
-                                   NotificationDispatcher dispatcher, IdempotencyPurge purge, Clock clock,
+                                   NotificationDispatcher dispatcher, IdempotencyPurge purge, com.ga.disclosure.workflow.flag.FlagCommandService flags,
+                                   Clock clock,
                                    @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String trustPem) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
         h.put(JobKind.EXPIRE, p -> {
@@ -101,6 +102,11 @@ public class JobConfiguration {
         h.put(JobKind.IDEMPOTENCY_PURGE, p -> {
             StandardJobs.only(p, Set.of("limit"));
             return StandardJobs.idempotencyPurge(purge, StandardJobs.limit(p, StandardJobs.DEFAULT_PURGE_LIMIT, MAX_PURGE_LIMIT));
+        });
+        h.put(JobKind.FLAG_SLA_SWEEP, p -> {
+            StandardJobs.only(p, Set.of("limit"));
+            return StandardJobs.flagSlaSweep(flags, StandardJobs.limit(p, StandardJobs.DEFAULT_SLA_SWEEP_LIMIT,
+                    com.ga.disclosure.workflow.flag.FlagCommandService.MAX_SWEEP));
         });
         h.put(JobKind.VERIFY_TENANT, p -> {
             StandardJobs.only(p, Set.of());

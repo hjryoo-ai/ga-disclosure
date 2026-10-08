@@ -7,7 +7,11 @@ import com.ga.disclosure.audit.outbox.OutboxPayloads;
 import com.ga.disclosure.audit.outbox.OutboxPort;
 import com.ga.disclosure.compliance.rules.ComplianceFlagPort;
 import com.ga.disclosure.workflow.authz.ListScope;
+import com.ga.disclosure.workflow.flag.FlagCommandPort;
 import com.ga.disclosure.workflow.flag.FlagLookup;
+import com.ga.disclosure.workflow.flag.FlagPolicy;
+import com.ga.disclosure.workflow.flag.FlagPolicySource;
+import com.ga.platform.core.tenant.TenantContext;
 import com.ga.platform.spring.jdbc.TenantJdbcGateway;
 import com.ga.platform.spring.jdbc.TenantScopedRepository;
 import org.springframework.stereotype.Repository;
@@ -27,13 +31,15 @@ import java.util.UUID;
  * 함께 읽는다.
  */
 @Repository
-public class ComplianceFlagRepository extends TenantScopedRepository implements ComplianceFlagPort, DisclosureFlagPort, FlagLookup {
+public class ComplianceFlagRepository extends TenantScopedRepository implements ComplianceFlagPort, DisclosureFlagPort, FlagLookup, FlagCommandPort {
 
     private final OutboxPort outbox;
+    private final FlagPolicySource policies;
 
-    public ComplianceFlagRepository(TenantJdbcGateway gateway, OutboxPort outbox) {
+    public ComplianceFlagRepository(TenantJdbcGateway gateway, OutboxPort outbox, FlagPolicySource policies) {
         super(gateway);
         this.outbox = java.util.Objects.requireNonNull(outbox, "outbox");
+        this.policies = java.util.Objects.requireNonNull(policies, "policies");
     }
 
     @Override
@@ -65,10 +71,17 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
         params.put("targetKind", targetKind);
         params.put("targetId", targetId);
         params.put("raisedAt", Timestamp.from(raisedAt));
+        // 6B: 담당·설계사 가시성·기한은 열린 시각의 룰에서 복사해 고정한다(V14 GD134). 재사용되는 열린 플래그는 그때의 값을 그대로 둔다.
+        FlagPolicy policy = policies.at(TenantContext.current(), type, raisedAt);
+        params.put("assignedRole", policy.assignedRole().name());
+        params.put("visibleToAgent", policy.visibleToAgent());
+        params.put("dueAt", policy.dueAt().map(Timestamp::from).orElse(null));
         // 같은 유형·대상의 열린 플래그가 있으면(부분 유일 인덱스 ux_compliance_flag_open_target) 새 행을 만들지 않는다.
         List<UUID> created = query("""
-                INSERT INTO compliance_flag (tenant_id, flag_id, type, disclosure_id, severity, raised_at, target_kind, target_id)
-                VALUES (:tenantId, :flagId, :type, :disclosureId, :severity, :raisedAt, :targetKind, :targetId)
+                INSERT INTO compliance_flag (tenant_id, flag_id, type, disclosure_id, severity, raised_at, target_kind, target_id,
+                                             assigned_role, visible_to_agent, due_at)
+                VALUES (:tenantId, :flagId, :type, :disclosureId, :severity, :raisedAt, :targetKind, :targetId,
+                        :assignedRole, :visibleToAgent, :dueAt)
                 ON CONFLICT (tenant_id, type, target_kind, target_id) WHERE resolved_at IS NULL AND target_id IS NOT NULL
                 DO NOTHING
                 RETURNING flag_id
@@ -162,8 +175,7 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
 
     /** 범위는 대상 확인서의 사실(작성 설계사·작성 시점 조직 — 세그먼트 접두, {@code starts_with}라 LIKE 와일드카드가 없다)로 건다. */
     @Override
-    public List<FlagLookup.Listed> page(ListScope scope, Optional<FlagLookup.FlagStatus> status, Optional<String> type,
-                                        Optional<FlagLookup.Position> after, int limit) {
+    public List<FlagLookup.Listed> page(ListScope scope, FlagLookup.Filter filter, Optional<FlagLookup.Position> after, int limit) {
         Map<String, Object> p = new HashMap<>();
         StringBuilder where = new StringBuilder();
         switch (scope) {
@@ -178,10 +190,18 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
                 p.put("org", u.org().value());
             }
         }
-        status.ifPresent(st -> where.append(st == FlagLookup.FlagStatus.OPEN ? " AND f.resolved_at IS NULL" : " AND f.resolved_at IS NOT NULL"));
-        type.ifPresent(t -> {
+        filter.status().ifPresent(st -> where.append(st == FlagLookup.FlagStatus.OPEN ? " AND f.resolved_at IS NULL" : " AND f.resolved_at IS NOT NULL"));
+        filter.type().ifPresent(t -> {
             where.append(" AND f.type = :type");
             p.put("type", t);
+        });
+        filter.assignedRole().ifPresent(r -> {
+            where.append(" AND f.assigned_role = :assignedRole");
+            p.put("assignedRole", r);
+        });
+        filter.dueBefore().ifPresent(d -> {
+            where.append(" AND f.due_at < :dueBefore");
+            p.put("dueBefore", Timestamp.from(d));
         });
         after.ifPresent(a -> {
             where.append(" AND (f.raised_at, f.flag_id) < (:afterAt, :afterId)");
@@ -194,6 +214,71 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
                  ORDER BY f.raised_at DESC, f.flag_id DESC
                  LIMIT :limit
                 """, p, (rs, n) -> listed(rs));
+    }
+
+    @Override
+    public Optional<FlagLookup.State> state(UUID flagId) {
+        return queryAtMostOne("""
+                SELECT flag_id, type, disclosure_id, raised_at, assigned_role, resolved_at IS NULL AS open
+                  FROM compliance_flag
+                 WHERE tenant_id = :tenantId
+                   AND flag_id = :flagId
+                """, Map.of("flagId", flagId), (rs, n) -> new FlagLookup.State(rs.getObject("flag_id", UUID.class), rs.getString("type"),
+                Optional.ofNullable(rs.getObject("disclosure_id", UUID.class)).map(DisclosureId::of), rs.getTimestamp("raised_at").toInstant(),
+                rs.getString("assigned_role"), rs.getBoolean("open")));
+    }
+
+    // ------------------------------------------------------------------ 6B 준법 큐 쓰기(FlagCommandPort, V14 GD134)
+
+    @Override
+    public boolean assign(UUID flagId, String assignee) {
+        return update("""
+                UPDATE compliance_flag
+                   SET assignee = :assignee
+                 WHERE tenant_id = :tenantId
+                   AND flag_id = :flagId
+                   AND resolved_at IS NULL
+                """, Map.of("flagId", flagId, "assignee", assignee)) == 1;
+    }
+
+    @Override
+    public boolean resolveManually(UUID flagId, String resolvedBy, Instant at, String resolutionCode, String evidenceJsonOrNull) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("flagId", flagId);
+        p.put("at", Timestamp.from(at));
+        p.put("by", resolvedBy);
+        p.put("resolution", FlagCommandPort.MANUAL_RESOLUTION);
+        p.put("code", resolutionCode);
+        p.put("evidence", evidenceJsonOrNull);
+        return update("""
+                UPDATE compliance_flag
+                   SET resolved_at = :at, resolved_by = :by, resolution = :resolution, resolution_code = :code,
+                       resolution_evidence = CAST(:evidence AS jsonb)
+                 WHERE tenant_id = :tenantId
+                   AND flag_id = :flagId
+                   AND resolved_at IS NULL
+                """, p) == 1;
+    }
+
+    @Override
+    public List<FlagCommandPort.Breached> markSlaBreached(Instant now, int limit) {
+        return query("""
+                UPDATE compliance_flag f
+                   SET sla_breached_at = :now
+                  FROM (SELECT flag_id
+                          FROM compliance_flag
+                         WHERE tenant_id = :tenantId
+                           AND resolved_at IS NULL
+                           AND sla_breached_at IS NULL
+                           AND due_at < :now
+                         ORDER BY due_at, flag_id
+                         LIMIT :limit
+                           FOR UPDATE) due
+                 WHERE f.tenant_id = :tenantId
+                   AND f.flag_id = due.flag_id
+                RETURNING f.flag_id, f.type, f.due_at
+                """, Map.of("now", Timestamp.from(now), "limit", limit), (rs, n) -> new FlagCommandPort.Breached(rs.getObject("flag_id", UUID.class),
+                rs.getString("type"), rs.getTimestamp("due_at").toInstant()));
     }
 
     /** 미해소 플래그 ID(유형별). */

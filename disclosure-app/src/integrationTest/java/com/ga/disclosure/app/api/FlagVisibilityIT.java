@@ -89,6 +89,12 @@ class FlagVisibilityIT {
     @Value("${local.server.port}")
     int port;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ga.disclosure.compliance.rules.RuleDistributionService distribution;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ga.disclosure.compliance.rules.RuleActivationJob activation;
+
     ApiTestSupport.Response as(String tenant, String subject, String path) {
         return get(port, path, TestJwts.token(tenant, subject));
     }
@@ -159,6 +165,42 @@ class FlagVisibilityIT {
         // 다른 테넌트의 준법은 자기 테넌트 플래그만
         assertThat(ids(as(OTHER, "compliance-x", "/api/v1/flags"))).hasSize(1).doesNotContain(chainFlag.toString());
         assertThat(as(OTHER, "compliance-x", "/api/v1/disclosures/" + draftB1 + "/flags").status()).isEqualTo(404);
+    }
+
+    /** 6B: 담당 역할·기한 필터, 배정·해소 경로도 설계사에게는 없는 라우트와 같은 404. */
+    @Test
+    void theQueueFiltersByAssignedRoleAndDueAndAgentsHaveNoCommandRoute() {
+        String q = SeedData.uniqueTenant("FLAGQ");
+        UUID[] ids = new UUID[3];
+        DB.seed(q, c -> {
+            SeedData.tenant(c, q);
+            SeedData.orgLink(c, q, "agent-1", "AGENT-1", "AGENT", "/HQ/B1");
+            SeedData.roleLink(c, q, "compliance-1", "COMPLIANCE");
+            for (int i = 0; i < 3; i++) {
+                ids[i] = UUID.randomUUID();
+                SeedData.exec(c, """
+                        INSERT INTO compliance_flag (tenant_id, flag_id, type, severity, raised_at, assigned_role, due_at)
+                        VALUES (?, ?, 'SIGN_EXPIRED', 'HIGH', CAST(? AS timestamptz), ?, CAST(? AS timestamptz))""",
+                        q, ids[i], "2026-09-1" + i + " 09:00:00+09", i == 1 ? "MANAGER" : "COMPLIANCE", i == 2 ? null : "2026-09-2" + i + " 09:00:00+09");
+            }
+        });
+        ApiTestSupport.activateRules(distribution, activation, q, null, body -> {
+        });                                                                // 쓰기 경로의 멱등 TTL은 룰에서 읽는다
+        assertThat(ids(as(q, "compliance-1", "/api/v1/flags?assignedRole=MANAGER"))).containsExactly(ids[1].toString());
+        assertThat(ids(as(q, "compliance-1", "/api/v1/flags?assignedRole=COMPLIANCE"))).containsExactly(ids[2].toString(), ids[0].toString());
+        assertThat(ids(as(q, "compliance-1", "/api/v1/flags?dueBefore=2026-09-21T00:00:00Z"))).as("no-due flags are out")
+                .containsExactly(ids[0].toString());
+        assertThat(as(q, "compliance-1", "/api/v1/flags?assignedRole=AGENT").status()).isEqualTo(400);
+        assertThat(as(q, "compliance-1", "/api/v1/flags?dueBefore=yesterday").status()).isEqualTo(400);
+        ApiTestSupport.Response noRoute = ApiTestSupport.post(port, "/api/v1/no-such-route", TestJwts.token(q, "agent-1"), "{}",
+                java.util.Map.of("Idempotency-Key", "it-" + UUID.randomUUID()));
+        for (String path : new String[]{"/api/v1/flags/" + ids[0] + "/assign", "/api/v1/flags/" + ids[0] + "/resolve"}) {
+            ApiTestSupport.Response agent = ApiTestSupport.post(port, path, TestJwts.token(q, "agent-1"),
+                    path.endsWith("assign") ? "{\"assignee\":\"agent-1\"}" : "{\"resolutionCode\":\"REISSUED\"}",
+                    java.util.Map.of("Idempotency-Key", "it-" + UUID.randomUUID()));
+            assertThat(agent.status()).as(path).isEqualTo(404);
+            assertThat(agent.fingerprint()).isEqualTo(noRoute.fingerprint());
+        }
     }
 
     @Test

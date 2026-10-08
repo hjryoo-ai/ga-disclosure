@@ -52,15 +52,16 @@ public final class FlagQueryService {
 
     /** 범위로 걸러진 플래그 목록 한 쪽(1..{@value #MAX_PAGE}). */
     @UseCaseEntry(Action.FLAG_READ)
-    public Page<FlagLookup.Listed> list(Caller caller, int limit, Optional<String> after, Optional<FlagLookup.FlagStatus> status, Optional<String> type) {
+    public Page<FlagLookup.Listed> list(Caller caller, int limit, Optional<String> after, FlagLookup.Filter filter) {
         Objects.requireNonNull(caller, "caller");
+        Objects.requireNonNull(filter, "filter");
         if (limit < 1 || limit > MAX_PAGE) {
             throw new IllegalArgumentException("limit must be 1.." + MAX_PAGE);
         }
         Optional<FlagLookup.Position> from = after.map(c -> position(cursors.open(caller.tenant(), STREAM, c)));
         return transactions.inTenant(caller.tenant(), () -> {
             ListGrant grant = authz.requireList(caller, Action.FLAG_READ);
-            List<FlagLookup.Listed> rows = flags.page(grant.scope(), status, type, from, limit + 1);
+            List<FlagLookup.Listed> rows = flags.page(grant.scope(), filter, from, limit + 1);
             if (rows.size() <= limit) {
                 return new Page<>(rows, Optional.empty());
             }

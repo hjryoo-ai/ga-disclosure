@@ -39,6 +39,12 @@ public class RuleGovernanceConfiguration {
         return new RuleResolver(port);
     }
 
+    /** 6B: 플래그가 열릴 때 그날의 ACTIVE 룰에서 담당·가시성·기한을 복사한다(룰 complianceQueue). */
+    @Bean
+    public com.ga.disclosure.workflow.flag.FlagPolicySource flagPolicySource(RuleResolver rules) {
+        return new com.ga.disclosure.workflow.flag.FlagPolicyResolver(rules);
+    }
+
     @Bean
     public TemplateResolver templateResolver(FormTemplatePort port) {
         return new TemplateResolver(port);

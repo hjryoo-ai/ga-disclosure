@@ -59,8 +59,14 @@ public enum AuditAction {
     DISCLOSURE_SUPERSEDE,
     /** 재기준: 이전·새 고정 버전과 새 룰의 COMPARE 검증 결과, 결과 상태(COMPARED|DRAFT). */
     DISCLOSURE_REBASE,
-    /** 준법 플래그 해소(해소 사유·해소자). */
+    /** 준법 플래그 해소(해소 사유·해소자). 6B 수동 해소는 detail에 유형·해소 코드·근거(닫힌 모양)·룰 버전. */
     FLAG_RESOLVE,
+    /** (6B) 준법 플래그 담당자 배정(대상 FLAG): 유형·담당자 주체. */
+    FLAG_ASSIGN,
+    /** (6B) 준법 큐 명령 거부(대상 FLAG, 업무 트랜잭션 커밋): 거부 코드, CHAIN_BROKEN 근거 판정의 세부(문제 코드·작업 ID). */
+    FLAG_COMMAND_REJECTED,
+    /** (6B) SLA 경과 표시(대상 FLAG, 배치): 유형·기한. 새 플래그를 만들지 않는다. */
+    FLAG_SLA_BREACHED,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

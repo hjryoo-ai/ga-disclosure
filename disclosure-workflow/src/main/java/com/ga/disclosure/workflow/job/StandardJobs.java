@@ -6,6 +6,7 @@ import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.ExpireService;
 import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
+import com.ga.disclosure.workflow.flag.FlagCommandService;
 import com.ga.disclosure.workflow.idempotency.IdempotencyPurge;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.verify.TenantVerifier;
@@ -34,6 +35,7 @@ public final class StandardJobs {
     public static final int DEFAULT_DESTROY_LIMIT = 100;
     public static final int DEFAULT_NOTIFY_LIMIT = 100;
     public static final int DEFAULT_PURGE_LIMIT = 10_000;
+    public static final int DEFAULT_SLA_SWEEP_LIMIT = 500;
 
     private StandardJobs() {
     }
@@ -87,6 +89,16 @@ public final class StandardJobs {
     public static JobWork<IdempotencyPurge.Report> idempotencyPurge(IdempotencyPurge purge, int limit) {
         return single(c -> purge.run(c, limit), r -> Canonicalizer.canonicalize(JSON.createObjectNode().put("kind", JobKind.IDEMPOTENCY_PURGE.name())
                 .put("asOf", r.asOf().toString()).put("purged", r.purged())));
+    }
+
+    /** SLA 경과 표시(6B 계획 §7): 보고서는 표시한 플래그 ID·유형·기한(개인정보 없음). */
+    public static JobWork<FlagCommandService.SweepReport> flagSlaSweep(FlagCommandService flags, int limit) {
+        return single(c -> flags.sweepSla(c, limit), r -> {
+            ObjectNode o = JSON.createObjectNode().put("kind", JobKind.FLAG_SLA_SWEEP.name());
+            ArrayNode marked = o.putArray("breached");
+            r.breached().forEach(b -> marked.addObject().put("flagId", b.flagId().toString()).put("type", b.type()).put("dueAt", b.dueAt().toString()));
+            return Canonicalizer.canonicalize(o);
+        });
     }
 
     /** 검증: 보고서는 계약 스키마({@code verify-report.schema.json}) 그대로. */
