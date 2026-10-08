@@ -27,6 +27,7 @@ import com.ga.disclosure.seal.canonical.CanonicalDocumentBuilder;
 import com.ga.disclosure.seal.canonical.CanonicalInput;
 import com.ga.disclosure.seal.renderer.DisclosurePdfRenderer;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
 import com.ga.disclosure.workflow.artifact.ArtifactStore;
@@ -82,13 +83,24 @@ public final class SealService {
     static final String ARTIFACT_TARGET = "DOCUMENT_ARTIFACT";
 
     /** 봉인 거부 코드(닫힌 어휘, 평가 순서). */
-    public enum Rejection {
-        RULE_SUPERSEDED,
-        TEMPLATE_SUPERSEDED,
-        SNAPSHOT_STALE,
-        VALIDATION_BLOCKED,
-        APPROVAL_MISSING,
-        CUSTOMER_NAME_UNAVAILABLE
+    public enum Rejection implements RejectionCategory.Categorized {
+        RULE_SUPERSEDED(RejectionCategory.CONFLICT),
+        TEMPLATE_SUPERSEDED(RejectionCategory.CONFLICT),
+        SNAPSHOT_STALE(RejectionCategory.CONFLICT),
+        VALIDATION_BLOCKED(RejectionCategory.INVALID),
+        APPROVAL_MISSING(RejectionCategory.INVALID),
+        CUSTOMER_NAME_UNAVAILABLE(RejectionCategory.CONFLICT);
+
+        private final RejectionCategory category;
+
+        Rejection(RejectionCategory category) {
+            this.category = category;
+        }
+
+        @Override
+        public RejectionCategory category() {
+            return category;
+        }
     }
 
     /**

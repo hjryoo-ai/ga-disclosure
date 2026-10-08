@@ -2,6 +2,7 @@ package com.ga.disclosure.api.error;
 
 import com.ga.disclosure.domain.disclosure.IllegalTransition;
 import com.ga.disclosure.workflow.ConcurrentWriteConflict;
+import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.authz.AuthorizationDenied;
 import com.ga.disclosure.workflow.disclosure.CommandRejectedException;
 import com.ga.disclosure.workflow.disclosure.DisclosureNotFoundException;
@@ -29,7 +30,8 @@ import java.util.List;
  * 내부 경로({@code /api}·{@code /internal})의 예외 → {@link Problem}(6A 계획 §4.2). 상태는 HTTP 판단이 아니라 기계 변환이다:
  * <ul>
  *   <li>권한 없음({@link AuthorizationDenied})과 없는 자원·라우트는 같은 404 바이트.</li>
- *   <li>업무 거부({@link CommandRejectedException} 등) 422 {@code REJECTED}, 상태 충돌({@link IllegalTransition}) 409, 동시 쓰기 409, 작업 겹침 409.</li>
+ *   <li>업무 거부({@link CommandRejectedException}·보류 거부·Outcome 거부)는 workflow가 붙인 범주로 — CONFLICT 409, INVALID 422, 본문 {@code REJECTED}.
+ *       상태 충돌({@link IllegalTransition}) 409, 동시 쓰기 409, 작업 겹침 409.</li>
  *   <li>형식 오류 400 {@code MALFORMED_REQUEST}({@code details.field}만 — 값 없음).</li>
  *   <li>그 밖은 500 {@code INTERNAL_ERROR} — 메시지·스택을 응답에 싣지 않는다.</li>
  * </ul>
@@ -52,12 +54,25 @@ public class ApiErrorAdvice {
 
     @ExceptionHandler(CommandRejectedException.class)
     ResponseEntity<byte[]> rejected(CommandRejectedException e) {
-        return Problem.rejections(HttpStatus.UNPROCESSABLE_CONTENT, List.of(new Problem.Rejection(e.code(), null)));
+        return Problem.rejections(status(e.category()), List.of(new Problem.Rejection(e.code(), null)));
     }
 
     @ExceptionHandler(LegalHoldRejectedException.class)
     ResponseEntity<byte[]> holdRejected(LegalHoldRejectedException e) {
-        return Problem.rejections(HttpStatus.UNPROCESSABLE_CONTENT, List.of(new Problem.Rejection(e.code(), null)));
+        return Problem.rejections(status(e.category()), List.of(new Problem.Rejection(e.code(), null)));
+    }
+
+    @ExceptionHandler(RejectedOutcomeException.class)
+    ResponseEntity<byte[]> outcomeRejected(RejectedOutcomeException e) {
+        return Problem.rejections(status(e.category()), e.rejections());
+    }
+
+    /** 범주 → 상태(기계 변환). */
+    static HttpStatus status(RejectionCategory category) {
+        return switch (category) {
+            case CONFLICT -> HttpStatus.CONFLICT;
+            case INVALID -> HttpStatus.UNPROCESSABLE_CONTENT;
+        };
     }
 
     @ExceptionHandler(IllegalTransition.class)

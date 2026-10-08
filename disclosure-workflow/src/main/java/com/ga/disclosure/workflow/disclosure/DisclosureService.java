@@ -25,6 +25,7 @@ import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.rules.validation.ValidationRegistry;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.authz.Action;
 import com.ga.disclosure.workflow.authz.AuthorizationPort;
@@ -303,7 +304,7 @@ public final class DisclosureService {
             Actor manager = attempt.granted(authz.require(caller, Action.EXCEPTION_APPROVE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             if (!l.disclosure().status().isMutable()) {
-                throw new CommandRejectedException("SEALED", "exception approvals are recorded only before sealing");
+                throw new CommandRejectedException("SEALED", RejectionCategory.CONFLICT, "exception approvals are recorded only before sealing");
             }
             boolean current = l.check().run(ValidationStage.SEAL, l.disclosure()).stream()
                     .anyMatch(r -> r.overridable() && r.ruleId().equals(ruleId) && r.subjectHash().orElseThrow().equals(subjectHash));

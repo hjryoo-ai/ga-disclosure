@@ -23,7 +23,10 @@ import java.util.stream.Collectors;
 public final class ApiTestSupport {
 
     public static final PostgresHarness DB = PostgresHarness.get();
-    private static final Path KEK = kek();
+    /** 앱과 CLI가 같이 쓰는 시험 KEK 파일(고객 수입은 CLI, 봉인은 웹 — 같은 키여야 한다). */
+    public static final Path KEK = kek();
+    public static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
+    public static final Path DEMO = ROOT.resolve("disclosure-demo/src/main/resources");
     /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
     public static final Path CURSOR_KEY = tempPath("ga-api-cursor", "cursor.key");
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -60,6 +63,8 @@ public final class ApiTestSupport {
         registry.add("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
         registry.add("ga.crypto.local-kek-file", KEK::toString);
         registry.add("ga.api.cursor-key-file", CURSOR_KEY::toString);
+        registry.add("ga.engine.mode", () -> "stub");
+        registry.add("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());
         registry.add("ga.storage.s3.endpoint", s3::endpoint);
         registry.add("ga.storage.s3.bucket", s3::freshBucket);
         registry.add("ga.storage.s3.access-key-id", () -> SeaweedHarness.ACCESS_KEY);
@@ -93,6 +98,30 @@ public final class ApiTestSupport {
         com.ga.platform.core.tenant.TenantId id = com.ga.platform.core.tenant.TenantId.of(tenant);
         distribution.distribute(com.ga.disclosure.rules.bundle.BundleLoader.parse("variant", bundle.toString()), id, operator);
         activation.run(id, operator);
+    }
+
+    /**
+     * 운영자 CLI를 같은 프로세스에서 한 번 실행하고 표준 출력을 돌려준다(시험 테넌트 준비 — 번들·카탈로그·가상 고객). 고객 정보는 파일로만 넘긴다(절대 규칙 6).
+     */
+    public static String cli(String... args) {
+        java.util.List<String> all = new java.util.ArrayList<>(java.util.List.of(
+                "--spring.profiles.active=cli",
+                "--spring.datasource.url=" + DB.jdbcUrl(),
+                "--spring.flyway.url=" + DB.jdbcUrl(),
+                "--ga.tenant-directory.url=" + DB.jdbcUrl(),
+                "--ga.job-lock.url=" + DB.jdbcUrl(),
+                "--ga.crypto.local-kek-file=" + KEK));
+        all.addAll(java.util.List.of(args));
+        java.io.PrintStream original = System.out;
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        System.setOut(new java.io.PrintStream(buffer, true, java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            new org.springframework.boot.builder.SpringApplicationBuilder(com.ga.disclosure.app.DisclosureApplication.class)
+                    .run(all.toArray(String[]::new)).close();
+            return buffer.toString(java.nio.charset.StandardCharsets.UTF_8);
+        } finally {
+            System.setOut(original);
+        }
     }
 
     /** 응답 한 건(헤더는 소문자 이름 정렬, Date 제외 비교용). */

@@ -20,6 +20,7 @@ import com.ga.disclosure.rules.validation.ValidationRegistry;
 import com.ga.disclosure.rules.validation.ValidationResult;
 import com.ga.disclosure.sign.session.SessionEvent;
 import com.ga.disclosure.workflow.Actor;
+import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.authz.Action;
 import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.authz.Caller;
@@ -70,17 +71,28 @@ public final class LifecycleService {
             DisclosureFlagPort.Type.RULE_SUPERSEDED_DRAFT, DisclosureFlagPort.Type.PAPER_SCAN_REVIEW);
 
     /** 업무 거부 코드(커밋·감사, 상태 불변). */
-    public enum Rejection {
+    public enum Rejection implements RejectionCategory.Categorized {
         /** 봉인 이후 무효·정정에 필요한 역할({@code exceptionApproval.role})이 아니다. */
-        ROLE_REQUIRED,
+        ROLE_REQUIRED(RejectionCategory.INVALID),
         /** 재기준 대상이 아니다({@code RULE_SUPERSEDED_DRAFT} 열린 플래그 없음). */
-        REBASE_NOT_ALLOWED,
+        REBASE_NOT_ALLOWED(RejectionCategory.CONFLICT),
         /** 사유 코드가 고정 룰의 목록({@code voidReasons}·{@code supersedeReasons})에 없다. */
-        REASON_CODE_UNKNOWN,
+        REASON_CODE_UNKNOWN(RejectionCategory.INVALID),
         /** 그 사유 코드는 텍스트가 필요하다({@code requiresText}). */
-        REASON_TEXT_REQUIRED,
+        REASON_TEXT_REQUIRED(RejectionCategory.INVALID),
         /** 사유 텍스트가 룰 상한({@code lifecycleReasonTextMaxLength})을 넘는다. */
-        REASON_TEXT_TOO_LONG
+        REASON_TEXT_TOO_LONG(RejectionCategory.INVALID);
+
+        private final RejectionCategory category;
+
+        Rejection(RejectionCategory category) {
+            this.category = category;
+        }
+
+        @Override
+        public RejectionCategory category() {
+            return category;
+        }
     }
 
     /** 결과. 거부면 {@code rejection}이 있다. 정정이면 새 버전 ID, 재기준이면 새 룰의 COMPARE 검증 결과. */

@@ -20,8 +20,8 @@ import static com.ga.disclosure.app.api.ApiTestSupport.DB;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 법적 보류 경로(6A 계획 §4.1): 준법이 설정 201·해제 200(영수증), 목록에 사유 텍스트 없음(개인정보 컬럼), 4-eyes·룰 밖 사유는 422 {@code REJECTED}, 설계사는
- * 404(칸 없음).
+ * 법적 보류 경로(6A 계획 §4.1): 준법이 설정 201·해제 200(영수증), 목록에 사유 텍스트 없음(개인정보 컬럼), 4-eyes·룰 밖 사유는 422 {@code REJECTED},
+ * 이미 보류됨은 상태 충돌 409, 설계사는 404(칸 없음).
  */
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class LegalHoldApiIT {
@@ -66,7 +66,7 @@ class LegalHoldApiIT {
         assertThat(placed.text()).doesNotContain(sentinel);
 
         ApiTestSupport.Response again = post(t, "compliance-1", "/api/v1/legal-holds", "{\"disclosureId\":\"" + draft[0] + "\",\"reasonCode\":\"LITIGATION\"}");
-        assertThat(again.status()).isEqualTo(422);
+        assertThat(again.status()).as("already held — a state conflict").isEqualTo(409);
         assertThat(again.text()).contains("\"code\":\"ALREADY_HELD\"");
         assertThat(post(t, "compliance-1", "/api/v1/legal-holds", "{\"disclosureId\":\"" + draft[0] + "\",\"reasonCode\":\"NOPE\"}").text())
                 .contains("UNKNOWN_REASON");
