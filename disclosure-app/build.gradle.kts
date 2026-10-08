@@ -47,6 +47,13 @@ testing {
                 testTask.configure {
                     inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-infra/src/main"))
                         .withPathSensitivity(PathSensitivity.RELATIVE)
+                    // 6B FlagTypeTableTest: 설계서 flag-types 블록 ↔ 모든 룰 번들 ↔ 마이그레이션 CHECK ↔ 코드 상수
+                    inputs.file(rootProject.layout.projectDirectory.file("docs/설계서.md")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("contracts/rules/bundles")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-demo/src/main/resources/demo/bundles"))
+                        .withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-infra/src/integrationTest/resources/rule-as-data"))
+                        .withPathSensitivity(PathSensitivity.RELATIVE)
                 }
             }
         }

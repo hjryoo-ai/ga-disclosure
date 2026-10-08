@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-DEMO-SHORT@56540b22a325",
+  "bundleId": "DISC-DEMO-SHORT@d4a7a5a9df77",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-DEMO-SHORT",
@@ -139,9 +139,6 @@
       ],
       "contractDateFrom": "2026-07-01"
     },
-    "kpi": {
-      "collectionRate": "COMPLETED_LINKED / SUBJECT"
-    },
     "retentionYears": 0,
     "retentionDays": 1,
     "retentionAnchors": [
@@ -239,14 +236,16 @@
       "channels",
       "identityCheck",
       "proxySignatureDetection",
-      "kpi",
+      "complianceQueue",
       "retainUnlinked",
       "masking",
       "gateRequiresManager",
       "sessionTtlMinutes",
       "agentSignMethod",
       "retention",
-      "customerRef"
+      "customerRef",
+      "draft",
+      "contractLink"
     ],
     "validations": [
       {
@@ -332,6 +331,177 @@
           "SEAL"
         ]
       }
-    ]
+    ],
+    "complianceQueue": {
+      "types": {
+        "GRADE_INCONSISTENT": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "ENGINE_CORRECTED",
+              "label": "엔진 정정 확인"
+            },
+            {
+              "code": "FALSE_POSITIVE",
+              "label": "오탐"
+            }
+          ],
+          "requiresEvidence": false
+        },
+        "VALIDATION_OVERRIDE": {
+          "assignedRole": "MANAGER",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [],
+          "requiresEvidence": false
+        },
+        "RULE_SUPERSEDED_DRAFT": {
+          "assignedRole": "MANAGER",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [],
+          "requiresEvidence": false
+        },
+        "IDENTITY_FAILED": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "CUSTOMER_CONTACTED",
+              "label": "고객 연락 완료"
+            },
+            {
+              "code": "NO_ACTION",
+              "label": "조치 불요"
+            }
+          ],
+          "requiresEvidence": false
+        },
+        "SIGNATURE_DEVICE_REUSE": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "LEGITIMATE",
+              "label": "정상 서명 확인"
+            },
+            {
+              "code": "ESCALATED",
+              "label": "조사 이관"
+            }
+          ],
+          "requiresEvidence": false
+        },
+        "PAPER_SCAN_REVIEW": {
+          "assignedRole": "MANAGER",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [],
+          "requiresEvidence": false
+        },
+        "SIGN_EXPIRED": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "REISSUED",
+              "label": "재작성"
+            },
+            {
+              "code": "CLOSED_NO_CONTRACT",
+              "label": "계약 없음 종결"
+            }
+          ],
+          "requiresEvidence": false
+        },
+        "CHAIN_BROKEN": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "VERIFIED_MATCH",
+              "label": "검증 일치 확인"
+            }
+          ],
+          "requiresEvidence": true
+        },
+        "NOTIFY_FAILED": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "RESENT",
+              "label": "재발송"
+            },
+            {
+              "code": "CUSTOMER_CONTACTED",
+              "label": "고객 연락 완료"
+            }
+          ],
+          "requiresEvidence": false
+        },
+        "RULE_DRIFT": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "REDISTRIBUTED",
+              "label": "재배포"
+            }
+          ],
+          "requiresEvidence": false
+        },
+        "RULE_ACTIVATION_MISSED": {
+          "assignedRole": "COMPLIANCE",
+          "slaHours": null,
+          "visibleToAgent": false,
+          "resolutionCodes": [
+            {
+              "code": "ACTIVATED",
+              "label": "활성화 완료"
+            },
+            {
+              "code": "NOT_REQUIRED",
+              "label": "활성화 불요"
+            }
+          ],
+          "requiresEvidence": false
+        }
+      }
+    },
+    "collectionRate": {
+      "formula": "LINKED_COMPLETED_BY_CONTRACT_DATE"
+    },
+    "draft": {
+      "abandonAfterDays": null,
+      "abandonReasons": [
+        {
+          "code": "CUSTOMER_DECLINED",
+          "label": "고객 상담 중단"
+        },
+        {
+          "code": "DUPLICATE",
+          "label": "중복 작성"
+        },
+        {
+          "code": "ENTRY_ERROR",
+          "label": "작성 오류"
+        }
+      ]
+    },
+    "contractLink": {
+      "unmatchedRetentionDays": null
+    },
+    "gate": {
+      "perMinutePerPrincipal": 600
+    }
   }
 }
