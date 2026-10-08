@@ -62,6 +62,10 @@ public final class ApiTestSupport {
         java.util.Map<String, java.util.function.Supplier<Object>> p = new java.util.LinkedHashMap<>();
         p.put("spring.datasource.url", DB::jdbcUrl);
         p.put("spring.flyway.url", DB::jdbcUrl);
+        // 웹 IT 클래스마다 컨텍스트가 캐시에 남고 각자 풀을 쥔다 — 기본 풀(최소 유휴 = 최대 10)이면 컨텍스트 14개에서 서버 연결 100개를 넘는다(53300)
+        p.put("spring.datasource.hikari.maximum-pool-size", () -> "5");
+        p.put("spring.datasource.hikari.minimum-idle", () -> "1");
+        p.put("spring.datasource.hikari.idle-timeout", () -> "10000");
         p.put("ga.tenant-directory.url", DB::jdbcUrl);
         p.put("ga.job-lock.url", DB::jdbcUrl);
         p.put("ga.api.jwt.issuer", () -> TestJwts.ISSUER);
@@ -129,6 +133,7 @@ public final class ApiTestSupport {
             return buffer.toString(java.nio.charset.StandardCharsets.UTF_8);
         } finally {
             System.setOut(original);
+            com.ga.disclosure.app.CliOutputScan.assertClean(buffer.toString(java.nio.charset.StandardCharsets.UTF_8));
         }
     }
 
@@ -146,6 +151,9 @@ public final class ApiTestSupport {
             return status + "\n" + h + "\n" + text();
         }
     }
+
+    /** 누출 스캔(6A 계획 §9.3)이 그동안의 모든 응답을 {경로, 응답}으로 받아 본다. 평소에는 {@code null}. */
+    static volatile java.util.function.BiConsumer<String, Response> observer;
 
     public static Response get(int port, String path, String tokenOrNull) {
         return send(port, "GET", path, tokenOrNull, null, Map.of());
@@ -175,6 +183,10 @@ public final class ApiTestSupport {
                     response.body());
             if (!violations.isEmpty()) {
                 throw new AssertionError("response breaks the OpenAPI contract: " + violations);
+            }
+            java.util.function.BiConsumer<String, Response> o = observer;
+            if (o != null) {
+                o.accept(path, response);
             }
             return response;
         } catch (IOException e) {

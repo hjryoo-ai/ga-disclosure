@@ -54,6 +54,14 @@ server:
     include-stacktrace: never
     include-binding-errors: never
 spring.mvc.log-request-details: false
+# 요청 원문(요청 줄·헤더·본문 앞부분)이나 원 URI(질의 포함)를 DEBUG/TRACE로 찍는 프레임워크 로거는 INFO로 고정한다(6A G6) — 운영자가 문제를 보려고
+# 루트 수준을 올려도 서명 토큰(헤더 X-Sign-Token, 잘못 보낸 질의·경로)·본문의 생년월일이 로그에 가지 않는다. 이 로거를 따로 내리는 것은 명시적 결정이다.
+logging:
+  level:
+    org.apache.coyote: INFO
+    org.apache.catalina: INFO
+    org.apache.tomcat: INFO
+    org.springframework.security.web.FilterChainProxy: INFO
 
 management:
   endpoints:

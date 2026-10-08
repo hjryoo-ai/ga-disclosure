@@ -11,7 +11,11 @@ import com.tngtech.archunit.core.domain.JavaType;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,6 +38,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>컨트롤러의 매핑 메서드는 유스케이스 메서드를 정확히 1번 부른다(분기·조합은 유스케이스로).</li>
  *   <li>{@code Jwt}에 닿는 클래스는 {@code TenantBindingFilter}뿐이다(클레임은 {@code sub}·{@code tenant_id}만).</li>
  *   <li>{@code HttpServletRequest}의 원 URI·질의·헤더 읽기는 {@code api.security}에서만(로그·컨트롤러가 원문을 다루지 않게).</li>
+ *   <li>{@code api} 모듈의 레코드 가운데 민감 성분({@link #SENSITIVE_COMPONENTS} — 토큰·생년월일·생체 서명·기기 지문·번호)이 있는 것은
+ *       {@code toString}을 직접 선언하고, 그 성분의 값을 싣지 않는다(실제로 만들어 본다) — 프레임워크 TRACE 로그가 인자·반환값을 {@code toString}으로
+ *       찍는다(6A G6, {@code PublicPlaintextLeakScanIT}이 찾은 누출).</li>
  * </ol>
  */
 class ApiLayerRulesTest {
@@ -57,6 +64,10 @@ class ApiLayerRulesTest {
 
     static final Set<String> RAW_REQUEST_READS = Set.of("getQueryString", "getRequestURI", "getRequestURL", "getHeader", "getHeaders",
             "getHeaderNames");
+
+    /** 값이 로그에 가면 안 되는 레코드 성분 이름(거부 목록 — 새 이름이 생기면 더한다). */
+    static final Set<String> SENSITIVE_COMPONENTS = Set.of("token", "deviceToken", "raw", "birthDate", "phone", "imageBase64", "imagePngBase64",
+            "strokes", "deviceFingerprint");
 
     static JavaClasses classes;
 
@@ -185,8 +196,53 @@ class ApiLayerRulesTest {
         assertThat(violations).isEmpty();
     }
 
+    /** (f)의 대상: api 모듈에서 민감 성분이 하나라도 있는 레코드. */
+    static List<Class<?>> sensitiveRecords() {
+        List<Class<?>> out = new ArrayList<>();
+        for (JavaClass c : classes) {
+            if (c.getPackageName().startsWith(P + "api") && c.isRecord()) {
+                Class<?> type = c.reflect();
+                if (Arrays.stream(type.getRecordComponents()).anyMatch(rc -> SENSITIVE_COMPONENTS.contains(rc.getName()))) {
+                    out.add(type);
+                }
+            }
+        }
+        return out;
+    }
+
+    @Test
+    void recordsWithSensitiveComponentsRedactThemInToString() throws ReflectiveOperationException {
+        List<String> violations = new ArrayList<>();
+        for (Class<?> type : sensitiveRecords()) {
+            try {
+                type.getDeclaredMethod("toString");
+            } catch (NoSuchMethodException e) {
+                violations.add(type.getName() + " has no own toString");
+                continue;
+            }
+            RecordComponent[] components = type.getRecordComponents();
+            Object[] values = new Object[components.length];
+            for (int i = 0; i < components.length; i++) {
+                String sentinel = "SENTINEL-" + components[i].getName() + "-7Q";
+                Class<?> t = components[i].getType();
+                values[i] = t == String.class ? sentinel : t == JsonNode.class ? JsonNodeFactory.instance.stringNode(sentinel) : null;
+            }
+            Constructor<?> canonical = type.getDeclaredConstructor(Arrays.stream(components).map(RecordComponent::getType).toArray(Class<?>[]::new));
+            canonical.setAccessible(true);
+            String text = canonical.newInstance(values).toString();
+            for (RecordComponent rc : components) {
+                if (SENSITIVE_COMPONENTS.contains(rc.getName()) && text.contains("SENTINEL-" + rc.getName() + "-7Q")) {
+                    violations.add(type.getName() + ".toString prints " + rc.getName());
+                }
+            }
+        }
+        assertThat(violations).isEmpty();
+    }
+
     @Test
     void ruleInputsAreNotEmpty() {
+        assertThat(sensitiveRecords()).extracting(Class::getSimpleName).contains("TokenRequest", "SessionIssueReceipt", "PublicCaptureRequest",
+                "PublicVerifyRequest", "PublicToken");
         assertThat(useCaseClasses()).contains(WORKFLOW + ".job.JobRunner", WORKFLOW + ".job.JobQueryService");
         assertThat(entrySignatureTypes()).contains(WORKFLOW + ".authz.Caller", WORKFLOW + ".job.JobRecord")
                 .allMatch(n -> n.startsWith(WORKFLOW + "."));

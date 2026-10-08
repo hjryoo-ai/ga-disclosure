@@ -45,6 +45,7 @@ class OperatorCliIT {
             return buffer.toString(StandardCharsets.UTF_8);
         } finally {
             System.setOut(original);
+            CliOutputScan.assertClean(buffer.toString(StandardCharsets.UTF_8));   // 실패 경로의 출력도(6A §9.3)
         }
     }
 

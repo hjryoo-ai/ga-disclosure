@@ -67,6 +67,10 @@ public final class PublicSignGate extends OncePerRequestFilter {
     }
 
     private record Admitted(HttpServletRequest request, String token) {
+        @Override
+        public String toString() {
+            return "Admitted[token=<redacted>]";
+        }
     }
 
     @Override
