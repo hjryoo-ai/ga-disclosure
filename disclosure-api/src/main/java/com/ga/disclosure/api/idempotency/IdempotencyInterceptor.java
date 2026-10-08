@@ -39,7 +39,8 @@ import java.util.TreeMap;
  *       다른 요청 422 {@code IDEMPOTENCY_KEY_REUSED}, 진행 중 409 {@code IDEMPOTENCY_IN_PROGRESS}.</li>
  *   <li>완료(별도 트랜잭션): 2xx·409·422만 — 영수증 튜플 {@code {body, location?}}와 응답 바이트 해시. 404·5xx는 저장하지 않는다.</li>
  * </ol>
- * 재생 응답에는 {@code Idempotency-Replayed: true}를 붙인다(본문 바이트는 처음과 같다).
+ * 재생 응답에는 {@code Idempotency-Replayed: true}를 붙인다(본문 바이트는 처음과 같다). 2xx 응답이 {@code Cache-Control: no-store}(일회용 자격 — 현장
+ * 기기 토큰)이면 저장하지 않고 409 {@code IDEMPOTENCY_NOT_REPLAYABLE}을 완료로 남긴다 — 같은 키의 재요청은 그 409이고 효과는 한 번이다.
  */
 public final class IdempotencyInterceptor implements HandlerInterceptor {
 
@@ -105,6 +106,20 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         if (!(request.getAttribute(PENDING) instanceof Pending pending) || !IdempotencyService.storable(response.getStatus())) {
+            return;
+        }
+        String cacheControl = response.getHeader(HttpHeaders.CACHE_CONTROL);
+        if (response.getStatus() < 300 && cacheControl != null && cacheControl.contains("no-store")) {
+            // 일회용 자격(현장 기기 토큰)을 담은 응답 — 저장하지 않고 "재생하지 않음"을 완료로 남긴다(같은 키의 재요청은 이 409, 효과 1회)
+            byte[] notReplayable = Problem.body("IDEMPOTENCY_NOT_REPLAYABLE", JSON.createObjectNode());
+            ObjectNode ref = JSON.createObjectNode();
+            ref.set("body", Canonicalizer.parseStrict(new String(notReplayable, StandardCharsets.UTF_8)));
+            try {
+                service.complete(pending.caller(), pending.key(), pending.claimSeq(), HttpServletResponse.SC_CONFLICT,
+                        new String(Canonicalizer.canonicalize(ref), StandardCharsets.UTF_8), Sha256.of(notReplayable));
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.ERROR, "IDEMPOTENCY_COMPLETE_FAILED " + e.getClass().getSimpleName());
+            }
             return;
         }
         ContentCachingResponseWrapper buffered = WebUtils.getNativeResponse(response, ContentCachingResponseWrapper.class);

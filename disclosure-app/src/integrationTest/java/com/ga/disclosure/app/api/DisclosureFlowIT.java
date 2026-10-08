@@ -12,14 +12,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.Map;
 import java.util.UUID;
 
-import static com.ga.disclosure.app.api.ApiTestSupport.DB;
-import static com.ga.disclosure.app.api.ApiTestSupport.DEMO;
-import static com.ga.disclosure.app.api.ApiTestSupport.ROOT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -40,31 +35,7 @@ class DisclosureFlowIT {
 
     @BeforeAll
     static void prepare() {
-        DB.seed(T, c -> {
-            SeedData.tenant(c, T);
-            SeedData.identityLink(c, T, "agent-1", "DEMO-AGENT-1", "AGENT");
-            SeedData.identityLink(c, T, "manager-1", "DEMO-MGR-1", "MANAGER");
-            SeedData.orgLink(c, T, "agent-x", "DEMO-AGENT-X", "AGENT", "/HQ/B9");
-            SeedData.roleLink(c, T, "compliance-1", "COMPLIANCE");
-        });
-        for (String bundle : new String[] {"rules/DISC-2026-07.bundle.json", "templates/STANDARD-v1.bundle.json"}) {
-            ApiTestSupport.cli("rules", "distribute", "--bundle", ROOT.resolve("contracts/rules/bundles").resolve(bundle).toString(), "--tenants", T,
-                    "--operator", "flow-it");
-        }
-        ApiTestSupport.cli("rules", "activate", "--as-of", "2026-09-23", "--tenants", T, "--operator", "flow-it");
-        for (String file : new String[] {"product-groups.json", "insurer-panel.json", "products.json"}) {
-            ApiTestSupport.cli("catalog", "import", "--tenant", T, "--file", DEMO.resolve("demo/catalog").resolve(file).toString(), "--operator", "flow-it");
-        }
-        ApiTestSupport.cli("customer", "import", "--tenant", T, "--file", DEMO.resolve("customers.json").toString(), "--operator", "flow-it");
-        customerRef = DB.asApp(T, c -> {
-            try (PreparedStatement ps = c.prepareStatement("SELECT customer_ref FROM customer_ref WHERE registration_key = ?")) {
-                ps.setString(1, "demo:customers.json#C03");
-                try (ResultSet rs = ps.executeQuery()) {
-                    assertThat(rs.next()).isTrue();
-                    return rs.getString(1);
-                }
-            }
-        });
+        customerRef = FlowSupport.prepare(T);
     }
 
     @Value("${local.server.port}")
@@ -92,9 +63,8 @@ class DisclosureFlowIT {
         return id;
     }
 
-    static final String ITEMS = "{\"items\":[{\"productKey\":\"INS-A:PRD-1001\",\"recommended\":true},{\"productKey\":\"INS-B:PRD-2044\"},"
-            + "{\"productKey\":\"INS-C:PRD-3120\",\"recommended\":true}]}";
-    static final String REASONS = "{\"reasons\":[{\"itemNo\":1,\"codes\":[\"PREMIUM\"]},{\"itemNo\":3,\"codes\":[\"COVERAGE\"]}]}";
+    static final String ITEMS = FlowSupport.ITEMS;
+    static final String REASONS = FlowSupport.REASONS;
 
     @Test
     void anAgentAuthorsAndSealsAndAManagerSupersedes() {

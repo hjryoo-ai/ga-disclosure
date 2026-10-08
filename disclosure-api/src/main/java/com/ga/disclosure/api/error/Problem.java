@@ -36,6 +36,7 @@ public final class Problem {
             Map.entry("IDEMPOTENCY_KEY_REQUIRED", "An Idempotency-Key header is required."),
             Map.entry("IDEMPOTENCY_KEY_REUSED", "The Idempotency-Key was used for a different request."),
             Map.entry("IDEMPOTENCY_IN_PROGRESS", "A request with this Idempotency-Key is in progress."),
+            Map.entry("IDEMPOTENCY_NOT_REPLAYABLE", "The original response carried a one-time credential and is not replayed."),
             Map.entry("INVALID_CURSOR", "The cursor is not valid."),
             Map.entry("INTERNAL_ERROR", "Internal error."));
 

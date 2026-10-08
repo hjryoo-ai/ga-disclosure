@@ -42,5 +42,6 @@ public class ApiWebConfiguration implements WebMvcConfigurer {
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(new CallerArgumentResolver());
+        resolvers.add(new ClientContextArgumentResolver());
     }
 }
