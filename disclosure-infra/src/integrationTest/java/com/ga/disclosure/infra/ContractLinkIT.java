@@ -195,6 +195,35 @@ class ContractLinkIT {
         }
     }
 
+    /**
+     * 활성 연결은 확인서가 무효·정정된 뒤에도 그 확인서에 남는다(이력). 같은 청약의 새 확인서가 같은 증권으로 매칭돼도 "다른 확인서에 활성" 판정은 후보 제외
+     * 규칙과 무관하게 활성 연결 전체를 본다 — 아니면 증권 부분 유일 위반이 항목 하나로 배치 전체를 매번 멈춘다.
+     */
+    @Test
+    void aPolicyStillHeldByAVoidedDisclosureIsReportedWithoutStoppingTheBatch() {
+        try (RetentionSetup r = new RetentionSetup()) {
+            DisclosureId voided = r.completed();
+            applicationNo(r, voided, "APP-V");
+            ContractLinkService links = service(r, r.x.w.clock);
+            assertThat(links.importBatch(feed(r), batch("V1", item("POL-V", "APP-V", "2026-09-24"))).items().getFirst().outcome()).isEqualTo(Outcome.LINKED);
+            assertThat(r.x.lifecycle.voidDisclosure(Callers.of(r.x.w.tenant, SealSetup.MANAGER), voided,
+                    new com.ga.disclosure.workflow.disclosure.LifecycleReason("OTHER", "가상 무효 메모 — 허구")).rejection()).isEmpty();
+            DisclosureId redo = r.completed();
+            applicationNo(r, redo, "APP-V");
+            DisclosureId other = r.completed();
+            applicationNo(r, other, "APP-W");
+
+            ContractLinkService.Report report = links.importBatch(feed(r), batch("V2", item("POL-V", "APP-V", "2026-09-24"),
+                    item("POL-W", "APP-W", "2026-09-24")));
+            assertThat(report.items()).extracting(ContractLinkService.ItemResult::outcome).containsExactly(Outcome.AMBIGUOUS_MATCH, Outcome.LINKED);
+            assertThat(row(r, "SELECT coalesce(policy_no, '-') FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", r.x.w.tenant.value(),
+                    redo.value())).isEqualTo("-");
+            assertThat(current(r, other)).startsWith("POL-W|");
+            assertThat(r.x.w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.CONTRACT_LINK_IMPORT
+                    && a.entry().detail().get("batchId").asString().equals("V2")).hasSize(1);
+        }
+    }
+
     @Test
     void aLinkEndsTheContractDateWaitOfDestruction() {
         try (RetentionSetup r = new RetentionSetup(body -> ((tools.jackson.databind.node.ObjectNode) body.get("retention")).put("contractLinkWaitDays", 365))) {

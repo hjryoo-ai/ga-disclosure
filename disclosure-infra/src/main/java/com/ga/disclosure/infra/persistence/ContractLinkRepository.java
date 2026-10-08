@@ -79,6 +79,13 @@ public class ContractLinkRepository extends TenantScopedRepository implements Co
                 """, Map.of("policyNo", policyNo), (rs, n) -> candidate(rs));
     }
 
+    @Override
+    public List<DisclosureId> activePolicyHolders(String policyNo) {
+        return query("""
+                SELECT disclosure_id FROM contract_link WHERE tenant_id = :tenantId AND policy_no = :policyNo AND superseded_by IS NULL
+                """, Map.of("policyNo", policyNo), (rs, n) -> DisclosureId.of(rs.getObject("disclosure_id", UUID.class)));
+    }
+
     private static Candidate candidate(ResultSet rs) throws SQLException {
         return new Candidate(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), rs.getString("status"),
                 Optional.ofNullable(rs.getString("disclosure_no")), rs.getString("customer_ref"), rs.getObject("consult_date", LocalDate.class),

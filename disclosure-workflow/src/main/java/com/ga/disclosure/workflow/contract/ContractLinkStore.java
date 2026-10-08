@@ -28,6 +28,12 @@ public interface ContractLinkStore {
     /** 그 증권번호의 활성 연결을 가진 확인서 — 같은 제외. */
     List<Candidate> byActivePolicy(String policyNo);
 
+    /**
+     * 그 증권번호의 활성 연결을 가진 확인서 전부 — 상태 제외 없음. 무효·정정된 확인서의 활성 연결도 증권을 붙들고 있다(활성 증권 부분 유일). "다른 확인서에
+     * 활성" 판정은 이것으로 한다.
+     */
+    List<DisclosureId> activePolicyHolders(String policyNo);
+
     Optional<ActiveLink> activeLink(DisclosureId disclosure);
 
     void supersede(UUID linkId, UUID supersededBy, Instant at);

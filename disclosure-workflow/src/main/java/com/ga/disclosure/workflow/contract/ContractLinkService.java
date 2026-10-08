@@ -44,7 +44,7 @@ import java.util.function.Supplier;
  * <ol>
  *   <li>같은 출처 참조(배치 ID#순번)를 이미 처리했으면 그때의 결과(재수입 멱등, 새 행 없음).</li>
  *   <li>매칭: 청약번호 정확 일치 → (없거나 0건이면) 증권번호의 활성 연결. 무효·정정됨·폐기·파기는 후보가 아니다. 0건 {@code UNMATCHED}, 2건 이상
- *       {@code AMBIGUOUS_MATCH}, 봉인 전 {@code NOT_SEALED}, 가명이 다르면 {@code CUSTOMER_MISMATCH}, 그 증권이 다른 확인서에 활성으로 붙어 있으면
+ *       {@code AMBIGUOUS_MATCH}, 봉인 전 {@code NOT_SEALED}, 가명이 다르면 {@code CUSTOMER_MISMATCH}, 그 증권이 다른 확인서(후보 제외 상태 포함)에 활성으로 붙어 있으면
  *       {@code AMBIGUOUS_MATCH} — 전부 보고 행만 남는다.</li>
  *   <li>1건: 활성 연결과 내용이 같으면 {@code NOOP}, 다르면 이전 행 대체 + 새 행({@code CORRECTED}), 없으면 새 행({@code LINKED}). 확인서 현재값 투영,
  *       보존기한 = 확인서에 고정된 룰의 앵커 {@code CONTRACT_DATE}로 연장만({@link RetentionAnchors} — Phase 4 산식 그대로), 감사
@@ -182,8 +182,8 @@ public final class ContractLinkService {
                 rejected = Outcome.NOT_SEALED;
             } else if (item.customerRef().isPresent() && !item.customerRef().get().equals(target.customerRef())) {
                 rejected = Outcome.CUSTOMER_MISMATCH;
-            } else if (store.byActivePolicy(item.policyNo()).stream().anyMatch(c -> !c.id().equals(t.id()))) {
-                rejected = Outcome.AMBIGUOUS_MATCH;          // 그 증권이 다른 확인서에 활성으로 붙어 있다
+            } else if (store.activePolicyHolders(item.policyNo()).stream().anyMatch(id -> !id.equals(t.id()))) {
+                rejected = Outcome.AMBIGUOUS_MATCH;          // 그 증권이 다른 확인서(무효·정정된 것 포함)에 활성으로 붙어 있다
             }
         }
         Instant now = clock.instant();
