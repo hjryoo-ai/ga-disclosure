@@ -18,14 +18,20 @@ public interface AgentDirectory {
 
     /**
      * {@code identity_link} 행 1개. 설계사가 아닌 주체(COMPLIANCE·SCHEDULER·FEED_CONSUMER)는 {@code agent_id}가 없고, 서비스 주체는 조직도
-     * 없다(V12, 6A 승인 Q2 — AGENT ⇒ agent_id, AGENT·MANAGER ⇒ 조직 경로는 DB CHECK).
+     * 없다(V12, 6A 승인 Q2 — AGENT ⇒ agent_id, AGENT·MANAGER ⇒ 조직 경로는 DB CHECK). {@code feedSources}는 계약 피드 주체가 보낼 수 있는 출처(V18 —
+     * 그 밖의 주체는 비어 있다).
      */
-    record LinkedIdentity(String subject, Optional<AgentId> agentId, Set<String> roles, Optional<OrgPath> orgPath) {
+    record LinkedIdentity(String subject, Optional<AgentId> agentId, Set<String> roles, Optional<OrgPath> orgPath, Set<String> feedSources) {
         public LinkedIdentity {
             Objects.requireNonNull(subject, "subject");
             Objects.requireNonNull(agentId, "agentId");
             roles = Set.copyOf(roles);
             Objects.requireNonNull(orgPath, "orgPath");
+            feedSources = Set.copyOf(feedSources);
+        }
+
+        public LinkedIdentity(String subject, Optional<AgentId> agentId, Set<String> roles, Optional<OrgPath> orgPath) {
+            this(subject, agentId, roles, orgPath, Set.of());
         }
 
         public boolean hasRole(String role) {

@@ -76,6 +76,8 @@ public enum AuditAction {
     CONTRACT_LINK_IMPORT,
     /** (6B) 미매칭 보고 행 정리(대상 TENANT): 기준 시각·지운 수·룰 일수·룰 버전. */
     CONTRACT_LINK_UNMATCHED_PURGE,
+    /** 6B 중간 회신 ①: 같은 출처·배치 ID에 다른 내용 — 배치 전체 거부(대상 TENANT, 두 내용 해시만). */
+    CONTRACT_LINK_BATCH_REJECTED,
     /** 6B: 초안 폐기(대상 DISCLOSURE) — 지운 값의 해시({@code erased}, 파기와 같은 규약)·계기(설계사 사유 코드 또는 방치 일수). */
     DRAFT_ABANDONED,
     /** 6B: 방치 초안 폐기 배치 요약(대상 TENANT). */

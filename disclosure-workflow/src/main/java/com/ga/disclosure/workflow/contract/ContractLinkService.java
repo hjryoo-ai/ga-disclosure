@@ -71,7 +71,8 @@ public final class ContractLinkService {
                              RetentionChange retention) {
     }
 
-    public record Report(String source, String batchId, String sha256, List<ItemResult> items) {
+    /** {@code replayed}: 같은 참조·같은 내용의 재전송(원장에 이미 있었다) — 항목 결과는 그때의 것(각 항목 {@code repeated}). */
+    public record Report(String source, String batchId, String sha256, boolean replayed, List<ItemResult> items) {
         public Report {
             items = List.copyOf(items);
         }
@@ -86,7 +87,8 @@ public final class ContractLinkService {
         }
 
         public ObjectNode toJson() {
-            ObjectNode o = JSON.createObjectNode().put("kind", "CONTRACT_LINK_IMPORT").put("source", source).put("batchId", batchId).put("sha256", sha256);
+            ObjectNode o = JSON.createObjectNode().put("kind", "CONTRACT_LINK_IMPORT").put("source", source).put("batchId", batchId).put("sha256", sha256)
+                    .put("replayed", replayed);
             ObjectNode c = o.putObject("counts");
             counts().forEach((k, v) -> c.put(k.name(), v));
             ArrayNode list = o.putArray("items");
@@ -132,26 +134,83 @@ public final class ContractLinkService {
         this.ids = Objects.requireNonNull(ids, "ids");
     }
 
+    /** 같은 출처·배치 ID로 다른 내용이 왔다(6B 중간 회신 ① — 멱등 키 재사용과 같은 논리, 배치 전체 거부). */
+    public static final String BATCH_REF_REUSED = "BATCH_REF_REUSED";
+
+    /**
+     * 제출 전 검사(HTTP — 작업을 만들기 전에, 본문 해석 뒤): 출처 인가(주체의 {@code feed_sources} 밖이면 없는 라우트와 같은 404)와 원장 대조(같은 참조에
+     * 다른 내용이면 감사 1행 뒤 {@link #BATCH_REF_REUSED} 422). 작업 본체({@link #importBatch})가 같은 검사를 잠금 아래에서 다시 한다.
+     */
+    @UseCaseEntry(Action.CONTRACT_LINK_IMPORT)
+    public void admit(Caller caller, ContractLinkBatch batch) {
+        Objects.requireNonNull(caller, "caller");
+        Objects.requireNonNull(batch, "batch");
+        boolean reused = transactions.inTenant(caller.tenant(), () -> {
+            Actor actor = authz.require(caller, Action.CONTRACT_LINK_IMPORT, new Target.FeedSource(batch.source()));
+            Optional<ContractLinkStore.LedgerEntry> ledger = store.batch(batch.source(), batch.batchId());
+            if (ledger.isPresent() && !ledger.get().sha256().equals(batch.sha256())) {
+                auditReuse(caller.tenant(), actor, batch, ledger.get());
+                return true;
+            }
+            return false;
+        });
+        if (reused) {
+            throw reuseRejection();
+        }
+    }
+
     @UseCaseEntry(Action.CONTRACT_LINK_IMPORT)
     public Report importBatch(Caller caller, ContractLinkBatch batch) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(batch, "batch");
         TenantId tenant = caller.tenant();
-        Actor actor = transactions.inTenant(tenant, () -> authz.require(caller, Action.CONTRACT_LINK_IMPORT, Target.none()));
+        record Admission(Actor actor, boolean reused, boolean replayed) {
+        }
+        Admission admission = transactions.inTenant(tenant, () -> {
+            Actor actor = authz.require(caller, Action.CONTRACT_LINK_IMPORT, new Target.FeedSource(batch.source()));
+            Optional<ContractLinkStore.LedgerEntry> ledger = store.batch(batch.source(), batch.batchId());
+            if (ledger.isEmpty()) {
+                store.recordBatch(batch.source(), batch.batchId(), batch.sha256(), batch.items().size(), clock.instant(), actor.subject());
+                return new Admission(actor, false, false);
+            }
+            if (!ledger.get().sha256().equals(batch.sha256())) {
+                auditReuse(tenant, actor, batch, ledger.get());
+                return new Admission(actor, true, false);
+            }
+            return new Admission(actor, false, true);
+        });
+        if (admission.reused()) {
+            throw reuseRejection();
+        }
+        Actor actor = admission.actor();
         List<ItemResult> results = new ArrayList<>();
         for (ContractLinkBatch.Item item : batch.items()) {
             results.add(transactions.inTenant(tenant, () -> one(tenant, actor, batch, item)));
         }
-        Report report = new Report(batch.source(), batch.batchId(), batch.sha256(), results);
+        Report report = new Report(batch.source(), batch.batchId(), batch.sha256(), admission.replayed(), results);
         transactions.inTenant(tenant, () -> {
             ObjectNode detail = JSON.createObjectNode().put("source", batch.source()).put("batchId", batch.batchId()).put("sha256", batch.sha256())
-                    .put("items", batch.items().size());
+                    .put("items", batch.items().size()).put("replayed", admission.replayed());
             ObjectNode counts = detail.putObject("counts");
             report.counts().forEach((k, v) -> counts.put(k.name(), v));
+            store.completeBatch(batch.source(), batch.batchId(), new String(com.ga.platform.canonical.Canonicalizer.canonicalize(counts),
+                    StandardCharsets.UTF_8), clock.instant());
             audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.CONTRACT_LINK_IMPORT, "TENANT", tenant.value(), detail));
             return null;
         });
         return report;
+    }
+
+    private void auditReuse(TenantId tenant, Actor actor, ContractLinkBatch batch, ContractLinkStore.LedgerEntry recorded) {
+        audit.append(new AuditEntry(clock.instant(), actor.subject(), actor.role(), AuditAction.CONTRACT_LINK_BATCH_REJECTED, "TENANT", tenant.value(),
+                JSON.createObjectNode().put("code", BATCH_REF_REUSED).put("source", batch.source()).put("batchId", batch.batchId())
+                        .put("sha256", batch.sha256()).put("recordedSha256", recorded.sha256()).put("recordedAt", recorded.receivedAt().toString())
+                        .put("items", batch.items().size())));
+    }
+
+    private static com.ga.disclosure.workflow.disclosure.CommandRejectedException reuseRejection() {
+        return new com.ga.disclosure.workflow.disclosure.CommandRejectedException(BATCH_REF_REUSED, com.ga.disclosure.workflow.RejectionCategory.INVALID,
+                "the batch reference was already used for different content");
     }
 
     private ItemResult one(TenantId tenant, Actor actor, ContractLinkBatch batch, ContractLinkBatch.Item item) {

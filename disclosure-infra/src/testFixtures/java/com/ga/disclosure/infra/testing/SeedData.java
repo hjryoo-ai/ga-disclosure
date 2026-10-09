@@ -44,7 +44,21 @@ public final class SeedData {
 
     /** 설계사·조직 없는 연결(준법·서비스 주체 — V12 {@code ck_identity_link_service_alone}·{@code _org}). */
     public static void roleLink(Connection c, String tenant, String subject, String role) throws SQLException {
+        if (role.equals("CONTRACT_FEED")) {
+            throw new IllegalArgumentException("a CONTRACT_FEED link names its sources — use feedLink (V18)");
+        }
         exec(c, "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, ?, NULL, ARRAY[?], NULL)", tenant, subject, role);
+    }
+
+    /** 계약 피드 서비스 주체(V18): 보낼 수 있는 출처 목록과 함께. */
+    public static void feedLink(Connection c, String tenant, String subject, String... sources) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path, feed_sources) "
+                + "VALUES (?, ?, NULL, ARRAY['CONTRACT_FEED'], NULL, ?)")) {
+            ps.setString(1, tenant);
+            ps.setString(2, subject);
+            ps.setArray(3, c.createArrayOf("text", sources));
+            ps.executeUpdate();
+        }
     }
 
     /** 조직을 지정한 연결(설계사·관리자 — 6A 범위 시험: {@code /HQ}는 {@code /HQX}를 덮지 않는다). */
@@ -570,6 +584,11 @@ public final class SeedData {
                 VALUES (?, ?, DATE '2026-09-01', '/', 'LINKED_COMPLETED_BY_CONTRACT_DATE', 1, 1, 10000, TIMESTAMPTZ '2026-10-01 00:00:00+09',
                         'DISC-2026-07', repeat('0', 64), ?)
                 """, tenant, UUID.randomUUID(), UUID.randomUUID());
+        // V18
+        exec(c, """
+                INSERT INTO contract_link_batch (tenant_id, source, batch_id, content_sha256, items, received_at, received_by)
+                VALUES (?, 'SEED', 'seed-batch', repeat('0', 64), 1, TIMESTAMPTZ '2026-10-02 00:00:00+09', 'seed')
+                """, tenant);
     }
 
     /** 관리자 예외 승인 1건(V6 review, 부모는 가변 상태여야 한다 — GD080; 부모의 고정 룰 버전 2종을 싣는다 — V7 GD081). */

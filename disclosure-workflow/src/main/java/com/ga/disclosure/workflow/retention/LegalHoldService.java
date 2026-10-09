@@ -106,6 +106,14 @@ public final class LegalHoldService {
             if (text != null && text.codePointCount(0, text.length()) > rule.legalHoldReasonTextMaxLength()) {
                 throw new LegalHoldRejectedException("TEXT_TOO_LONG");
             }
+            // 대상 행을 잠근 뒤 판정한다 — 폐기·파기가 먼저 잠갔으면 기다렸다가 지워진 대상을 만난다(묘비에 보류는 의미가 없다, 6B 중간 회신 ④)
+            boolean erased = switch (target) {
+                case Target.Disclosure d -> holds.lockErased(d.id());
+                case Target.Customer c -> holds.lockErased(c.ref());
+            };
+            if (erased) {
+                throw new LegalHoldRejectedException("TARGET_ALREADY_DESTROYED");
+            }
             boolean already = switch (target) {
                 case Target.Disclosure d -> holds.activeFor(d.id()).isPresent();
                 case Target.Customer c -> holds.activeFor(c.ref()).isPresent();

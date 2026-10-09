@@ -128,7 +128,7 @@ public final class IdentityLinkAuthorization implements AuthorizationPort, Tenan
                 roles.add(r);
             }
         }
-        return new Principal(link.subject(), roles, link.agentId(), link.orgPath());
+        return new Principal(link.subject(), roles, link.agentId(), link.orgPath(), link.feedSources());
     }
 
     private AuthorizationDenied denied(Caller caller, Action action, Target target, AuthorizationDenied.Reason reason) {

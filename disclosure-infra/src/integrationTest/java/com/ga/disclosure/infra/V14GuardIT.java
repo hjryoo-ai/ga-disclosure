@@ -332,11 +332,13 @@ class V14GuardIT {
 
     @Test
     void serviceRolesForContractFeedsAndTheGateStandAlone() {
-        String link = "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path) VALUES (?, ?, ?, CAST(? AS text[]), ?)";
-        assertAllowed(DB, T, link, T, "feed-1", null, "{CONTRACT_FEED}", null);
-        assertAllowed(DB, T, link, T, "gate-1", null, "{GATE_CLIENT}", null);
-        assertRejected(DB, T, "23514", link, T, "gate-2", null, "{GATE_CLIENT,COMPLIANCE}", null);
-        assertRejected(DB, T, "23514", link, T, "feed-2", "A-1", "{CONTRACT_FEED}", null);
-        assertRejected(DB, T, "23514", link, T, "x-1", null, "{OPERATOR}", null);
+        // V18부터 계약 피드 주체는 출처 목록을 가진다(V18GuardIT) — 여기서는 서비스 단독 규칙만 본다
+        String link = "INSERT INTO identity_link (tenant_id, subject, agent_id, roles, org_path, feed_sources) "
+                + "VALUES (?, ?, ?, CAST(? AS text[]), ?, CAST(? AS text[]))";
+        assertAllowed(DB, T, link, T, "feed-1", null, "{CONTRACT_FEED}", null, "{INS_FEED_A}");
+        assertAllowed(DB, T, link, T, "gate-1", null, "{GATE_CLIENT}", null, null);
+        assertRejected(DB, T, "23514", link, T, "gate-2", null, "{GATE_CLIENT,COMPLIANCE}", null, null);
+        assertRejected(DB, T, "23514", link, T, "feed-2", "A-1", "{CONTRACT_FEED}", null, "{INS_FEED_A}");
+        assertRejected(DB, T, "23514", link, T, "x-1", null, "{OPERATOR}", null, null);
     }
 }

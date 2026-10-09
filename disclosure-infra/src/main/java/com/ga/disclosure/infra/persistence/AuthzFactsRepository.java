@@ -46,6 +46,7 @@ public class AuthzFactsRepository extends TenantScopedRepository {
                     SELECT 1 FROM async_job WHERE tenant_id = :tenantId AND job_id = :id
                     """, j.id());
             case Target.Flag f -> flag(f);
+            case Target.FeedSource s -> new TargetFacts.OfFeedSource(s.source());
         };
     }
 

@@ -43,6 +43,13 @@ public sealed interface Target {
         }
     }
 
+    /** 계약 피드의 출처(6B 중간 회신 ②): 주체의 {@code identity_link.feed_sources}에 있어야 한다. 출처 코드는 개인정보가 아니다. */
+    record FeedSource(String source) implements Target {
+        public FeedSource {
+            Objects.requireNonNull(source, "source");
+        }
+    }
+
     static Target none() {
         return new None();
     }
@@ -68,6 +75,7 @@ public sealed interface Target {
             case Hold h -> "LEGAL_HOLD";
             case Job j -> "JOB";
             case Flag f -> "FLAG";
+            case FeedSource s -> "FEED_SOURCE";
         };
     }
 
@@ -79,6 +87,7 @@ public sealed interface Target {
             case Hold h -> h.id().toString();
             case Job j -> j.id().toString();
             case Flag f -> f.id().toString();
+            case FeedSource f -> f.source();
         };
     }
 }

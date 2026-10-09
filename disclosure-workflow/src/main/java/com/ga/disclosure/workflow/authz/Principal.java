@@ -8,12 +8,18 @@ import java.util.Optional;
 import java.util.Set;
 
 /** {@code identity_link} 해석 결과(어댑터 안에서만 만든다 — 토큰 클레임에서 만들 길이 없다). */
-public record Principal(String subject, Set<Role> roles, Optional<AgentId> agentId, Optional<OrgPath> orgPath) {
+public record Principal(String subject, Set<Role> roles, Optional<AgentId> agentId, Optional<OrgPath> orgPath, Set<String> feedSources) {
 
     public Principal {
         Objects.requireNonNull(subject, "subject");
         roles = Set.copyOf(roles);
         Objects.requireNonNull(agentId, "agentId");
         Objects.requireNonNull(orgPath, "orgPath");
+        feedSources = Set.copyOf(feedSources);
+    }
+
+    /** 출처 없는 주체(계약 피드가 아닌 모든 역할). */
+    public Principal(String subject, Set<Role> roles, Optional<AgentId> agentId, Optional<OrgPath> orgPath) {
+        this(subject, roles, agentId, orgPath, Set.of());
     }
 }

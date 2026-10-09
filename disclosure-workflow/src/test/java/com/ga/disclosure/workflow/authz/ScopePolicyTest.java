@@ -158,4 +158,19 @@ class ScopePolicyTest {
         assertThat(ScopePolicy.listScope(only(Role.COMPLIANCE), Channel.INTERNAL, Action.DISCLOSURE_READ)).as("wrong channel").isEmpty();
         assertThat(ScopePolicy.listScope(agent(), Channel.API, Action.LEGAL_HOLD_READ)).isEmpty();
     }
+
+    /** 6B 중간 회신 ②: 계약 피드는 자기 출처로만 — 본문 전의 대상 없는 검사는 출처가 하나라도 있어야 통과한다. */
+    @Test
+    void aContractFeedReachesOnlyItsOwnSources() {
+        Principal feed = new Principal("feed-1", Set.of(Role.CONTRACT_FEED), Optional.empty(), Optional.empty(), Set.of("INS_FEED_A"));
+        assertThat(ScopePolicy.permits(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.OfFeedSource("INS_FEED_A")))
+                .contains(Role.CONTRACT_FEED);
+        assertThat(ScopePolicy.permits(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.OfFeedSource("INS_FEED_B"))).isEmpty();
+        assertThat(ScopePolicy.whyDenied(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.OfFeedSource("INS_FEED_B")))
+                .isEqualTo(AuthorizationDenied.Reason.SCOPE);
+        assertThat(ScopePolicy.permits(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.Tenant())).contains(Role.CONTRACT_FEED);
+        assertThat(ScopePolicy.permits(only(Role.CONTRACT_FEED), Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.Tenant()))
+                .as("a feed without sources").isEmpty();
+        assertThat(ScopePolicy.listScope(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT)).isEmpty();
+    }
 }

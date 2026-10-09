@@ -72,7 +72,7 @@ public final class ContractLinkBatchParser {
         if (!problems.isEmpty()) {
             throw new InvalidContractLinkBatchException(problems);
         }
-        return new ContractLinkBatch(root.get("source").asString(), root.get("batchId").asString(), Sha256.of(content), items);
+        return new ContractLinkBatch(root.get("source").asString(), root.get("batchId").asString(), Sha256.of(Canonicalizer.canonicalize(root)), items);
     }
 
     private static Optional<String> text(JsonNode n, String field) {

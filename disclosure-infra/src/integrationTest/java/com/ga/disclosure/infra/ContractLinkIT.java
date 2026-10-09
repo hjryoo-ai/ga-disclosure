@@ -196,6 +196,44 @@ class ContractLinkIT {
     }
 
     /**
+     * 6B 중간 회신 ①: 배치 참조(출처·배치 ID)마다 내용(JCS 해시) 하나. 같은 내용 재전송은 재생(새 행 없음, {@code replayed}), 다른 내용은 배치 전체 거부
+     * {@code BATCH_REF_REUSED}(항목 하나도 처리하지 않음, 감사 1행 — 번호 없음). 같은 내용이면 CSV든 JSON이든 같은 해시다.
+     */
+    @Test
+    void aBatchReferenceCarriesOneContentAndADifferentContentIsRejectedWhole() {
+        try (RetentionSetup r = new RetentionSetup()) {
+            DisclosureId d = r.completed();
+            applicationNo(r, d, "APP-R1");
+            ContractLinkService links = service(r, r.x.w.clock);
+            ContractLinkService.Report first = links.importBatch(feed(r), batch("R1", item("POL-R1", "APP-R1", "2026-09-24")));
+            assertThat(first.replayed()).isFalse();
+            assertThat(first.items().getFirst().outcome()).isEqualTo(Outcome.LINKED);
+            assertThat(row(r, "SELECT content_sha256 || '|' || (summary ->> 'LINKED') FROM contract_link_batch WHERE tenant_id = ? AND batch_id = 'R1'",
+                    r.x.w.tenant.value())).isEqualTo(first.sha256() + "|1");
+
+            ContractLinkService.Report again = links.importBatch(feed(r), batch("R1", item("POL-R1", "APP-R1", "2026-09-24")));
+            assertThat(again.replayed()).isTrue();
+            assertThat(again.items().getFirst().repeated()).isTrue();
+
+            int unmatched = count(r, "SELECT count(*)::text FROM contract_link_unmatched WHERE tenant_id = ?");
+            assertThatThrownBy(() -> links.importBatch(feed(r), batch("R1", item("POL-R1-OTHER", null, "2026-09-24"))))
+                    .isInstanceOfSatisfying(com.ga.disclosure.workflow.disclosure.CommandRejectedException.class,
+                            e -> assertThat(e.code()).isEqualTo(ContractLinkService.BATCH_REF_REUSED));
+            assertThat(count(r, "SELECT count(*)::text FROM contract_link_unmatched WHERE tenant_id = ?")).isEqualTo(unmatched);
+            assertThat(r.x.w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.CONTRACT_LINK_BATCH_REJECTED).singleElement().satisfies(a -> {
+                assertThat(a.entry().detail().get("recordedSha256").asString()).isEqualTo(first.sha256());
+                assertThat(a.entry().detail().toString()).doesNotContain("POL-");
+            });
+            assertThat(r.x.w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.CONTRACT_LINK_IMPORT).hasSize(2);
+
+            // 같은 내용이면 형식과 무관하게 같은 해시(JCS)
+            byte[] csv = "policyNo,applicationNo,contractDate,insurerCode,customerRef,productKey\nPOL-R1,APP-R1,2026-09-24,INS-A,,\n"
+                    .getBytes(StandardCharsets.UTF_8);
+            assertThat(com.ga.disclosure.workflow.contract.ContractLinkCsv.parse("INS_FEED_A", "R1", csv).sha256()).isEqualTo(first.sha256());
+        }
+    }
+
+    /**
      * 활성 연결은 확인서가 무효·정정된 뒤에도 그 확인서에 남는다(이력). 같은 청약의 새 확인서가 같은 증권으로 매칭돼도 "다른 확인서에 활성" 판정은 후보 제외
      * 규칙과 무관하게 활성 연결 전체를 본다 — 아니면 증권 부분 유일 위반이 항목 하나로 배치 전체를 매번 멈춘다.
      */

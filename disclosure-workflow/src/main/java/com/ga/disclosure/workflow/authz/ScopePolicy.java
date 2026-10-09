@@ -23,7 +23,9 @@ import java.util.Optional;
 public final class ScopePolicy {
 
     public enum Scope {
-        SELF, OWN, ORG, TENANT, SESSION, ANY
+        SELF, OWN, ORG, TENANT, SESSION, ANY,
+        /** 계약 피드: 주체의 {@code feed_sources}에 있는 출처만(6B 중간 회신 ②). 본문을 읽기 전의 대상 없는 검사는 출처가 하나라도 있으면 통과 — 유스케이스가 출처로 다시 묻는다. */
+        SOURCE
     }
 
     private static final Map<Action, Map<Role, Scope>> MATRIX = build();
@@ -65,7 +67,7 @@ public final class ScopePolicy {
         grant(m, Action.FLAG_RESOLVE, Role.COMPLIANCE, Scope.TENANT);
         grant(m, Action.FLAG_SLA_SWEEP, Role.SCHEDULER, Scope.TENANT);
         // 6B 계약 연결(계획 §4): 배치는 계약 피드 서비스 주체만, 미매칭 보고 행 정리는 배치
-        grant(m, Action.CONTRACT_LINK_IMPORT, Role.CONTRACT_FEED, Scope.TENANT);
+        grant(m, Action.CONTRACT_LINK_IMPORT, Role.CONTRACT_FEED, Scope.SOURCE);
         grant(m, Action.CONTRACT_LINK_UNMATCHED_PURGE, Role.SCHEDULER, Scope.TENANT);
         // 6B 초안 폐기(지시문 §6): 명시 폐기는 작성 설계사(사유 코드 — 룰 draft.abandonReasons), 방치 초안 폐기는 배치(룰 draft.abandonAfterDays)
         grant(m, Action.DRAFT_ABANDON, Role.AGENT, Scope.OWN);
@@ -137,7 +139,7 @@ public final class ScopePolicy {
                 case TENANT, ANY -> Optional.of(new ListScope.WholeTenant());
                 case ORG -> principal.orgPath().map(ListScope.UnderOrg::new);
                 case OWN -> principal.agentId().map(ListScope.OwnedBy::new);
-                case SELF, SESSION -> Optional.empty();
+                case SELF, SESSION, SOURCE -> Optional.empty();
             };
             if (scope.isPresent()) {
                 return Optional.of(new RoleScope(role, scope.get()));
@@ -170,6 +172,8 @@ public final class ScopePolicy {
             case OWN -> facts instanceof TargetFacts.OfDisclosure d && p.agentId().map(d.agentId()::equals).orElse(false);
             case ORG -> facts instanceof TargetFacts.OfDisclosure d && p.orgPath().isPresent() && d.orgPath().isPresent()
                     && p.orgPath().get().contains(d.orgPath().get());
+            case SOURCE -> facts instanceof TargetFacts.OfFeedSource s ? p.feedSources().contains(s.source())
+                    : facts instanceof TargetFacts.Tenant && !p.feedSources().isEmpty();
         };
     }
 }

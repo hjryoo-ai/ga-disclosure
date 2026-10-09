@@ -34,7 +34,7 @@ public class InternalContractLinksController {
 
     @PostMapping
     public ResponseEntity<JobView> submit(Caller caller, @RequestBody(required = false) byte[] body) {
-        JobRecord job = runner.submitWithBody(caller, JobKind.CONTRACT_LINK_IMPORT, ContractLinkMapper.job(body, links));
+        JobRecord job = runner.submitWithBody(caller, JobKind.CONTRACT_LINK_IMPORT, ContractLinkMapper.job(caller, body, links));
         return ResponseEntity.accepted().location(URI.create("/internal/v1/jobs/" + job.jobId())).body(JobMapper.view(job));
     }
 }

@@ -80,6 +80,28 @@ class LegalHoldIT {
         assertThat(retentionUntil(id)).as("보류는 보존기한을 바꾸지 않는다").isEqualTo(until);
     }
 
+    /**
+     * 6B 중간 회신 ④: 묘비에 보류는 의미가 없다 — 파기된 확인서·폐기된 초안에 보류를 걸면 업무 거부 {@code TARGET_ALREADY_DESTROYED}(감사 없음, 보류 행 없음).
+     * 유스케이스는 대상 행을 잠근 뒤 판정하고, DB(V18 GD139)가 다시 본다.
+     */
+    @Test
+    void aDestroyedDisclosureOrAnAbandonedDraftCannotBeHeld() {
+        DisclosureId destroyed = r.completed();
+        r.reconcileAfterRetention();
+        assertThat(r.destroy().destroyed()).extracting(DestructionJob.Destroyed::id).containsExactly(destroyed);
+        assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(destroyed), "LITIGATION", null)))
+                .isEqualTo("TARGET_ALREADY_DESTROYED");
+
+        DisclosureId draft = r.x.w.draft();
+        AbandonDraftIT.service(r.x.w, r.x.w.clock).abandon(Callers.of(r.x.w.tenant, WorkflowSetup.AGENT), draft, "DUPLICATE");
+        assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(draft), "LITIGATION", null)))
+                .isEqualTo("TARGET_ALREADY_DESTROYED");
+        assertThat(new LegalHoldRejectedException("TARGET_ALREADY_DESTROYED").category()).isEqualTo(com.ga.disclosure.workflow.RejectionCategory.CONFLICT);
+
+        assertThat(r.count("SELECT count(*) FROM legal_hold WHERE tenant_id = ?", r.x.w.tenant.value())).isZero();
+        assertThat(audits(AuditAction.LEGAL_HOLD_PLACED, destroyed.toString()) + audits(AuditAction.LEGAL_HOLD_PLACED, draft.toString())).isZero();
+    }
+
     @Test
     void oneActiveHoldPerTargetAndAReleaseHappensOnce() {
         DisclosureId id = r.completed();

@@ -35,6 +35,33 @@ public class ContractLinkRepository extends TenantScopedRepository implements Co
     }
 
     @Override
+    public Optional<LedgerEntry> batch(String source, String batchId) {
+        return queryAtMostOne("""
+                SELECT content_sha256, received_at, completed_at IS NOT NULL AS completed
+                  FROM contract_link_batch
+                 WHERE tenant_id = :tenantId AND source = :source AND batch_id = :batchId
+                """, Map.of("source", source, "batchId", batchId), (rs, n) -> new LedgerEntry(rs.getString("content_sha256"),
+                rs.getTimestamp("received_at").toInstant(), rs.getBoolean("completed")));
+    }
+
+    @Override
+    public void recordBatch(String source, String batchId, String sha256, int items, Instant receivedAt, String receivedBy) {
+        update("""
+                INSERT INTO contract_link_batch (tenant_id, source, batch_id, content_sha256, items, received_at, received_by)
+                VALUES (:tenantId, :source, :batchId, :sha256, :items, :receivedAt, :receivedBy)
+                """, Map.of("source", source, "batchId", batchId, "sha256", sha256, "items", items, "receivedAt", Timestamp.from(receivedAt),
+                "receivedBy", receivedBy));
+    }
+
+    @Override
+    public boolean completeBatch(String source, String batchId, String summaryJson, Instant at) {
+        return update("""
+                UPDATE contract_link_batch SET summary = CAST(:summary AS jsonb), completed_at = :at
+                 WHERE tenant_id = :tenantId AND source = :source AND batch_id = :batchId AND summary IS NULL
+                """, Map.of("source", source, "batchId", batchId, "summary", summaryJson, "at", Timestamp.from(at))) == 1;
+    }
+
+    @Override
     public Optional<UUID> linkBySource(String source, String sourceRef) {
         return queryAtMostOne("""
                 SELECT link_id FROM contract_link WHERE tenant_id = :tenantId AND source = :source AND source_ref = :ref

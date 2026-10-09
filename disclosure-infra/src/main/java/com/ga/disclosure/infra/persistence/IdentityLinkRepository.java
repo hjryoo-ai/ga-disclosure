@@ -44,13 +44,14 @@ public class IdentityLinkRepository extends TenantScopedRepository implements Ag
     @Override
     public Optional<LinkedIdentity> find(String subject) {
         return queryAtMostOne("""
-                SELECT subject, agent_id, roles, org_path
+                SELECT subject, agent_id, roles, org_path, feed_sources
                   FROM identity_link
                  WHERE tenant_id = :tenantId
                    AND subject = :subject
                 """, Map.of("subject", subject), (rs, n) -> new LinkedIdentity(rs.getString("subject"),
                 Optional.ofNullable(rs.getString("agent_id")).map(AgentId::of),
                 new HashSet<>(Arrays.asList((String[]) rs.getArray("roles").getArray())),
-                Optional.ofNullable(rs.getString("org_path")).map(OrgPath::of)));
+                Optional.ofNullable(rs.getString("org_path")).map(OrgPath::of),
+                rs.getArray("feed_sources") == null ? java.util.Set.of() : java.util.Set.of((String[]) rs.getArray("feed_sources").getArray())));
     }
 }

@@ -62,7 +62,7 @@ class RejectionCategoryTableTest {
         for (FlagRejectedException.Rejection r : FlagRejectedException.Rejection.values()) {
             out.put("FlagRejection." + r.name(), r.category().name());
         }
-        for (String code : List.of("UNKNOWN_REASON", "TEXT_REQUIRED", "TEXT_TOO_LONG", "ALREADY_HELD", "NOT_FOUND", "ALREADY_RELEASED",
+        for (String code : List.of("UNKNOWN_REASON", "TEXT_REQUIRED", "TEXT_TOO_LONG", "ALREADY_HELD", "NOT_FOUND", "ALREADY_RELEASED", "TARGET_ALREADY_DESTROYED",
                 "BAD_RELEASE_REASON", "FOUR_EYES_REQUIRED")) {
             out.put("LegalHold." + code, new LegalHoldRejectedException(code).category().name());
         }

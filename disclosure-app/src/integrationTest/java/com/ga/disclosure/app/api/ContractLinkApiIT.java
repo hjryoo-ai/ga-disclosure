@@ -51,7 +51,7 @@ class ContractLinkApiIT {
         String t = SeedData.uniqueTenant("CLINK");
         DB.seed(t, c -> {
             SeedData.tenant(c, t);
-            SeedData.roleLink(c, t, FEED, "CONTRACT_FEED");
+            SeedData.feedLink(c, t, FEED, "INS_FEED_A");
             SeedData.roleLink(c, t, SCHEDULER, "SCHEDULER");
             SeedData.roleLink(c, t, COMPLIANCE, "COMPLIANCE");
         });
@@ -110,5 +110,46 @@ class ContractLinkApiIT {
         // 보고 행에는 번호가 남는다(룰 기간 뒤 정리 — pii-columns PURGED)
         assertThat(DB.<String>asApp(t, c -> SeedData.call(c, "SELECT reason FROM contract_link_unmatched WHERE tenant_id = ? AND policy_no = ?", t, SECRET)))
                 .isEqualTo("UNMATCHED");
+    }
+
+    String waitFor(String t, String job) throws InterruptedException {
+        String status = "";
+        for (long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos(); System.nanoTime() < deadline; Thread.sleep(50)) {
+            status = Canonicalizer.parseStrict(ApiTestSupport.get(port, "/api/v1/jobs/" + job, TestJwts.token(t, COMPLIANCE)).text()).get("status").asString();
+            if (status.equals("SUCCEEDED") || status.equals("FAILED")) {
+                break;
+            }
+        }
+        return status;
+    }
+
+    /**
+     * 6B 중간 회신 ①②: 피드 주체는 자기 출처로만 보낸다 — 목록 밖 출처는 본문이 맞아도 없는 라우트와 같은 404(작업 없음). 같은 출처·배치 ID에 다른 내용은
+     * 작업을 만들기 전에 422 {@code BATCH_REF_REUSED}(번호 없음), 같은 내용 재전송은 202(재생).
+     */
+    @Test
+    void aFeedSendsOnlyItsOwnSourcesAndABatchReferenceCarriesOneContent() throws Exception {
+        String t = tenant();
+        ApiTestSupport.Response noRoute = post(t, FEED, "/internal/v1/no-such-route", "{}");
+        ApiTestSupport.Response otherSource = post(t, FEED, "/internal/v1/contract-links", batch("S1", SECRET).replace("INS_FEED_A", "INS_FEED_B"));
+        assertThat(otherSource.status()).isEqualTo(404);
+        assertThat(otherSource.fingerprint()).isEqualTo(noRoute.fingerprint());
+        assertThat(DB.<String>asApp(t, c -> SeedData.call(c, "SELECT count(*)::text FROM async_job WHERE tenant_id = ?", t))).isEqualTo("0");
+
+        ApiTestSupport.Response first = post(t, FEED, "/internal/v1/contract-links", batch("S2", SECRET));
+        assertThat(first.status()).as(first.text()).isEqualTo(202);
+        assertThat(waitFor(t, Canonicalizer.parseStrict(first.text()).get("jobId").asString())).isEqualTo("SUCCEEDED");
+
+        ApiTestSupport.Response reused = post(t, FEED, "/internal/v1/contract-links", batch("S2", SECRET + "-CHANGED"));
+        assertThat(reused.status()).isEqualTo(422);
+        assertThat(reused.text()).contains("\"code\":\"BATCH_REF_REUSED\"").doesNotContain(SECRET);
+        assertThat(DB.<String>asApp(t, c -> SeedData.call(c, "SELECT count(*)::text FROM async_job WHERE tenant_id = ?", t))).isEqualTo("1");
+
+        ApiTestSupport.Response replay = post(t, FEED, "/internal/v1/contract-links", batch("S2", SECRET));
+        assertThat(replay.status()).as(replay.text()).isEqualTo(202);
+        String job = Canonicalizer.parseStrict(replay.text()).get("jobId").asString();
+        assertThat(waitFor(t, job)).isEqualTo("SUCCEEDED");
+        JsonNode report = Canonicalizer.parseStrict(ApiTestSupport.get(port, "/api/v1/jobs/" + job + "/report", TestJwts.token(t, COMPLIANCE)).text());
+        assertThat(report.get("replayed").asBoolean()).isTrue();
     }
 }

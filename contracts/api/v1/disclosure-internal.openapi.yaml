@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·계약 연결)
-  version: 3.0.0
+  version: 3.1.0
   description: |
     설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER·(6B) CONTRACT_FEED·GATE_CLIENT) — 사람 역할은 404(승인 Q15).
     클러스터 밖에 열지 않는다. 인증은 `/api`와 같은 JWT 체인(역할은 `identity_link`). 오류·멱등·커서 규약은 `disclosure-api.openapi.yaml`과 같다.
@@ -43,6 +43,8 @@ paths:
         (6B) 계약 연결 배치(서비스 주체 CONTRACT_FEED) — 본문은 계약 contracts/contract-link/v1/contract-link-batch.schema.json. 인가 뒤 해석하며 스키마
         위반은 400 MALFORMED_REQUEST(위치를 싣지 않는다). 통과하면 202 + 작업 CONTRACT_LINK_IMPORT(작업 행에는 번호 없는 요약만). 매칭·결과는 작업
         보고서(준법 열람). 옛 `POST /internal/v1/disclosures/{no}/policy-link`는 없앴다(6B 계획 Q3 — 단건은 항목 1개짜리 배치).
+        (3.1.0) 배치의 source가 주체의 출처 목록(identity_link.feed_sources) 밖이면 없는 라우트와 같은 404. 같은 source·batchId로 이미 받은 배치와
+        내용(JCS 해시)이 다르면 작업 없이 422 REJECTED(code BATCH_REF_REUSED), 같으면 202(재생 — 보고서 replayed).
       security:
         - bearerJwt: []
       parameters:

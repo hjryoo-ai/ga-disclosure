@@ -209,7 +209,7 @@ CREATE TABLE collection_rate_snapshot (            -- append-only(GD135)
 - `async_job.kind`에 `FLAG_SLA_SWEEP`·`COLLECTION_RATE_SNAPSHOT`·`ABANDON_DRAFTS`·`RETENTION_RECOMPUTE`·`CONTRACT_LINK_UNMATCHED_PURGE`를 넣는다. `job-states` 블록은 그대로다.
 - `outbox_event.type`에 `DisclosureAbandoned`를 넣는다. 추가형이며 계약 스키마·샘플·CHECKSUMS를 함께 갱신한다. `PolicyLinked`는 **이미 있다**(Phase 4 8개 중 하나) — 그것을 쓴다.
 - **함수**
-  - `ga_draft_abandon(p_tenant, p_disclosure, p_at, p_by) RETURNS jsonb`(지운 값의 해시 — 파기 함수와 같은 규약)를 둔다. 소유는 정의자 롤 `disclosure_destroy_definer`, EXECUTE는 새 롤 `disclosure_abandoner`만 갖는다(Q10).
+  - `ga_draft_abandon(p_tenant, p_disclosure, p_at, p_by) RETURNS VOID`를 둔다 — 지운 값의 해시는 앱이 호출 직전에 읽어 감사에 남긴다(파기 경로와 같은 규약, 2026-10-09 중간 회신 ⑦로 이 문구를 고침). 소유는 정의자 롤 `disclosure_destroy_definer`, EXECUTE는 새 롤 `disclosure_abandoner`만 갖는다(Q10).
   - `ga_disclosure_destroy`를 CREATE OR REPLACE한다. 지정 컬럼에 `disclosure.application_no`와 그 확인서의 `contract_link.policy_no`·`application_no`(모든 이력 행)를 더한다.
 - 오류 코드는 GD130~GD135이고 `docs/db-error-codes.md`에 적는다.
 

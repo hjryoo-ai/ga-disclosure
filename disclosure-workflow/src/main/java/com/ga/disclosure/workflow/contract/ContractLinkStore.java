@@ -16,6 +16,18 @@ import java.util.UUID;
  */
 public interface ContractLinkStore {
 
+    /** 배치 원장(V18 — 6B 중간 회신 ①): 그 출처·배치 ID로 받은 내용 해시와 완료 여부. */
+    Optional<LedgerEntry> batch(String source, String batchId);
+
+    /** 수신 기록(요약 없음). */
+    void recordBatch(String source, String batchId, String sha256, int items, Instant receivedAt, String receivedBy);
+
+    /** 요약을 한 번 쓴다(이미 있으면 그대로 — 재생). 썼으면 true. */
+    boolean completeBatch(String source, String batchId, String summaryJson, Instant at);
+
+    record LedgerEntry(String sha256, Instant receivedAt, boolean completed) {
+    }
+
     /** 같은 출처 참조로 이미 만든 연결(재수입 멱등). */
     Optional<UUID> linkBySource(String source, String sourceRef);
 

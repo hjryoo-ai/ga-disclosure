@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 계약 스키마를 지난 배치(6B 계획 §4). {@code sha256}은 입력 바이트의 해시(작업 매개변수·감사에 번호 대신 싣는다). 항목 순번은 1부터이고 출처 참조
+ * 계약 스키마를 지난 배치(6B 계획 §4). {@code sha256}은 내용 해시 — 스키마를 지난 문서의 JCS 바이트(CSV는 같은 모양으로 바꾼 뒤라 같은 내용이면 형식과 무관하게 같다). 배치 원장의 같은 참조 판정과 작업 매개변수·감사에 번호 대신 싣는다(6B 중간 회신 ①). 항목 순번은 1부터이고 출처 참조
  * {@code batchId#순번}이 연결·보고 행의 재수입 멱등 키다.
  */
 public record ContractLinkBatch(String source, String batchId, String sha256, List<Item> items) {
