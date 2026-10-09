@@ -1,7 +1,5 @@
 package com.ga.disclosure.api.security;
 
-import com.ga.disclosure.workflow.authz.Caller;
-import com.ga.disclosure.workflow.authz.Channel;
 import com.ga.disclosure.workflow.authz.TenantRegistry;
 import com.ga.platform.core.tenant.TenantContext;
 import com.ga.platform.core.tenant.TenantId;
@@ -25,14 +23,13 @@ import java.util.Objects;
  *       (역할은 {@code identity_link}, 절대 규칙 5).</li>
  *   <li>테넌트 형식 검사(실패 401).</li>
  *   <li>{@code ScopedValue}로 테넌트를 바인딩하고, 바인딩된 상태에서 테넌트 행이 있는지 RLS 아래에서 확인한다(없으면 401).</li>
- *   <li>호출자 {@code Caller(테넌트, 주체, 채널)}를 요청 속성에 두고 바인딩 범위 안에서 체인을 잇는다. 채널은 경로 접두다({@code /api} → API,
- *       {@code /internal} → INTERNAL — 승인 Q15).</li>
+ *   <li>테넌트·주체({@link BoundPrincipal})를 요청 속성에 두고 바인딩 범위 안에서 체인을 잇는다. 채널은 여기서 정하지 않는다 — 라우팅 뒤 매칭된 라우트
+ *       템플릿으로 정한다({@link BoundPrincipal#caller}, 승인 Q15). (6B 8단계 보안 검토) 원 URI 접두로 정하던 것은 {@code /%69nternal/…}이 API 채널로
+ *       내부 핸들러에 닿게 했다.</li>
  * </ol>
  */
 public final class TenantBindingFilter extends OncePerRequestFilter {
 
-    /** 요청 속성 — 컨트롤러는 {@link CallerArgumentResolver}로 받는다. */
-    public static final String CALLER = TenantBindingFilter.class.getName() + ".caller";
     static final String TENANT_CLAIM = "tenant_id";
 
     private final TenantRegistry tenants;
@@ -71,15 +68,13 @@ public final class TenantBindingFilter extends OncePerRequestFilter {
             ApiAuthenticationEntryPoint.write(response);
             return;
         }
-        // 채널은 라우팅되는 디코딩 경로로 — 원 URI 접두로 고르면 /%69nternal/… 이 API 채널로 내부 핸들러에 닿았다(6B 8단계 보안 검토)
-        Channel channel = RoutedPath.of(request).startsWith("/internal/") ? Channel.INTERNAL : Channel.API;
         try {
             TenantContext.runWith(tenant, () -> {
                 if (!tenants.exists(TenantContext.current())) {
                     ApiAuthenticationEntryPoint.write(response);
                     return null;
                 }
-                request.setAttribute(CALLER, new Caller(tenant, subject, channel));
+                request.setAttribute(BoundPrincipal.ATTRIBUTE, new BoundPrincipal(tenant, subject));
                 chain.doFilter(request, response);
                 return null;
             });

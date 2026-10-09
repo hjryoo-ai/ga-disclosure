@@ -2,7 +2,6 @@ package com.ga.disclosure.api.idempotency;
 
 import com.ga.disclosure.api.error.Problem;
 import com.ga.disclosure.api.security.IdempotencyCaptureFilter;
-import com.ga.disclosure.api.security.TenantBindingFilter;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.idempotency.IdempotencyService;
 import com.ga.disclosure.workflow.idempotency.RequestHashPort;
@@ -72,7 +71,7 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws IOException {
         if (!(handler instanceof HandlerMethod) || !"POST".equals(request.getMethod())
-                || !(request.getAttribute(TenantBindingFilter.CALLER) instanceof Caller caller)
+                || !(com.ga.disclosure.api.security.BoundPrincipal.caller(request).orElse(null) instanceof Caller caller)
                 || EXEMPT_ROUTES.contains((String) request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE))) {
             return true;
         }
