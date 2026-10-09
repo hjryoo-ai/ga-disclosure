@@ -41,10 +41,22 @@ public interface ContractLinkStore {
     List<Candidate> byActivePolicy(String policyNo);
 
     /**
-     * 그 증권번호의 활성 연결을 가진 확인서 전부 — 상태 제외 없음. 무효·정정된 확인서의 활성 연결도 증권을 붙들고 있다(활성 증권 부분 유일). "다른 확인서에
-     * 활성" 판정은 이것으로 한다.
+     * 그 증권번호의 활성 연결을 가진 확인서 — 상태 제외 없음(활성 증권 부분 유일이라 많아야 1건). 무효·정정·만료된 확인서의 활성 연결도 증권을 붙들고
+     * 있다 — 유효한 보유자면 {@code AMBIGUOUS_MATCH}, 아니면 같은 고객의 새 확인서가 인수한다(6B 중간 회신 ③).
      */
-    List<DisclosureId> activePolicyHolders(String policyNo);
+    List<Holder> activePolicyHolders(String policyNo);
+
+    /** 활성 연결을 다른 확인서의 새 행으로 이전한다(V19 {@code carried_to} — 새 행은 같은 트랜잭션에서 넣는다, 지연 외래키). */
+    void carry(UUID linkId, UUID carriedTo, Instant at);
+
+    record Holder(DisclosureId disclosure, String status, String customerRef, UUID linkId) {
+        public Holder {
+            Objects.requireNonNull(disclosure, "disclosure");
+            Objects.requireNonNull(status, "status");
+            Objects.requireNonNull(customerRef, "customerRef");
+            Objects.requireNonNull(linkId, "linkId");
+        }
+    }
 
     Optional<ActiveLink> activeLink(DisclosureId disclosure);
 
@@ -79,7 +91,7 @@ public interface ContractLinkStore {
     }
 
     record ActiveLink(UUID linkId, String policyNo, Optional<String> applicationNo, LocalDate contractDate, String insurerCode,
-                      Optional<String> productKey) {
+                      Optional<String> productKey, String source, String sourceRef) {
         @Override
         public String toString() {
             return "ActiveLink[" + linkId + "]";

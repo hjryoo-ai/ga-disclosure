@@ -46,6 +46,8 @@ import java.util.function.Supplier;
  *   <li>매칭: 청약번호 정확 일치 → (없거나 0건이면) 증권번호의 활성 연결. 무효·정정됨·폐기·파기는 후보가 아니다. 0건 {@code UNMATCHED}, 2건 이상
  *       {@code AMBIGUOUS_MATCH}, 봉인 전 {@code NOT_SEALED}, 가명이 다르면 {@code CUSTOMER_MISMATCH}, 그 증권이 다른 확인서(후보 제외 상태 포함)에 활성으로 붙어 있으면
  *       {@code AMBIGUOUS_MATCH} — 전부 보고 행만 남는다.</li>
+ *   <li>그 증권의 활성 연결을 다른 확인서가 쥐고 있으면: 유효한 보유자(봉인 이후 비종료·완료)거나 다른 고객이면 {@code AMBIGUOUS_MATCH}, 무효·정정·만료된
+ *       같은 고객의 확인서면 새 확인서가 인수한다({@code TAKEN_OVER} — 옛 행 {@code carried_to}, 감사 {@code CONTRACT_LINK_CARRIED}, 6B 중간 회신 ③).</li>
  *   <li>1건: 활성 연결과 내용이 같으면 {@code NOOP}, 다르면 이전 행 대체 + 새 행({@code CORRECTED}), 없으면 새 행({@code LINKED}). 확인서 현재값 투영,
  *       보존기한 = 확인서에 고정된 룰의 앵커 {@code CONTRACT_DATE}로 연장만({@link RetentionAnchors} — Phase 4 산식 그대로), 감사
  *       {@code CONTRACT_LINK_CHANGED}(증권번호는 SHA-256), 아웃박스 {@code PolicyLinked} v2(번호 없음).</li>
@@ -59,7 +61,9 @@ public final class ContractLinkService {
     public static final int MAX_PURGE = 10_000;
 
     public enum Outcome {
-        LINKED, CORRECTED, NOOP, UNMATCHED, AMBIGUOUS_MATCH, NOT_SEALED, CUSTOMER_MISMATCH
+        LINKED, CORRECTED, NOOP, UNMATCHED, AMBIGUOUS_MATCH, NOT_SEALED, CUSTOMER_MISMATCH,
+        /** 무효·정정·만료된 같은 고객의 확인서가 쥔 연결을 인수했다(6B 중간 회신 ③ — 옛 행은 {@code carried_to}로 닫힌다). */
+        TAKEN_OVER
     }
 
     public enum RetentionChange {
@@ -213,6 +217,10 @@ public final class ContractLinkService {
                 "the batch reference was already used for different content");
     }
 
+    /** 연결을 쥐고 있으면 다른 확인서가 인수할 수 없는 상태 — 봉인 이후 아직 끝나지 않았거나 완료된 확인서(6B 중간 회신 ③). */
+    static final java.util.Set<DisclosureStatus> VALID_HOLDERS = java.util.EnumSet.of(DisclosureStatus.SEALED, DisclosureStatus.PARTIALLY_SIGNED,
+            DisclosureStatus.COMPLETED);
+
     private ItemResult one(TenantId tenant, Actor actor, ContractLinkBatch batch, ContractLinkBatch.Item item) {
         String sourceRef = batch.sourceRef(item);
         Optional<UUID> done = store.linkBySource(batch.source(), sourceRef);
@@ -229,6 +237,7 @@ public final class ContractLinkService {
         }
         Outcome rejected = null;
         ContractLinkStore.Candidate target = null;
+        ContractLinkStore.Holder takeover = null;
         if (candidates.isEmpty()) {
             rejected = Outcome.UNMATCHED;
         } else if (candidates.size() > 1) {
@@ -241,8 +250,17 @@ public final class ContractLinkService {
                 rejected = Outcome.NOT_SEALED;
             } else if (item.customerRef().isPresent() && !item.customerRef().get().equals(target.customerRef())) {
                 rejected = Outcome.CUSTOMER_MISMATCH;
-            } else if (store.activePolicyHolders(item.policyNo()).stream().anyMatch(id -> !id.equals(t.id()))) {
-                rejected = Outcome.AMBIGUOUS_MATCH;          // 그 증권이 다른 확인서(무효·정정된 것 포함)에 활성으로 붙어 있다
+            } else {
+                Optional<ContractLinkStore.Holder> other = store.activePolicyHolders(item.policyNo()).stream()
+                        .filter(h -> !h.disclosure().equals(t.id())).findFirst();
+                if (other.isPresent()) {
+                    ContractLinkStore.Holder h = other.get();
+                    if (VALID_HOLDERS.contains(DisclosureStatus.valueOf(h.status())) || !h.customerRef().equals(t.customerRef())) {
+                        rejected = Outcome.AMBIGUOUS_MATCH;  // 유효한 확인서가 쥐었거나 다른 고객의 확인서가 쥐었다 — 사람이 본다
+                    } else {
+                        takeover = h;                        // 무효·정정·만료된 같은 고객의 확인서 — 새 확인서가 인수한다
+                    }
+                }
             }
         }
         Instant now = clock.instant();
@@ -251,18 +269,19 @@ public final class ContractLinkService {
             return new ItemResult(item.index(), rejected, false, Optional.ofNullable(target).map(c -> c.id().value()), Optional.empty(),
                     RetentionChange.NONE);
         }
-        return link(tenant, actor, batch, item, sourceRef, target, now);
+        return link(tenant, actor, batch, item, sourceRef, target, Optional.ofNullable(takeover), now);
     }
 
     private ItemResult link(TenantId tenant, Actor actor, ContractLinkBatch batch, ContractLinkBatch.Item item, String sourceRef,
-                            ContractLinkStore.Candidate target, Instant now) {
+                            ContractLinkStore.Candidate target, Optional<ContractLinkStore.Holder> takeover, Instant now) {
         Optional<ContractLinkStore.ActiveLink> active = store.activeLink(target.id());
-        if (active.isPresent() && same(active.get(), item)) {
+        if (takeover.isEmpty() && active.isPresent() && same(active.get(), item)) {
             return new ItemResult(item.index(), Outcome.NOOP, false, Optional.of(target.id().value()), Optional.of(active.get().linkId()),
                     RetentionChange.NONE);
         }
         UUID linkId = ids.get();
         active.ifPresent(a -> store.supersede(a.linkId(), linkId, now));
+        takeover.ifPresent(h -> store.carry(h.linkId(), linkId, now));        // 옛 확인서의 행을 닫는다(지연 외래키 — 새 행은 바로 아래)
         store.insertLink(new ContractLinkStore.NewLink(linkId, target.id(), item.policyNo(), item.applicationNo(), item.contractDate(), item.insurerCode(),
                 item.productKey(), batch.source(), sourceRef, now, actor.subject()));
         store.mirror(target.id(), item.policyNo(), item.contractDate());
@@ -274,7 +293,7 @@ public final class ContractLinkService {
         RetentionChange retention = after.isAfter(before) && store.extendRetention(target.id(), after) ? RetentionChange.EXTENDED
                 : RetentionChange.NOT_EXTENDED;
 
-        Outcome outcome = active.isPresent() ? Outcome.CORRECTED : Outcome.LINKED;
+        Outcome outcome = takeover.isPresent() ? Outcome.TAKEN_OVER : active.isPresent() ? Outcome.CORRECTED : Outcome.LINKED;
         ObjectNode detail = JSON.createObjectNode().put("outcome", outcome.name()).put("linkId", linkId.toString())
                 .put("source", batch.source()).put("sourceRef", sourceRef)
                 .put("policyNoSha256", Sha256.of(item.policyNo().getBytes(StandardCharsets.UTF_8)))
@@ -286,7 +305,12 @@ public final class ContractLinkService {
         } else {
             detail.putNull("previousLinkId").putNull("contractDateBefore");
         }
-        audit.append(new AuditEntry(now, actor.subject(), actor.role(), AuditAction.CONTRACT_LINK_CHANGED, "DISCLOSURE", target.id().toString(), detail));
+        if (takeover.isPresent()) {
+            detail.put("reason", "TAKEN_OVER_FROM_" + takeover.get().status()).put("fromDisclosureId", takeover.get().disclosure().toString())
+                    .put("fromLinkId", takeover.get().linkId().toString());
+        }
+        audit.append(new AuditEntry(now, actor.subject(), actor.role(), takeover.isPresent() ? AuditAction.CONTRACT_LINK_CARRIED : AuditAction.CONTRACT_LINK_CHANGED,
+                "DISCLOSURE", target.id().toString(), detail));
         outbox.append(EventType.PolicyLinked, target.id().toString(), now, OutboxPayloads.policyLinked(target.id().value(),
                 target.disclosureNo().orElseThrow(), linkId, item.contractDate(), item.insurerCode(), active.map(ContractLinkStore.ActiveLink::linkId).orElse(null)));
         return new ItemResult(item.index(), outcome, false, Optional.of(target.id().value()), Optional.of(linkId), retention);

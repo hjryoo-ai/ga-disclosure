@@ -82,9 +82,15 @@ public class SealConfiguration {
 
     @Bean
     public SealService sealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
-                                   ArtifactStore storage, DisclosurePdfRenderer renderer,
+                                   ArtifactStore storage, DisclosurePdfRenderer renderer, com.ga.disclosure.workflow.disclosure.LinkCarry carry,
                                    @Value("${ga.seal.transaction-timeout:PT60S}") Duration timeout) {
-        return new SealService(deps, ledger, crypto, records, storage, renderer, timeout);
+        return new SealService(deps, ledger, crypto, records, storage, renderer, carry, timeout);
+    }
+
+    @Bean
+    public com.ga.disclosure.workflow.disclosure.LinkCarry linkCarry(com.ga.disclosure.workflow.contract.ContractLinkStore links, AuditPort audit,
+                                                                     com.ga.disclosure.audit.outbox.OutboxPort outbox) {
+        return new com.ga.disclosure.workflow.contract.ContractLinkCarrier(links, audit, outbox, java.util.UUID::randomUUID);
     }
 
     @Bean

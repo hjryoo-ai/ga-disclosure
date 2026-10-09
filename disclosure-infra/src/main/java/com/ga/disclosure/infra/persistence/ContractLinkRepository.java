@@ -100,6 +100,7 @@ public class ContractLinkRepository extends TenantScopedRepository implements Co
                    AND l.tenant_id = :tenantId
                    AND l.policy_no = :policyNo
                    AND l.superseded_by IS NULL
+                   AND l.carried_to IS NULL
                    AND d.status NOT IN ('VOID', 'SUPERSEDED', 'ABANDONED')
                    AND d.destroyed_at IS NULL
                  ORDER BY d.disclosure_id
@@ -107,10 +108,29 @@ public class ContractLinkRepository extends TenantScopedRepository implements Co
     }
 
     @Override
-    public List<DisclosureId> activePolicyHolders(String policyNo) {
+    public List<Holder> activePolicyHolders(String policyNo) {
         return query("""
-                SELECT disclosure_id FROM contract_link WHERE tenant_id = :tenantId AND policy_no = :policyNo AND superseded_by IS NULL
-                """, Map.of("policyNo", policyNo), (rs, n) -> DisclosureId.of(rs.getObject("disclosure_id", UUID.class)));
+                SELECT l.disclosure_id, d.status, d.customer_ref, l.link_id
+                  FROM contract_link l
+                  JOIN disclosure d ON d.tenant_id = l.tenant_id AND d.disclosure_id = l.disclosure_id
+                 WHERE l.tenant_id = :tenantId
+                   AND d.tenant_id = :tenantId
+                   AND l.policy_no = :policyNo
+                   AND l.superseded_by IS NULL
+                   AND l.carried_to IS NULL
+                """, Map.of("policyNo", policyNo), (rs, n) -> new Holder(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)),
+                rs.getString("status"), rs.getString("customer_ref"), rs.getObject("link_id", UUID.class)));
+    }
+
+    @Override
+    public void carry(UUID linkId, UUID carriedTo, Instant at) {
+        int n = update("""
+                UPDATE contract_link SET carried_to = :to, carried_at = :at
+                 WHERE tenant_id = :tenantId AND link_id = :linkId AND superseded_by IS NULL AND carried_to IS NULL
+                """, Map.of("linkId", linkId, "to", carriedTo, "at", Timestamp.from(at)));
+        if (n != 1) {
+            throw new IllegalStateException("contract link " + linkId + " is not active");
+        }
     }
 
     private static Candidate candidate(ResultSet rs) throws SQLException {
@@ -123,19 +143,19 @@ public class ContractLinkRepository extends TenantScopedRepository implements Co
     @Override
     public Optional<ActiveLink> activeLink(DisclosureId disclosure) {
         return queryAtMostOne("""
-                SELECT link_id, policy_no, application_no, contract_date, insurer_code, product_key
+                SELECT link_id, policy_no, application_no, contract_date, insurer_code, product_key, source, source_ref
                   FROM contract_link
-                 WHERE tenant_id = :tenantId AND disclosure_id = :disclosureId AND superseded_by IS NULL
+                 WHERE tenant_id = :tenantId AND disclosure_id = :disclosureId AND superseded_by IS NULL AND carried_to IS NULL
                 """, Map.of("disclosureId", disclosure.value()), (rs, n) -> new ActiveLink(rs.getObject("link_id", UUID.class), rs.getString("policy_no"),
                 Optional.ofNullable(rs.getString("application_no")), rs.getObject("contract_date", LocalDate.class), rs.getString("insurer_code"),
-                Optional.ofNullable(rs.getString("product_key"))));
+                Optional.ofNullable(rs.getString("product_key")), rs.getString("source"), rs.getString("source_ref")));
     }
 
     @Override
     public void supersede(UUID linkId, UUID supersededBy, Instant at) {
         int n = update("""
                 UPDATE contract_link SET superseded_by = :by, superseded_at = :at
-                 WHERE tenant_id = :tenantId AND link_id = :linkId AND superseded_by IS NULL
+                 WHERE tenant_id = :tenantId AND link_id = :linkId AND superseded_by IS NULL AND carried_to IS NULL
                 """, Map.of("linkId", linkId, "by", supersededBy, "at", Timestamp.from(at)));
         if (n != 1) {
             throw new IllegalStateException("contract link " + linkId + " is not active");

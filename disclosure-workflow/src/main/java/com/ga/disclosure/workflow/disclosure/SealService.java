@@ -144,15 +144,17 @@ public final class SealService {
     private final Duration transactionTimeout;
     private final RetentionLocks locks;
     private final AuthorizationPort authz;
+    private final LinkCarry carry;
 
     public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
-                       ArtifactStore storage, DisclosurePdfRenderer renderer) {
-        this(deps, ledger, crypto, records, storage, renderer, DEFAULT_TRANSACTION_TIMEOUT);
+                       ArtifactStore storage, DisclosurePdfRenderer renderer, LinkCarry carry) {
+        this(deps, ledger, crypto, records, storage, renderer, carry, DEFAULT_TRANSACTION_TIMEOUT);
     }
 
     public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
-                       ArtifactStore storage, DisclosurePdfRenderer renderer, Duration transactionTimeout) {
+                       ArtifactStore storage, DisclosurePdfRenderer renderer, LinkCarry carry, Duration transactionTimeout) {
         this.transactionTimeout = Objects.requireNonNull(transactionTimeout, "transactionTimeout");
+        this.carry = Objects.requireNonNull(carry, "carry");
         this.store = deps.store();
         this.reviews = deps.reviews();
         this.flags = deps.flags();
@@ -285,6 +287,9 @@ public final class SealService {
         records.insertKey(id, sealed.key(), now);
         artifacts.forEach(records::insertArtifact);
         ledger.advanceChainHead(new SealLedgerPort.ChainLink(chainSeq, chainHash));
+        // 정정 새 버전: 선행 버전의 활성 계약 연결을 이월(6B 중간 회신 ③ — 보존기한은 연장만, 잠금은 늘어난 값으로)
+        LocalDate lockedUntil = d.lineage().supersedesIdOrNull() == null ? retentionUntil
+                : carry.carryOnSeal(actor, id, number, d.lineage().supersedesIdOrNull(), l.rule(), retentionUntil, now);
 
         ObjectNode detail = identity(l).put("from", from.name()).put("to", d.status().name()).put("disclosureNo", number.value())
                 .put("canonicalHash", canonical.sha256()).put("pdfHash", pdf.sha256()).put("chainSeq", chainSeq).put("chainHash", chainHash)
@@ -295,7 +300,7 @@ public final class SealService {
         outbox.append(EventType.DisclosureSealed, id.toString(), now, OutboxPayloads.disclosureSealed(id.value(), number.value(),
                 d.lineage().version(), d.ruleVersionId().value(), d.engineSnapshot().map(s -> s.snapshot().snapshotId().value()).orElse(null),
                 canonical.sha256(), pdf.sha256(), chainHash, chainSeq, now));
-        return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, retentionUntil, actor);
+        return new Committed(new Outcome(id, d.status(), List.of(), results, Optional.of(number), false), artifacts, lockedUntil, actor);
     }
 
     /** 봉인 체인 식 하나({@link com.ga.disclosure.audit.chain.SealChain} — 검증·앵커가 같은 식을 쓴다, V7 GD095는 SQL로 다시 계산). */

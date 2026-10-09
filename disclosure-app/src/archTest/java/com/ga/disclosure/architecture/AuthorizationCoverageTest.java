@@ -62,6 +62,8 @@ class AuthorizationCoverageTest {
                     "write-path plumbing called only by the API idempotency interceptor after an unstored response; deletes the caller's own in-progress claim"),
             new Allowed(WORKFLOW + ".flag.FlagPolicyResolver#at",
                     "flag raise plumbing: copies today's rule policy for the flag type inside the raising use case's transaction; reads rule data only"),
+            new Allowed(WORKFLOW + ".contract.ContractLinkCarrier#carryOnSeal",
+                    "seal plumbing (6B interim ③): moves the predecessor's active contract link to the superseding version inside SEAL's transaction"),
             new Allowed(WORKFLOW + ".sign.PublicSignLimits#perMinute",
                     "public sign gate plumbing: reads the known tenant's rate limit before any token is checked; reads rule data only"));
 

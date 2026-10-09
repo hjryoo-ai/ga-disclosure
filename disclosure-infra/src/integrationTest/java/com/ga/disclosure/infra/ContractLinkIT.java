@@ -234,31 +234,110 @@ class ContractLinkIT {
     }
 
     /**
-     * 활성 연결은 확인서가 무효·정정된 뒤에도 그 확인서에 남는다(이력). 같은 청약의 새 확인서가 같은 증권으로 매칭돼도 "다른 확인서에 활성" 판정은 후보 제외
-     * 규칙과 무관하게 활성 연결 전체를 본다 — 아니면 증권 부분 유일 위반이 항목 하나로 배치 전체를 매번 멈춘다.
+     * <b>동작 변경(6B 중간 회신 ③ — 42c2fef의 AMBIGUOUS 보고를 바꾼다).</b> 계약 연결은 외부 사실이다: 무효된 확인서가 쥔 활성 연결은 같은 청약·같은 고객의
+     * 새 확인서가 인수한다(옛 행 {@code carried_to}, 새 행, 감사 {@code CONTRACT_LINK_CARRIED}). 옛 확인서의 현재값은 넘긴 시점의 값으로 남는다(이력).
+     * 다른 고객 가명의 새 확인서가 같은 증권을 내면 인수가 아니라 {@code AMBIGUOUS_MATCH}(사람이 본다). 어느 쪽이든 배치는 멈추지 않는다.
      */
     @Test
-    void aPolicyStillHeldByAVoidedDisclosureIsReportedWithoutStoppingTheBatch() {
+    void aPolicyHeldByAVoidedDisclosureIsTakenOverBySameCustomersNewDisclosureNotReportedAmbiguous() {
         try (RetentionSetup r = new RetentionSetup()) {
+            String t = r.x.w.tenant.value();
             DisclosureId voided = r.completed();
             applicationNo(r, voided, "APP-V");
+            DisclosureId voidedOther = r.completed();
+            applicationNo(r, voidedOther, "APP-X");
             ContractLinkService links = service(r, r.x.w.clock);
-            assertThat(links.importBatch(feed(r), batch("V1", item("POL-V", "APP-V", "2026-09-24"))).items().getFirst().outcome()).isEqualTo(Outcome.LINKED);
-            assertThat(r.x.lifecycle.voidDisclosure(Callers.of(r.x.w.tenant, SealSetup.MANAGER), voided,
-                    new com.ga.disclosure.workflow.disclosure.LifecycleReason("OTHER", "가상 무효 메모 — 허구")).rejection()).isEmpty();
+            assertThat(links.importBatch(feed(r), batch("V1", item("POL-V", "APP-V", "2026-09-24"), item("POL-X", "APP-X", "2026-09-24"))).items())
+                    .extracting(ContractLinkService.ItemResult::outcome).containsExactly(Outcome.LINKED, Outcome.LINKED);
+            for (DisclosureId v : List.of(voided, voidedOther)) {
+                assertThat(r.x.lifecycle.voidDisclosure(Callers.of(r.x.w.tenant, SealSetup.MANAGER), v,
+                        new com.ga.disclosure.workflow.disclosure.LifecycleReason("OTHER", "가상 무효 메모 — 허구")).rejection()).isEmpty();
+            }
             DisclosureId redo = r.completed();
             applicationNo(r, redo, "APP-V");
+            DisclosureId stranger = r.completed();                                   // 같은 청약번호, 다른 고객 가명
+            applicationNo(r, stranger, "APP-X");
+            try (Connection c = r.x.w.db.superuserDataSource().getConnection()) {
+                c.setAutoCommit(false);
+                try (var st = c.createStatement()) {
+                    st.execute("SET LOCAL session_replication_role = replica");
+                }
+                SeedData.exec(c, "UPDATE disclosure SET customer_ref = ? WHERE tenant_id = ? AND disclosure_id = ?", r.x.w.customer.value(), t, stranger.value());
+                c.commit();
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
             DisclosureId other = r.completed();
             applicationNo(r, other, "APP-W");
 
             ContractLinkService.Report report = links.importBatch(feed(r), batch("V2", item("POL-V", "APP-V", "2026-09-24"),
-                    item("POL-W", "APP-W", "2026-09-24")));
-            assertThat(report.items()).extracting(ContractLinkService.ItemResult::outcome).containsExactly(Outcome.AMBIGUOUS_MATCH, Outcome.LINKED);
-            assertThat(row(r, "SELECT coalesce(policy_no, '-') FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", r.x.w.tenant.value(),
-                    redo.value())).isEqualTo("-");
+                    item("POL-X", "APP-X", "2026-09-24"), item("POL-W", "APP-W", "2026-09-24")));
+            assertThat(report.items()).extracting(ContractLinkService.ItemResult::outcome)
+                    .containsExactly(Outcome.TAKEN_OVER, Outcome.AMBIGUOUS_MATCH, Outcome.LINKED);
+            // 인수: 새 확인서가 활성, 옛 행은 그 새 행으로 닫혔고 옛 확인서의 현재값은 그대로(이력)
+            assertThat(current(r, redo)).startsWith("POL-V|2026-09-24|");
+            assertThat(row(r, """
+                    SELECT o.carried_to = n.link_id AND n.superseded_by IS NULL AND n.carried_to IS NULL
+                      FROM contract_link o JOIN contract_link n ON n.tenant_id = o.tenant_id AND n.disclosure_id = ?
+                     WHERE o.tenant_id = ? AND o.disclosure_id = ?""", redo.value(), t, voided.value())).isEqualTo("t");
+            assertThat(current(r, voided)).startsWith("POL-V|2026-09-24|");
+            assertThat(r.x.w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.CONTRACT_LINK_CARRIED).singleElement().satisfies(a -> {
+                assertThat(a.entry().targetId()).isEqualTo(redo.toString());
+                assertThat(a.entry().detail().get("reason").asString()).isEqualTo("TAKEN_OVER_FROM_VOID");
+                assertThat(a.entry().detail().get("fromDisclosureId").asString()).isEqualTo(voided.toString());
+                assertThat(a.entry().detail().toString()).doesNotContain("POL-V");
+            });
+            // 다른 고객: 사람이 본다 — 아무것도 옮기지 않는다
+            assertThat(row(r, "SELECT coalesce(policy_no, '-') FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", t, stranger.value())).isEqualTo("-");
+            assertThat(row(r, "SELECT (carried_to IS NULL)::text FROM contract_link WHERE tenant_id = ? AND disclosure_id = ?", t, voidedOther.value()))
+                    .isEqualTo("true");
             assertThat(current(r, other)).startsWith("POL-W|");
-            assertThat(r.x.w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.CONTRACT_LINK_IMPORT
-                    && a.entry().detail().get("batchId").asString().equals("V2")).hasSize(1);
+            // 같은 증권의 정정은 이제 새 확인서로 간다
+            assertThat(links.importBatch(feed(r), batch("V3", item("POL-V", null, "2026-09-25"))).items().getFirst().outcome()).isEqualTo(Outcome.CORRECTED);
+            assertThat(current(r, redo)).startsWith("POL-V|2026-09-25|");
+        }
+    }
+
+    /**
+     * 6B 중간 회신 ③(2026-10-09 답변: 봉인 때 이월): 정정 새 버전이 봉인되면 선행 버전의 활성 연결이 새 버전으로 옮겨진다 — 옛 행 {@code carried_to},
+     * 새 행(출처는 옛 행, 참조 {@code @carry:}), 새 버전 현재값 투영, 보존기한은 앵커 {@code CONTRACT_DATE}로 연장만, 감사 {@code CONTRACT_LINK_CARRIED},
+     * 아웃박스 {@code PolicyLinked}. 정정 뒤 봉인 전까지는 정정된 선행본이 쥐고 있지만 유효한 보유자가 아니다.
+     */
+    @Test
+    void aSupersedingVersionCarriesTheLinkWhenItIsSealed() {
+        try (RetentionSetup r = new RetentionSetup()) {
+            String t = r.x.w.tenant.value();
+            DisclosureId original = r.completed();
+            applicationNo(r, original, "APP-S");
+            ContractLinkService links = service(r, r.x.w.clock);
+            links.importBatch(feed(r), batch("S1", item("POL-S", "APP-S", "2026-09-24")));
+            DisclosureId next = r.x.lifecycle.supersede(Callers.cli(r.x.w.tenant, SealSetup.MANAGER), original,
+                    new com.ga.disclosure.workflow.disclosure.LifecycleReason("CONTENT_ERROR", null)).newVersion().orElseThrow();
+            assertThat(row(r, "SELECT coalesce(policy_no, '-') FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", t, next.value())).isEqualTo("-");
+
+            r.x.w.service.compare(Callers.of(r.x.w.tenant, WorkflowSetup.AGENT), next);
+            r.x.w.service.requestGrades(Callers.of(r.x.w.tenant, WorkflowSetup.AGENT), next);
+            r.x.w.service.setRecommendations(Callers.of(r.x.w.tenant, WorkflowSetup.AGENT), next, List.of(
+                    new com.ga.disclosure.domain.disclosure.AgentReason(1, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("PREMIUM")), null),
+                    new com.ga.disclosure.domain.disclosure.AgentReason(3, List.of(com.ga.disclosure.domain.vo.ReasonCode.of("COVERAGE")), null)));
+            assertThat(r.x.s.seal.seal(Callers.of(r.x.w.tenant, WorkflowSetup.AGENT), next).sealed()).isTrue();
+
+            assertThat(current(r, next)).startsWith("POL-S|2026-09-24|");
+            assertThat(current(r, original)).as("the superseded version keeps its last-known values").startsWith("POL-S|2026-09-24|");
+            assertThat(row(r, """
+                    SELECT n.source || '|' || n.source_ref || '|' || (o.carried_to = n.link_id)
+                      FROM contract_link o JOIN contract_link n ON n.tenant_id = o.tenant_id AND n.disclosure_id = ?
+                     WHERE o.tenant_id = ? AND o.disclosure_id = ?""", next.value(), t, original.value())).isEqualTo("INS_FEED_A|S1#1@carry:" + next + "|true");
+            assertThat(r.x.w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.CONTRACT_LINK_CARRIED).singleElement().satisfies(a -> {
+                assertThat(a.entry().targetId()).isEqualTo(next.toString());
+                assertThat(a.entry().detail().get("reason").asString()).isEqualTo("SUPERSEDING_VERSION_SEALED");
+                assertThat(a.entry().detail().toString()).doesNotContain("POL-S").doesNotContain("APP-S");
+            });
+            assertThat(row(r, "SELECT count(*)::text FROM outbox_event WHERE tenant_id = ? AND type = 'PolicyLinked' AND aggregate_id = ?", t, next.toString()))
+                    .isEqualTo("1");
+            // 피드의 정정은 이제 새 버전으로
+            assertThat(links.importBatch(feed(r), batch("S2", item("POL-S", null, "2026-09-26"))).items().getFirst().outcome()).isEqualTo(Outcome.CORRECTED);
+            assertThat(current(r, next)).startsWith("POL-S|2026-09-26|");
         }
     }
 

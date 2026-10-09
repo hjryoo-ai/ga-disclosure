@@ -55,7 +55,7 @@ final class SealSetup implements AutoCloseable {
         this.cipher = new DocumentCipher(w.keys);
         this.store = new FailingPorts.Store(bucket);
         this.recordPort = new FailingPorts.Records(records, bucket);
-        this.seal = new SealService(w.deps(w.clock), ledger, cipher, recordPort, store, new DisclosurePdfRenderer());
+        this.seal = new SealService(w.deps(w.clock), ledger, cipher, recordPort, store, new DisclosurePdfRenderer(), carry(w));
         this.lifecycle = new LifecycleService(w.deps(w.clock), new com.ga.disclosure.infra.persistence.SignSessionRepository(w.gateway));
         this.artifacts = artifactsAt(w.clock, store);
     }
@@ -65,7 +65,7 @@ final class SealSetup implements AutoCloseable {
     }
 
     SealService sealAt(Clock clock, ArtifactStore store, DocumentRecordStore recordStore) {
-        return new SealService(w.deps(clock), ledger, cipher, recordStore, store, new DisclosurePdfRenderer());
+        return new SealService(w.deps(clock), ledger, cipher, recordStore, store, new DisclosurePdfRenderer(), carry(w));
     }
 
     SealService.Outcome sealReasoned() {
@@ -116,5 +116,11 @@ final class SealSetup implements AutoCloseable {
     public void close() {
         bucket.close();
         w.close();
+    }
+
+    /** 정정 새 버전 봉인 때 계약 연결 이월(6B 중간 회신 ③) — 운영 구성과 같은 구현. */
+    static com.ga.disclosure.workflow.disclosure.LinkCarry carry(WorkflowSetup w) {
+        return new com.ga.disclosure.workflow.contract.ContractLinkCarrier(
+                new com.ga.disclosure.infra.persistence.ContractLinkRepository(w.gateway, w.disclosures), w.audit, w.outbox, java.util.UUID::randomUUID);
     }
 }

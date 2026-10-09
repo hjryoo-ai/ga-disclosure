@@ -84,7 +84,7 @@ final class SealScenarios {
     /** ③ 산출 8일 뒤의 시계로 봉인하는 서비스. */
     static SealService staleSeal(SealSetup s) {
         Clock later = Clock.offset(s.w.clock, Duration.ofDays(8));
-        return new SealService(s.w.deps(later), s.ledger, s.cipher, s.records, s.bucket, new DisclosurePdfRenderer());
+        return new SealService(s.w.deps(later), s.ledger, s.cipher, s.records, s.bucket, new DisclosurePdfRenderer(), SealSetup.carry(s.w));
     }
 
     /** ④ 항목 1(추천)의 추천사유 행을 지운다(REASONED는 가변 상태 — V3가 허용). */
