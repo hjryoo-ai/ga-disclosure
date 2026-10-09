@@ -31,21 +31,20 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 /**
  * 보존 재계산(6B 지시문 §7, 계획 §8, 설계서 §9 — §14 #14 "규제 변경 시 기존 문서의 보존기한 재계산"). 행위 {@code RETENTION_RECOMPUTE}(준법·운영자 —
  * 스케줄러 없음: 규제 변경 대응은 사람이 결정한다).
  * <ul>
- *   <li>룰: 이 테넌트에 배포된 <b>GLOBAL</b> 버전이고 상태가 ACTIVE·APPROVED여야 한다(아니면 {@code RULE_VERSION_NOT_USABLE} 422 — DRAFT·RETIRED·사규는 쓰지
- *       않는다). 보존기간·앵커는 그 버전의 것이다.</li>
+ *   <li>룰: 이 테넌트에 배포된 <b>GLOBAL</b> 버전이고 상태가 <b>ACTIVE</b>여야 한다(아니면 {@code RULE_VERSION_NOT_USABLE} 422 — APPROVED·DRAFT·RETIRED·사규는
+ *       쓰지 않는다). APPROVED는 아직 시행되지 않았고 시행 전에 다른 초안으로 대체될 수 있다 — "시행되지 않은 규칙을 적용했다"는 감사 행을 남기지 않는다(9단계
+ *       회신). 보존기간·앵커는 그 버전의 것이다.</li>
  *   <li>대상: 봉인 이후·미파기 확인서(파기된 것은 수만 보고). 후보 = Phase 4 산식({@link RetentionAnchors})에 그 확인서의 앵커 날짜(봉인일·완료일 KST·계약일)와
  *       지정 버전의 기간 — 지금 기한과 무관하게 계산하므로 짧을 수 있다(보고서에 그대로).</li>
  *   <li>결과: 후보가 지금보다 길 때만 {@code EXTENDED}, 같거나 짧으면 {@code UNCHANGED}. <b>단축을 쓰는 코드가 없다</b> — 쓰기는 "더 길 때만·미파기일 때만"
@@ -60,7 +59,6 @@ public final class RetentionRecomputeService {
 
     static final int PAGE = 500;
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final Set<RuleStatus> USABLE = EnumSet.of(RuleStatus.ACTIVE, RuleStatus.APPROVED);
 
     public enum Outcome { EXTENDED, UNCHANGED }
 
@@ -174,11 +172,11 @@ public final class RetentionRecomputeService {
         return new Report(ruleVersion, period, apply, items, plan.destroyed(), relockPending);
     }
 
-    /** 지정 버전: 이 테넌트의 GLOBAL·ACTIVE|APPROVED. 그 버전 본문만으로 유효 룰을 만든다(사규 덮어쓰기 없음 — 규제 기간의 변경). */
+    /** 지정 버전: 이 테넌트의 GLOBAL·ACTIVE. 그 버전 본문만으로 유효 룰을 만든다(사규 덮어쓰기 없음 — 규제 기간의 변경). */
     private EffectiveRule usable(TenantId tenant, RuleVersionId id) {
-        RuleVersion v = versions.findById(tenant, id).filter(r -> r.scope() == RuleScope.GLOBAL && USABLE.contains(r.status()))
+        RuleVersion v = versions.findById(tenant, id).filter(r -> r.scope() == RuleScope.GLOBAL && r.status() == RuleStatus.ACTIVE)
                 .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.RULE_VERSION_NOT_USABLE,
-                        "the rule version is not a deployed ACTIVE or APPROVED GLOBAL version of this tenant"));
+                        "the rule version is not a deployed ACTIVE GLOBAL version of this tenant"));
         return RuleResolver.merge(v.applyFrom(), v, null);
     }
 

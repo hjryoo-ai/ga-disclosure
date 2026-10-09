@@ -23,7 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * G8 HTTP(6B 계획 §8): 보존 재계산 작업은 준법만 {@code /api}로 제출한다(스케줄러·관리자는 없는 라우트와 같은 404). 기본 dry-run은 보고서만,
- * {@code apply:true}는 더 긴 후보만 쓴다. 쓸 수 없는 룰 버전은 작업을 만들지 않고 422 {@code RULE_VERSION_NOT_USABLE}, 형식 오류는 400.
+ * {@code apply:true}는 더 긴 후보만 쓴다. 쓸 수 없는 룰 버전(없음·아직 시행되지 않은 APPROVED)은 작업을 만들지 않고 422 {@code RULE_VERSION_NOT_USABLE},
+ * 형식 오류는 400.
  * 보고서는 계약 스키마를 지난다.
  */
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -102,9 +103,15 @@ class RetentionRecomputeApiIT {
         assertThat(post(t, COMPLIANCE, path, "{}").status()).isEqualTo(400);
         assertThat(post(t, COMPLIANCE, path, "{\"ruleVersionId\":\"disc-lower\"}").status()).isEqualTo(400);
         assertThat(post(t, COMPLIANCE, path, "{\"ruleVersionId\":\"DISC-2026-07\",\"limit\":5}").status()).isEqualTo(400);
-        ApiTestSupport.Response unusable = post(t, COMPLIANCE, path, "{\"ruleVersionId\":\"DISC-NO-SUCH\"}");
-        assertThat(unusable.status()).isEqualTo(422);
-        assertThat(unusable.text()).contains("\"code\":\"RULE_VERSION_NOT_USABLE\"");
+        // 없는 버전, 배포됐지만 아직 시행되지 않은(APPROVED) 버전 — 둘 다 같은 422(9단계 회신: ACTIVE만)
+        distribution.distribute(com.ga.disclosure.rules.bundle.BundleLoader.parse("DISC-2027-01", java.nio.file.Files.readString(
+                java.nio.file.Path.of(System.getProperty("ga.repoRoot")).resolve("contracts/rules/bundles/rules/DISC-2027-01.bundle.json"))),
+                com.ga.platform.core.tenant.TenantId.of(t), new com.ga.disclosure.compliance.rules.Operator("api-it"));
+        for (String version : java.util.List.of("DISC-NO-SUCH", "DISC-2027-01")) {
+            ApiTestSupport.Response unusable = post(t, COMPLIANCE, path, "{\"ruleVersionId\":\"" + version + "\"}");
+            assertThat(unusable.status()).as(version).isEqualTo(422);
+            assertThat(unusable.text()).contains("\"code\":\"RULE_VERSION_NOT_USABLE\"");
+        }
         assertThat(jobs(t)).isZero();
 
         // 스케줄러(/internal)·관리자(/api)는 칸이 없다 — 없는 라우트와 같은 404
