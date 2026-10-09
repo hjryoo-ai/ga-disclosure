@@ -1,0 +1,15 @@
+:root { color-scheme: light; }
+body { margin: 0; font-family: 'NanumGothic', sans-serif; font-size: 16px; line-height: 1.5; color: #111; background: #fff; }
+#root { max-width: 720px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 0 0 12px; }
+h2 { font-size: 1.15rem; margin: 24px 0 8px; }
+section, form { margin-bottom: 24px; }
+.pdf { max-height: 70vh; overflow-y: auto; border: 1px solid #767676; padding: 8px; background: #f4f4f4; }
+.pdf-page { display: block; width: 100%; height: auto; margin: 0 auto 8px; background: #fff; }
+button { min-height: 44px; min-width: 44px; padding: 8px 16px; margin: 8px 8px 0 0; font: inherit; border: 1px solid #1f4e79; background: #1f4e79; color: #fff; border-radius: 4px; }
+button:focus-visible, input:focus-visible, .pdf:focus-visible { outline: 3px solid #b35900; outline-offset: 2px; }
+label { display: block; margin: 8px 0 4px; }
+input { min-height: 44px; font: inherit; padding: 4px 8px; border: 1px solid #767676; }
+.pad { display: block; width: 100%; height: auto; max-width: 600px; border: 1px solid #767676; touch-action: none; background: #fff; }
+.live { min-height: 1.5em; }
+.rejected { color: #a4000f; }

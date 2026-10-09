@@ -6,11 +6,38 @@
   },
   "sign": {
     "app": {
-      "title": "확인서 서명"
+      "title": "확인서 서명",
+      "loading": "불러오는 중입니다…"
     },
     "problem": {
       "SIGN_LINK_UNAVAILABLE": "이 링크는 사용할 수 없습니다.",
       "REJECTED": "요청을 처리할 수 없습니다."
+    },
+    "view": {
+      "heading": "1. 확인서 읽기",
+      "hint": "확인서를 끝까지 읽은 뒤 아래 버튼을 누르세요.",
+      "documentLabel": "확인서 문서",
+      "pageLabel": "확인서 쪽",
+      "done": "끝까지 읽었습니다",
+      "recorded": "열람을 기록했습니다."
+    },
+    "identity": {
+      "heading": "2. 본인확인",
+      "birthDate": "생년월일을 입력하세요",
+      "submit": "본인확인 제출",
+      "passed": "본인확인을 마쳤습니다.",
+      "failed": "입력한 정보가 맞지 않습니다."
+    },
+    "pad": {
+      "heading": "3. 서명하기",
+      "hint": "아래 칸에 손가락이나 펜으로 서명하세요.",
+      "canvasLabel": "서명 입력 칸",
+      "clear": "지우기",
+      "submit": "서명 제출"
+    },
+    "done": {
+      "heading": "서명을 마쳤습니다",
+      "text": "이 창을 닫아도 됩니다."
     }
   },
   "problem": {

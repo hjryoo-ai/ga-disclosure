@@ -79,6 +79,8 @@ if (!signEntry) {
     queue.push(...c.imports);
   }
   const banned = /node_modules\/(react|react-dom|react-router|scheduler|@remix-run|cookie-es)\/|disclosure-web\/src\/staff\//;
+  const tests = Object.values(chunks).flatMap((c) => c.modules).filter((m) => /\.test\.tsx?$|\/src\/test\//.test(m));
+  for (const m of tests) failures.push(`test source in a bundle: ${m}`);
   for (const m of modules.filter((m) => banned.test(m))) failures.push(`sign bundle contains ${m}`);
   if (!modules.some((m) => m.includes('disclosure-web/src/sign/'))) failures.push('sign bundle module list is empty — the scan would pass vacuously');
 }

@@ -50,7 +50,8 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/test/**'],
+    // 시험 원천은 브라우저 금지 규칙 밖이다(저장소·쿠키가 비었는지 직접 들여다본다) — 배포 번들에 들어가지 않는다(scan-dist가 모듈 목록으로 본다).
+    ignores: ['src/test/**', 'src/**/*.test.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
     plugins: { 'react-hooks': reactHooks },
     rules: {
