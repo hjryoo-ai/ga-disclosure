@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-2026-07@d315896cdeb4",
+  "bundleId": "DISC-2026-07@a40346541c36",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-2026-07",
@@ -506,6 +506,16 @@
     },
     "customers": {
       "registerPerMinute": 30
+    },
+    "preview": {
+      "watermark": {
+        "text": "열람용 · {role} · {at}",
+        "roleLabels": {
+          "AGENT": "설계사",
+          "MANAGER": "관리자",
+          "COMPLIANCE": "준법"
+        }
+      }
     }
   }
 }

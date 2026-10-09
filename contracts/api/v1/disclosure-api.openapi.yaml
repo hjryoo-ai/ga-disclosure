@@ -12,7 +12,7 @@ info:
     - JSON 응답은 전부 JCS 바이트. 시각은 ISO-8601 UTC(`Instant`), 날짜는 `yyyy-MM-dd`. 스키마 형식 검사는 `format`이 아니라 `pattern`.
     - 목록은 서명된 불투명 커서(`after` → `next`) — 다른 테넌트·다른 목록의 커서는 400 `INVALID_CURSOR`.
     - 2.8.0(Phase 7): 설계사의 플래그 조회 — 자기 확인서의 플래그 중 열릴 때 룰이 설계사 가시로 정한 것만(승인 Q1, 거르는 곳은 서버).
-      고정 서식의 화면 문구 `getDisclosureTemplate`(승인 Q3).
+      고정 서식의 화면 문구 `getDisclosureTemplate`(승인 Q3). 워터마크 미리보기 `getPreviewPdf`(계획 ⑥).
 servers:
   - url: https://disclosure.example
 security:
@@ -247,6 +247,24 @@ paths:
             application/pdf: { schema: { type: string, contentMediaType: application/pdf } }
             application/json: { schema: { type: object } }
             application/zip: { schema: { type: string, contentMediaType: application/zip } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/preview.pdf:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: getPreviewPdf
+      summary: (2.8.0) 화면 미리보기 — 봉인 PDF에 워터마크(룰 preview.watermark — 열람자 역할 · 시각 KST)를 얹은 새 바이트. 저장하지 않는다.
+      description: |
+        Phase 7 계획 ⑥. 인가·거부는 `getArtifact`와 같다(행위 ARTIFACT_VIEW — 설계사 자기 것·관리자 조직·준법 테넌트, 산출물이 없거나 읽을 수 없으면 409).
+        원본은 언제나 봉인 PDF(서명본이 있어도). 감사 ARTIFACT_VIEW 목적 PREVIEW. `getArtifact`·증거 패키지·공개 서명 PDF는 바이트 그대로 — 이 경로만 워터마크.
+      responses:
+        '200':
+          description: 워터마크를 얹은 PDF(결정론 아님 — 열람 시각이 들어간다)
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            Content-Disposition: { schema: { type: string, const: inline } }
+          content:
+            application/pdf: { schema: { type: string, contentMediaType: application/pdf } }
         default: { $ref: '#/components/responses/Problem' }
   /api/v1/disclosures/{disclosureId}/anchor-receipt:
     parameters:

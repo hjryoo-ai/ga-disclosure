@@ -210,7 +210,7 @@ public final class SignSessionService {
             StoredArtifacts.Read<ArtifactRecord> pdf = stored.artifact(tenant, g.session().disclosureId(), ArtifactKind.PDF);
             audit.append(new AuditEntry(clock.instant(), customer.subject(), customer.role(), AuditAction.ARTIFACT_VIEW, SealService.ARTIFACT_TARGET,
                     pdf.record().storageKey(), SignSupport.JSON.createObjectNode().put("disclosureId", g.session().disclosureId().toString())
-                    .put("kind", ArtifactKind.PDF.name()).put("sha256", pdf.record().sha256().hex()).put("reason", "SIGN")
+                    .put("kind", ArtifactKind.PDF.name()).put("sha256", pdf.record().sha256().hex()).put("reason", ArtifactViewPurpose.SIGN.name())
                     .put("sessionId", g.session().sessionId().toString())));
             return pdf.plaintext();
         });

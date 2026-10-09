@@ -52,7 +52,8 @@
     "draft",
     "contractLink",
     "gate",
-    "customers"
+    "customers",
+    "preview"
   ],
   "properties": {
     "minCompare": {
@@ -945,6 +946,60 @@
           "type": "integer",
           "minimum": 1,
           "description": "등록 주체(설계사)별 지난 60초 등록 시도(감사 CUSTOMER_REGISTER 행) 한도 — 넘으면 429. 예시값, 실값은 §14 #10."
+        }
+      }
+    },
+    "preview": {
+      "type": "object",
+      "required": [
+        "watermark"
+      ],
+      "additionalProperties": false,
+      "description": "화면 미리보기 PDF(Phase 7 계획 ⑥, GET /api/v1/disclosures/{id}/preview.pdf)의 워터마크. GLOBAL 전용. 산출물·증거 패키지·공개 서명 PDF에는 쓰지 않는다.",
+      "properties": {
+        "watermark": {
+          "type": "object",
+          "required": [
+            "text",
+            "roleLabels"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^(?:[^{}]|\\{role\\}|\\{at\\})+$",
+              "description": "쪽마다 대각선으로 얹는 문구. 치환자는 닫힌 집합 {role}(열람자 역할 표기 — roleLabels)·{at}(열람 시각, KST yyyy-MM-dd HH:mm)뿐."
+            },
+            "roleLabels": {
+              "type": "object",
+              "required": [
+                "AGENT",
+                "MANAGER",
+                "COMPLIANCE"
+              ],
+              "additionalProperties": false,
+              "description": "열람자(허가를 준 역할)의 표기.",
+              "properties": {
+                "AGENT": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20
+                },
+                "MANAGER": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20
+                },
+                "COMPLIANCE": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20
+                }
+              }
+            }
+          }
         }
       }
     }

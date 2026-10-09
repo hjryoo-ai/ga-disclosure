@@ -149,7 +149,9 @@ class ArtifactEncryptionIT {
                 return s.cipher.openEvidence(tenant, disclosure, key, signatureId, kind, ciphertext);
             }
         };
-        ArtifactService view = new ArtifactService(s.records, altering, s.store, s.w.audit, s.w.tx, s.w.clock, SealService.DEFAULT_TRANSACTION_TIMEOUT, Callers.authz(s.w.clock));
+        ArtifactService view = new ArtifactService(s.records, altering, s.store, s.w.audit, s.w.tx, s.w.clock, SealService.DEFAULT_TRANSACTION_TIMEOUT, Callers.authz(s.w.clock),
+                new com.ga.disclosure.rules.resolve.RuleResolver(new com.ga.disclosure.infra.persistence.RuleVersionRepository(s.w.gateway)),
+                new com.ga.disclosure.seal.renderer.PreviewWatermarker());
         assertThat(view.view(Callers.of(s.w.tenant, SealSetup.MANAGER), id, ArtifactKind.PDF))
                 .isEqualTo(new ArtifactService.View.Denied(ArtifactService.View.Reason.HASH_MISMATCH));
         assertThat(s.audit()).anyMatch(r -> r.entry().action() == AuditAction.ARTIFACT_VIEW_DENIED

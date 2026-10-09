@@ -304,6 +304,21 @@ public record EffectiveRule(
         }
     }
 
+    /** Phase 7: 화면 미리보기 워터마크 문구·역할 표기({@code preview.watermark}). GLOBAL 전용. */
+    public PreviewWatermarkRule previewWatermark() {
+        JsonNode wm = object(object("preview"), "preview.watermark", "watermark");
+        JsonNode labels = object(wm, "preview.watermark.roleLabels", "roleLabels");
+        Map<String, String> roles = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> e : labels.properties()) {
+            roles.put(e.getKey(), text(labels, "preview.watermark.roleLabels." + e.getKey(), e.getKey()));
+        }
+        try {
+            return new PreviewWatermarkRule(text(wm, "preview.watermark.text", "text"), roles);
+        } catch (IllegalArgumentException e) {
+            throw missing("preview.watermark.text (placeholders other than {role}, {at})");
+        }
+    }
+
     // ------------------------------------------------------------------ 6B: 준법 큐·징구율·초안 폐기·계약 연결·게이트
 
     /** 플래그 유형별 준법 큐 정책(키 = 유형, 룰 순서). 유형 목록은 닫혀 있다(스키마·DB CHECK·코드 상수 — FlagTypeTableTest). */

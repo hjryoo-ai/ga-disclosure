@@ -61,7 +61,9 @@ final class SealSetup implements AutoCloseable {
     }
 
     ArtifactService artifactsAt(Clock clock, ArtifactStore store) {
-        return new ArtifactService(records, cipher, store, w.audit, w.tx, clock, SealService.DEFAULT_TRANSACTION_TIMEOUT, Callers.authz(clock));
+        return new ArtifactService(records, cipher, store, w.audit, w.tx, clock, SealService.DEFAULT_TRANSACTION_TIMEOUT, Callers.authz(clock),
+                new com.ga.disclosure.rules.resolve.RuleResolver(new com.ga.disclosure.infra.persistence.RuleVersionRepository(w.gateway)),
+                new com.ga.disclosure.seal.renderer.PreviewWatermarker());
     }
 
     SealService sealAt(Clock clock, ArtifactStore store, DocumentRecordStore recordStore) {
