@@ -247,7 +247,7 @@ class CustomerRegisterIT {
         cases.put("{\"name\":\"가상고객\",\"phone\":\"02-1234-5678\"}", "phone");
         cases.put("{\"name\":\"가상고객\",\"birthDate\":\"2999-01-01\"}", "birthDate");
         cases.put("{\"name\":\"가상고객\",\"birthDate\":\"1985-02-30\"}", "birthDate");
-        cases.put("{\"name\":\"가상고객\",\"rrn\":\"000000-0000000\"}", null);                 // 모르는 필드(주민번호 필드는 스키마에 없다)
+        cases.put("{\"name\":\"가상고객\",\"rrn\":\"000000-0000000\"}", "rrn");                 // 모르는 필드(주민번호 필드는 스키마에 없다) — 필드 이름만
         // 문자열 자리에 객체·배열(스칼라 숫자는 앱 전체 Jackson 규약대로 문자열로 바뀐 뒤 값객체가 검사한다 — 관찰, 보고서)
         cases.put("{\"name\":\"가상고객\",\"birthDate\":{\"y\":1985}}", null);
         cases.put("{\"name\":[\"가상고객\"]}", null);
@@ -270,6 +270,20 @@ class CustomerRegisterIT {
         }
         assertThat(customers(T)).isEqualTo(before);
         assertThat(registerAudits(T)).as("malformed requests are not registration attempts").isEqualTo(audits);
+    }
+
+    /** §9 승인 R1: 모르는 필드는 앱 전체에서 400(`field` = 그 이름) — 고객 등록만의 특례가 아니다. */
+    @Test
+    void unknownFieldsAreRejectedOnEveryRoute() {
+        ApiTestSupport.Response draft = ApiTestSupport.post(port, "/api/v1/disclosures", TestJwts.token(T, "agent-1"),
+                "{\"customerRef\":\"CR-0000000000000000000000000000000a\",\"groupCode\":\"PG-HEALTH-SIMPLE-NR\",\"consultDate\":\"2026-09-25\","
+                        + "\"templateType\":\"STANDARD\",\"discount\":10}", Map.of("Idempotency-Key", key()));
+        assertThat(draft.status()).isEqualTo(400);
+        assertThat(draft.text()).isEqualTo("{\"code\":\"MALFORMED_REQUEST\",\"details\":{\"field\":\"discount\"},\"message\":\"The request is malformed.\"}");
+        ApiTestSupport.Response hold = ApiTestSupport.post(port, "/api/v1/legal-holds", TestJwts.token(T, "compliance-1"),
+                "{\"customerRef\":\"CR-0000000000000000000000000000000a\",\"reasonCode\":\"LITIGATION\",\"note\":\"x\"}", Map.of("Idempotency-Key", key()));
+        assertThat(hold.status()).isEqualTo(400);
+        assertThat(Canonicalizer.parseStrict(hold.text()).at("/details/field").asString()).isEqualTo("note");
     }
 
     @Test

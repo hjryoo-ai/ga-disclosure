@@ -147,7 +147,17 @@ public class ApiErrorAdvice {
 
     @ExceptionHandler({HttpMessageNotReadableException.class, HttpMediaTypeNotSupportedException.class, IllegalArgumentException.class})
     ResponseEntity<byte[]> unreadable(Exception e) {
-        return Problem.field(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", null);
+        return Problem.field(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", unknownField(e));
+    }
+
+    /** 모르는 필드(6B §9 승인 R1 — 앱 전체 {@code FAIL_ON_UNKNOWN_PROPERTIES})면 그 필드 이름. 값·메시지는 싣지 않는다. */
+    private static String unknownField(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof tools.jackson.databind.exc.UnrecognizedPropertyException u) {
+                return u.getPropertyName();
+            }
+        }
+        return null;
     }
 
     @ExceptionHandler(Exception.class)

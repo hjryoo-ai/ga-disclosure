@@ -29,7 +29,7 @@ public final class CustomerMapper {
 
     /** 생년월일 상한 {@code today}는 유스케이스의 기준일(KST)이다. */
     public static NewCustomer customer(CustomerRegisterRequest r, LocalDate today) {
-        if (r == null || !r.unknown().isEmpty()) {
+        if (r == null) {
             throw new MalformedRequestException(null);
         }
         Sensitive<CustomerName> name = field("name", () -> CustomerName.of(r.name()));
