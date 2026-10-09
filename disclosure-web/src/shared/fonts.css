@@ -1,0 +1,15 @@
+/* PDF 렌더러와 같은 폰트 파일(disclosure-seal 자원)을 그대로 번들한다 — 서브셋·변환 없음(Q8). */
+@font-face {
+  font-family: 'NanumGothic';
+  src: url('../../../disclosure-seal/src/main/resources/render/fonts/NanumGothic-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'NanumGothic';
+  src: url('../../../disclosure-seal/src/main/resources/render/fonts/NanumGothic-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

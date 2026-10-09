@@ -28,7 +28,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>한글 리터럴은 닫힌 목록의 파일에만</b> — 운영 코드에서 한글을 담은 문자열 리터럴이 있는 파일은 아래 {@link #HANGUL_ALLOWED}(파일 → 사유)와
  *       정확히 같다. 새 파일에 한글 문구가 생기면(화면 라벨을 코드에 넣는 등) 실패하고, 목록에서 빠진 파일이 남아 있어도 실패한다.</li>
  * </ol>
- * 화면 코드({@code disclosure-web})가 생기면 같은 두 검사가 그 원천에도 적용된다(Phase 7 1단계 — {@code Problem.code} 사전 파일 하나만 제외).
+ * 화면 코드({@code disclosure-web})의 같은 두 검사는 {@code disclosure-web/src/test/literalScan.test.ts}(TypeScript 구문 트리 판독 — 템플릿 리터럴·JSX 텍스트까지)가
+ * 하고, 예외는 {@code messages.ko.json} 하나다(Phase 7 1단계, 승인 Q4).
  */
 class LabelLiteralScanTest {
 

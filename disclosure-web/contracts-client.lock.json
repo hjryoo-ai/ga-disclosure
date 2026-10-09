@@ -1,0 +1,19 @@
+{
+  "generator": "openapi-typescript@7.13.0",
+  "clients": [
+    {
+      "name": "disclosure-api",
+      "contract": "contracts/api/v1/disclosure-api.openapi.yaml",
+      "contractSha256": "e76951043b5b10d78c09753cc8c2ae0b599d607542359c7643d258072cfa4104",
+      "output": "src/gen/disclosure-api.ts",
+      "outputSha256": "872a87c8e0ef8e4ed00592ee169b47cd6b121f9b11900d22a97538406815d11b"
+    },
+    {
+      "name": "disclosure-public",
+      "contract": "contracts/api/v1/disclosure-public.openapi.yaml",
+      "contractSha256": "cd097046267baf109a678149b1fb7c25738bb93fa3b28ff7d64b1ea1d847bcee",
+      "output": "src/gen/disclosure-public.ts",
+      "outputSha256": "5ba455a5f9c27677e7836673ba007419703118ac6da0a432053adbd371c1736b"
+    }
+  ]
+}
