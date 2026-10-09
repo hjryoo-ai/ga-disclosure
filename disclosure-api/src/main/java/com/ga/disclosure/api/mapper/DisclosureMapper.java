@@ -52,6 +52,15 @@ public final class DisclosureMapper {
                 l.customerRef().value(), l.group().value(), l.consultDate().toString(), text(l.sealedAt()), text(l.destroyedAt()));
     }
 
+    /** 고정 서식의 화면 문구(Phase 7 승인 Q3) — 없는 선택 값은 JSON null. */
+    public static com.ga.disclosure.api.dto.DisclosureTemplateView template(DisclosureQueryService.TemplateLabels t) {
+        return new com.ga.disclosure.api.dto.DisclosureTemplateView(t.ref().templateId(), t.ref().version(), t.contentHash(), true, t.title(),
+                t.fields().stream().map(f -> new com.ga.disclosure.api.dto.DisclosureTemplateView.Field(f.code(), f.label(), f.required(), f.order(),
+                        f.section(), f.unavailableText().orElse(null))).toList(),
+                t.sections().stream().map(s -> new com.ga.disclosure.api.dto.DisclosureTemplateView.Section(s.code(), s.label().orElse(null),
+                        s.fields())).toList());
+    }
+
     public static DisclosureDetail detail(DisclosureQueryService.Detail detail) {
         DisclosureRecord d = detail.disclosure();
         var seal = d.sealOrNull();

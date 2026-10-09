@@ -30,6 +30,14 @@ public class DisclosuresController {
         return DisclosureMapper.page(queries.list(caller, PageMapper.limit(limit), PageMapper.after(after), DisclosureMapper.status(status)));
     }
 
+    /** 고정 서식의 화면 문구(Phase 7 승인 Q3). {@code ETag} = 내용 해시. */
+    @GetMapping("/{disclosureId}/template")
+    public org.springframework.http.ResponseEntity<com.ga.disclosure.api.dto.DisclosureTemplateView> template(Caller caller,
+            @PathVariable("disclosureId") String disclosureId) {
+        com.ga.disclosure.api.dto.DisclosureTemplateView view = DisclosureMapper.template(queries.template(caller, DisclosureMapper.id(disclosureId)));
+        return org.springframework.http.ResponseEntity.ok().eTag("\"" + view.bundleHash() + "\"").body(view);
+    }
+
     @GetMapping("/{disclosureId}")
     public DisclosureDetail detail(Caller caller, @PathVariable("disclosureId") String disclosureId) {
         return DisclosureMapper.detail(queries.detail(caller, DisclosureMapper.id(disclosureId)));

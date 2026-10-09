@@ -12,6 +12,7 @@ info:
     - JSON 응답은 전부 JCS 바이트. 시각은 ISO-8601 UTC(`Instant`), 날짜는 `yyyy-MM-dd`. 스키마 형식 검사는 `format`이 아니라 `pattern`.
     - 목록은 서명된 불투명 커서(`after` → `next`) — 다른 테넌트·다른 목록의 커서는 400 `INVALID_CURSOR`.
     - 2.8.0(Phase 7): 설계사의 플래그 조회 — 자기 확인서의 플래그 중 열릴 때 룰이 설계사 가시로 정한 것만(승인 Q1, 거르는 곳은 서버).
+      고정 서식의 화면 문구 `getDisclosureTemplate`(승인 Q3).
 servers:
   - url: https://disclosure.example
 security:
@@ -58,6 +59,24 @@ paths:
         '200':
           description: 상세
           content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureDetail' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/template:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: getDisclosureTemplate
+      summary: (2.8.0) 그 확인서가 고정한 서식 버전의 화면 문구 — 제목·항목 라벨·필수·순서·섹션, 버전 ID·내용 해시뿐(상태·검증 없음).
+      description: |
+        Phase 7 승인 Q3. 범위는 상세(`getDisclosure`)와 같다(설계사 자기 것·관리자 조직 아래·준법 테넌트). 확인서는 초안 생성 때 서식을 고정하므로
+        `pinned`는 언제나 true다. 화면의 라벨은 이 응답에서만 온다 — 화면 코드에 라벨 문자열이 없다. 따로 감사하지 않는다(서식은 공개 문구).
+      responses:
+        '200':
+          description: 고정 서식의 화면 문구
+          headers:
+            ETag:
+              description: 큰따옴표로 감싼 `bundleHash`
+              schema: { type: string, pattern: '^"[0-9a-f]{64}"$' }
+          content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureTemplate' } } }
         default: { $ref: '#/components/responses/Problem' }
   /api/v1/disclosures/{disclosureId}/items:
     parameters:
@@ -733,6 +752,40 @@ components:
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/DisclosureSummary' } }
         next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }
+    DisclosureTemplate:
+      type: object
+      additionalProperties: false
+      description: (2.8.0) 고정 서식의 화면 문구. 업무 판단(상태·검증 결과·게이트)은 싣지 않는다.
+      required: [templateId, version, bundleHash, pinned, title, fields, sections]
+      properties:
+        templateId: { $ref: '#/components/schemas/Code' }
+        version: { type: integer, minimum: 1 }
+        bundleHash: { $ref: '#/components/schemas/Sha256' }
+        pinned: { const: true, description: 확인서는 초안 생성 때 서식을 고정한다 — 고정 전 초안은 없다. }
+        title: { type: string, minLength: 1 }
+        fields:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, label, required, order, section, unavailableText]
+            properties:
+              code: { $ref: '#/components/schemas/Code' }
+              label: { type: string, minLength: 1 }
+              required: { type: boolean }
+              order: { type: integer, minimum: 1 }
+              section: { $ref: '#/components/schemas/Code' }
+              unavailableText: { $ref: '#/components/schemas/NullableString' }
+        sections:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, label, fields]
+            properties:
+              code: { $ref: '#/components/schemas/Code' }
+              label: { $ref: '#/components/schemas/NullableString' }
+              fields: { type: array, items: { $ref: '#/components/schemas/Code' } }
     DisclosureDetail:
       type: object
       additionalProperties: false
