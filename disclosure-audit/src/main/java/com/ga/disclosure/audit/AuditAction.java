@@ -88,6 +88,8 @@ public enum AuditAction {
     COLLECTION_RATE_SNAPSHOT,
     /** 6B: 같은 (달, 룰 버전)의 징구율 재계산 거부 {@code SNAPSHOT_EXISTS}(대상 TENANT, 새 행 없음). */
     COLLECTION_RATE_SNAPSHOT_REJECTED,
+    /** 6B: 청약 게이트 판정(요청마다 1행, BLOCKED 포함) — 식별자 종류·SHA-256(원문 없음)·판정·사유·후보 수·확인서 ID·번호·룰 버전·대기 역할. */
+    GATE_DECISION,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

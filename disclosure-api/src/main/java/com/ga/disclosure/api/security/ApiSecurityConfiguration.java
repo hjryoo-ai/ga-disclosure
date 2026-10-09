@@ -132,7 +132,8 @@ public class ApiSecurityConfiguration {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http, JwtDecoder apiJwtDecoder, TenantRegistry tenants) throws Exception {
+    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http, JwtDecoder apiJwtDecoder, TenantRegistry tenants,
+            @org.springframework.beans.factory.annotation.Value("${ga.api.client-cert.subject-header:}") String clientCertHeader) throws Exception {
         ApiAuthenticationEntryPoint entryPoint = new ApiAuthenticationEntryPoint();
         http.securityMatcher("/api/**", "/internal/**")
                 .csrf(c -> c.disable())
@@ -147,7 +148,8 @@ public class ApiSecurityConfiguration {
                         .authenticationEntryPoint(entryPoint))
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
                 .addFilterAfter(new TenantBindingFilter(tenants), BearerTokenAuthenticationFilter.class)
-                .addFilterAfter(new IdempotencyCaptureFilter(), TenantBindingFilter.class);
+                .addFilterAfter(new ClientCertSubjectFilter(java.util.Optional.of(clientCertHeader)), TenantBindingFilter.class)
+                .addFilterAfter(new IdempotencyCaptureFilter(), ClientCertSubjectFilter.class);
         return http.build();
     }
 

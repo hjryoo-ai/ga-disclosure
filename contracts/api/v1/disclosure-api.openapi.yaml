@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.4.0
+  version: 2.5.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -615,7 +615,7 @@ components:
           type: string
           enum: [UNAUTHENTICATED, NOT_FOUND, METHOD_NOT_ALLOWED, MALFORMED_REQUEST, REJECTED, CONFLICT, CONCURRENT_WRITE, JOB_ALREADY_RUNNING,
                  REPORT_NOT_AVAILABLE, IDEMPOTENCY_KEY_REQUIRED, IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_IN_PROGRESS, IDEMPOTENCY_NOT_REPLAYABLE,
-                 INVALID_CURSOR, INTERNAL_ERROR]
+                 INVALID_CURSOR, RATE_LIMITED, INTERNAL_ERROR]
         message: { type: string, description: 코드별 고정 영문 문장(입력값·자원 값 없음) }
         details:
           oneOf:

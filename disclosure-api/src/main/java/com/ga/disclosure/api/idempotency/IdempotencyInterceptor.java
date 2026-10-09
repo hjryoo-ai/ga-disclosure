@@ -60,13 +60,20 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
         this.requestHashes = Objects.requireNonNull(requestHashes, "requestHashes");
     }
 
+    /**
+     * 멱등 키를 받지 않는 POST 라우트(닫힌 목록): 상태를 바꾸지 않는 질의라 응답을 저장·재생하면 안 되는 것만 — 청약 게이트(6B 계획 §6, 저장된 옛 판정이
+     * 재생되면 진행 중인 서명이 끝난 뒤에도 BLOCKED가, 무효된 뒤에도 ALLOWED가 나간다). 판정 감사는 요청마다 유스케이스가 남긴다.
+     */
+    public static final java.util.Set<String> EXEMPT_ROUTES = java.util.Set.of("/internal/v1/gate");
+
     private record Pending(Caller caller, String key, int claimSeq) {
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws IOException {
         if (!(handler instanceof HandlerMethod) || !"POST".equals(request.getMethod())
-                || !(request.getAttribute(TenantBindingFilter.CALLER) instanceof Caller caller)) {
+                || !(request.getAttribute(TenantBindingFilter.CALLER) instanceof Caller caller)
+                || EXEMPT_ROUTES.contains((String) request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE))) {
             return true;
         }
         if (!(request.getAttribute(IdempotencyCaptureFilter.KEY_ATTRIBUTE) instanceof String key)) {

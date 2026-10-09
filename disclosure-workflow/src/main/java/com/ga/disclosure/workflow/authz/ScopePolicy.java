@@ -75,6 +75,8 @@ public final class ScopePolicy {
         // 6B 징구율(계획 §5): 스냅샷은 배치·준법(테넌트), 조회는 준법(테넌트 — 테넌트 전체 행 포함)·관리자(조직 아래 행만)
         grant(m, Action.COLLECTION_RATE_SNAPSHOT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.COLLECTION_RATE_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
+        // 6B 청약 게이트(계획 §6): 게이트 서비스 주체만(사람·피드·스케줄러는 404)
+        grant(m, Action.GATE_CHECK, Role.GATE_CLIENT, Scope.TENANT);
         grant(m, Action.VERIFY_TENANT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.JOB_READ, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         // 파기 실행·dry-run은 사람 역할에 없다 — 준법은 보고서 열람만(REPORT_VIEW). 앵커는 플랫폼 배치라 CLI만(6A 승인 Q7)

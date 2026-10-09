@@ -29,7 +29,7 @@ final class UnroutedPathHandler implements AuthenticationEntryPoint, AccessDenie
         write(response);
     }
 
-    private static void write(HttpServletResponse response) throws IOException {
+    static void write(HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setContentLength(BODY.length);

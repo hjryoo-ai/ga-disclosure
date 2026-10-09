@@ -54,6 +54,12 @@ public class ApiErrorAdvice {
         return Problem.of(HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED");
     }
 
+    /** 게이트 주체의 분당 한도(6B 계획 §6) — 판정 전이라 감사 없음. */
+    @ExceptionHandler(com.ga.disclosure.workflow.gate.GateRateLimitedException.class)
+    ResponseEntity<byte[]> rateLimited(com.ga.disclosure.workflow.gate.GateRateLimitedException e) {
+        return Problem.of(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED");
+    }
+
     @ExceptionHandler(CommandRejectedException.class)
     ResponseEntity<byte[]> rejected(CommandRejectedException e) {
         return Problem.rejections(status(e.category()), List.of(new Problem.Rejection(e.code(), null)));

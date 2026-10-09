@@ -110,7 +110,7 @@ import java.util.stream.Stream;
  * anchor run|receipt export·verify package|tenant·retention destroy·legal-hold place|release — {@link RetentionCommands}(Phase 5)
  * jobs list|show|report — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다)
  * contract-links import|purge-unmatched — {@link ContractLinkCommands}(6B) · drafts abandon|abandon-idle — {@link DraftCommands}(6B)
- * collection-rates snapshot|list — {@link CollectionRateCommands}(6B, 내부 지표 — 규제 정의 없음)
+ * collection-rates snapshot|list — {@link CollectionRateCommands}(6B, 내부 지표 — 규제 정의 없음) · gate check — {@link GateCommands}(6B)
  * </pre>
  * 무효·정정 사유는 파일로만 받는다 — 자유 텍스트에 개인정보가 섞일 수 있다(CLAUDE.md 규칙 6). 출력에는 사유를 싣지 않는다.
  * 고객 개인정보는 CLI 인자·환경변수로 받지 않는다(셸 기록·프로세스 목록에 남는다) — 파일(허구 데이터) 또는 API로만(CLAUDE.md 규칙 6).
@@ -145,6 +145,7 @@ public class OperatorCli implements ApplicationRunner {
     private final ContractLinkCommands contractLinks;
     private final DraftCommands drafts;
     private final CollectionRateCommands collectionRates;
+    private final GateCommands gate;
     private final RetentionCommands retention;
     private final JobCommands jobs;
     private final NotificationDispatcher dispatcher;
@@ -162,7 +163,7 @@ public class OperatorCli implements ApplicationRunner {
                        JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications,
                        ObjectProvider<DemoOidcIssuer> demoOidc, com.ga.disclosure.workflow.contract.ContractLinkService contractLinks,
                        com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon,
-                       com.ga.disclosure.workflow.rate.CollectionRateService collectionRates) {
+                       com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -191,6 +192,7 @@ public class OperatorCli implements ApplicationRunner {
         this.contractLinks = new ContractLinkCommands(contractLinks, jobs, out);
         this.drafts = new DraftCommands(draftAbandon, jobs, out);
         this.collectionRates = new CollectionRateCommands(collectionRates, jobs, out);
+        this.gate = new GateCommands(gate, out);
     }
 
     @Override
@@ -214,6 +216,10 @@ public class OperatorCli implements ApplicationRunner {
         }
         if (collectionRates.handles(args.command())) {
             collectionRates.run(args);
+            return;
+        }
+        if (gate.handles(args.command())) {
+            gate.run(args);
             return;
         }
         if (contractLinks.handles(args.command())) {

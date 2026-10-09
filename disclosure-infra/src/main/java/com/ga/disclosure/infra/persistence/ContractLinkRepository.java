@@ -25,7 +25,7 @@ import java.util.UUID;
  * DB가 다시 본다(GD136 현재값 = 활성 연결, GD094 보존기한 연장만).
  */
 @Repository
-public class ContractLinkRepository extends TenantScopedRepository implements ContractLinkStore {
+public class ContractLinkRepository extends TenantScopedRepository implements ContractLinkStore, com.ga.disclosure.workflow.gate.GateLookup {
 
     private final DisclosureRepository disclosures;
 
@@ -105,6 +105,14 @@ public class ContractLinkRepository extends TenantScopedRepository implements Co
                    AND d.destroyed_at IS NULL
                  ORDER BY d.disclosure_id
                 """, Map.of("policyNo", policyNo), (rs, n) -> candidate(rs));
+    }
+
+    /** 게이트(6B 8단계): 서명한 역할 — 후보 조회는 위의 계약 연결 후보 문장을 그대로 쓴다(같은 제외 규칙). */
+    @Override
+    public List<com.ga.disclosure.domain.enums.SignerRole> signedRoles(DisclosureId id) {
+        return query("""
+                SELECT signer_role FROM signature WHERE tenant_id = :tenantId AND disclosure_id = :id ORDER BY signed_at, signature_id
+                """, Map.of("id", id.value()), (rs, n) -> com.ga.disclosure.domain.enums.SignerRole.valueOf(rs.getString("signer_role")));
     }
 
     @Override

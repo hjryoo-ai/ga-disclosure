@@ -67,7 +67,7 @@ class ApiLayerRulesTest {
 
     /** 값이 로그에 가면 안 되는 레코드 성분 이름(거부 목록 — 새 이름이 생기면 더한다). */
     static final Set<String> SENSITIVE_COMPONENTS = Set.of("token", "deviceToken", "raw", "birthDate", "phone", "imageBase64", "imagePngBase64",
-            "strokes", "deviceFingerprint");
+            "strokes", "deviceFingerprint", "applicationNo", "policyNo");
 
     static JavaClasses classes;
 
@@ -248,5 +248,14 @@ class ApiLayerRulesTest {
                 .allMatch(n -> n.startsWith(WORKFLOW + "."));
         assertThat(classes.stream().filter(c -> c.getModifiers().contains(JavaModifier.PUBLIC)).map(JavaClass::getName))
                 .contains(TENANT_BINDING_FILTER);
+    }
+
+    /**
+     * 멱등 예외 라우트는 닫힌 목록(6B 계획 §6): 상태를 바꾸지 않는 질의라 저장·재생하면 안 되는 청약 게이트뿐. 새 POST 라우트는 기본이 멱등이다 — 예외를
+     * 늘리려면 이 목록과 계약(Idempotency-Key 매개변수 없음)을 같은 커밋에서.
+     */
+    @Test
+    void onlyTheGateIsExemptFromIdempotency() {
+        assertThat(com.ga.disclosure.api.idempotency.IdempotencyInterceptor.EXEMPT_ROUTES).containsExactly("/internal/v1/gate");
     }
 }

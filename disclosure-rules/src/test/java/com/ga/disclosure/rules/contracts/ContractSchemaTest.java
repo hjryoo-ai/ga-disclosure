@@ -567,7 +567,10 @@ class ContractSchemaTest {
         assertThat(engine.path("paths").has("/internal/v1/disclosure/commission-grades")).isTrue();
         assertThat(engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/operationId").asString())
                 .isEqualTo("getCommissionGradesSnapshot");
-        assertThat(internal.path("paths").has("/internal/v1/disclosures/gate")).isTrue();
+        // 6B(승인 §4): 게이트는 POST 본문 — 식별자가 질의 문자열·액세스 로그에 남는 GET stub은 없앴다
+        assertThat(internal.path("paths").has("/internal/v1/disclosures/gate")).isFalse();
+        assertThat(internal.at("/paths/~1internal~1v1~1gate/post/operationId").asString()).isEqualTo("checkSubscriptionGate");
+        assertThat(internal.at("/paths/~1internal~1v1~1gate/post/parameters").isMissingNode()).as("no Idempotency-Key on the gate").isTrue();
         // 6B(계획 Q3): 번호로 직접 붙이는 경로는 없앴다 — 계약 연결은 배치 하나의 입구
         assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isFalse();
         assertThat(internal.at("/paths/~1internal~1v1~1contract-links/post/operationId").asString()).isEqualTo("importContractLinks");
@@ -582,7 +585,10 @@ class ContractSchemaTest {
         JsonNode ok = engine.at("/components/schemas/GradeResultOk/properties");
         assertThat(ok.has("gradeOrdinal")).isTrue();
         assertThat(ok.path("ratioToAvg").path("type").asString()).as("ratioToAvg는 불투명 문자열").isEqualTo("string");
-        assertThat(internal.at("/components/schemas/GateResponse/required")).extracting(JsonNode::asString)
-                .contains("pendingRoles", "gateSatisfied");
+        assertThat(internal.at("/components/schemas/GateResponse").isMissingNode()).isTrue();
+        assertThat(internal.at("/components/schemas/GateDecision/required")).extracting(JsonNode::asString)
+                .containsExactlyInAnyOrder("decision", "reason", "disclosureNo", "pendingRoles", "ruleVersionId");
+        // 응답에 개인정보 없음 — 고객 가명조차 되돌려주지 않는다
+        assertThat(internal.at("/components/schemas/GateDecision/properties").propertyNames()).doesNotContain("customerRef", "applicationNo", "policyNo");
     }
 }
