@@ -52,6 +52,7 @@ class EffectiveRuleComplianceKeysTest {
         assertThat(BUNDLE.draftAbandonReasons()).extracting(LifecycleReasonRule::code).containsExactly("CUSTOMER_DECLINED", "DUPLICATE", "ENTRY_ERROR");
         assertThat(BUNDLE.contractLinkUnmatchedRetentionDays()).isEqualTo(OptionalInt.empty());
         assertThat(BUNDLE.gatePerMinutePerPrincipal()).isEqualTo(600);
+        assertThat(BUNDLE.customersRegisterPerMinute()).isEqualTo(30);
     }
 
     @Test
@@ -69,6 +70,7 @@ class EffectiveRuleComplianceKeysTest {
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = {
             "/draft/abandonAfterDays", "/contractLink/unmatchedRetentionDays", "/gate/perMinutePerPrincipal", "/collectionRate/formula",
+            "/customers/registerPerMinute",
             "/complianceQueue/types/CHAIN_BROKEN/slaHours", "/complianceQueue/types/CHAIN_BROKEN/assignedRole",
             "/complianceQueue/types/CHAIN_BROKEN/visibleToAgent", "/complianceQueue/types/CHAIN_BROKEN/resolutionCodes",
             "/complianceQueue/types/CHAIN_BROKEN/requiresEvidence"})
@@ -101,6 +103,7 @@ class EffectiveRuleComplianceKeysTest {
             case "draft" -> r.draftAbandonAfterDays();
             case "contractLink" -> r.contractLinkUnmatchedRetentionDays();
             case "gate" -> r.gatePerMinutePerPrincipal();
+            case "customers" -> r.customersRegisterPerMinute();
             case "collectionRate" -> r.collectionRateFormula();
             case "complianceQueue" -> r.flagPolicy("CHAIN_BROKEN");
             default -> throw new IllegalArgumentException(pointer);

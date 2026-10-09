@@ -386,6 +386,11 @@ public record EffectiveRule(
         return intValue(object("gate"), "gate.perMinutePerPrincipal", "perMinutePerPrincipal");
     }
 
+    /** 고객 등록 API(6B §9)의 등록 주체별 지난 60초 등록 시도 한도. 사규로 덮어쓸 수 있다. TODO(confirm#10) — 예시값 30. */
+    public int customersRegisterPerMinute() {
+        return intValue(object("customers"), "customers.registerPerMinute", "registerPerMinute");
+    }
+
     /** 고객 파기 유예: 그 고객의 마지막 확인서 파기 뒤 일수. */
     public int customerGraceDaysAfterLastDestruction() {
         return intValue(object("customerRef"), "customerRef.graceDaysAfterLastDestruction", "graceDaysAfterLastDestruction");

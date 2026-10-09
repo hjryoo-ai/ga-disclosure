@@ -51,7 +51,8 @@
     "collectionRate",
     "draft",
     "contractLink",
-    "gate"
+    "gate",
+    "customers"
   ],
   "properties": {
     "minCompare": {
@@ -929,6 +930,21 @@
           "type": "integer",
           "minimum": 1,
           "description": "서비스 주체(GATE_CLIENT)별 분당 요청 한도. 실값은 §14 #10."
+        }
+      }
+    },
+    "customers": {
+      "type": "object",
+      "required": [
+        "registerPerMinute"
+      ],
+      "additionalProperties": false,
+      "description": "고객 등록 API(6B §9, POST /api/v1/customers). 사규로 덮어쓸 수 있다(최상위 키 단위).",
+      "properties": {
+        "registerPerMinute": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "등록 주체(설계사)별 지난 60초 등록 시도(감사 CUSTOMER_REGISTER 행) 한도 — 넘으면 429. 예시값, 실값은 §14 #10."
         }
       }
     }

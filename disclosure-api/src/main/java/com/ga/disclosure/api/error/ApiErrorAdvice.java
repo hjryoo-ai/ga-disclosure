@@ -60,6 +60,12 @@ public class ApiErrorAdvice {
         return Problem.of(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED");
     }
 
+    /** 고객 등록 한도(6B 계획 §9.6, 10단계 회신 ③) — 저장·감사 없음, 429는 완료로 저장되지 않아 멱등 키가 해제된다. */
+    @ExceptionHandler(com.ga.disclosure.workflow.customer.RegistrationRateLimitedException.class)
+    ResponseEntity<byte[]> registrationLimited(com.ga.disclosure.workflow.customer.RegistrationRateLimitedException e) {
+        return Problem.of(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED");
+    }
+
     @ExceptionHandler(CommandRejectedException.class)
     ResponseEntity<byte[]> rejected(CommandRejectedException e) {
         return Problem.rejections(status(e.category()), List.of(new Problem.Rejection(e.code(), null)));

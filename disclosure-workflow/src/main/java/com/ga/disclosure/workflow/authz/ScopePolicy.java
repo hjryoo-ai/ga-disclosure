@@ -86,8 +86,10 @@ public final class ScopePolicy {
                 Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE}) {
             grant(m, a, Role.SCHEDULER, Scope.TENANT);
         }
-        for (Action a : new Action[] {Action.ARTIFACT_GC, Action.ANCHOR_RUN, Action.CATALOG_IMPORT, Action.CUSTOMER_REGISTER,
-                Action.CUSTOMER_REKEY}) {
+        // 6B §9 고객 등록 API: 설계사(연결 있음)만 — 관리자·준법은 등록하지 않는다(계획 Q13). 카탈로그 검색은 사람 역할 셋
+        grant(m, Action.CUSTOMER_REGISTER, Role.AGENT, Scope.SELF);
+        grant(m, Action.CATALOG_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.TENANT, Role.AGENT, Scope.TENANT);
+        for (Action a : new Action[] {Action.ARTIFACT_GC, Action.ANCHOR_RUN, Action.CATALOG_IMPORT, Action.CUSTOMER_REKEY}) {
             m.computeIfAbsent(a, k -> new EnumMap<>(Role.class));
         }
         grant(m, Action.EVENT_FEED_READ, Role.FEED_CONSUMER, Scope.TENANT);

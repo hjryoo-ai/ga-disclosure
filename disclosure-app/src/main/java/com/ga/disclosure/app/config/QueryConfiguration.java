@@ -46,6 +46,38 @@ public class QueryConfiguration {
         return RequestHashKey.fromKeyFile(Path.of(keyFile));
     }
 
+    /**
+     * 고객 등록 영수증 키(6B §9, 10단계 회신 ②) — 웹이면 {@code ga.api.receipt-key-file}(기본값 없음, 커서 키와 같은 규약). 요청 해시 키와 따로 둔다.
+     * CLI는 HTTP 영수증을 내지 않는다(고객 수입은 파일 경로).
+     */
+    @Bean
+    @ConditionalOnWebApplication
+    public com.ga.disclosure.workflow.customer.CustomerReceiptPort customerReceiptKey(@Value("${ga.api.receipt-key-file}") String keyFile) {
+        return com.ga.disclosure.infra.crypto.CustomerReceiptKey.fromKeyFile(Path.of(keyFile));
+    }
+
+    @Bean
+    @ConditionalOnNotWebApplication
+    public com.ga.disclosure.workflow.customer.CustomerReceiptPort ephemeralCustomerReceiptKey() {
+        return com.ga.disclosure.infra.crypto.CustomerReceiptKey.ephemeral();
+    }
+
+    /** 고객 등록 API(6B §9) — Phase 2·3A 등록 유스케이스를 그대로 감싼다(한도·영수증). */
+    @Bean
+    public com.ga.disclosure.workflow.customer.CustomerRegistrationService customerRegistrationService(
+            com.ga.disclosure.workflow.customer.RegisterCustomer register, com.ga.disclosure.workflow.customer.CustomerRegistrationLimitStore limits,
+            com.ga.disclosure.workflow.customer.CustomerReceiptPort receipts, RuleResolver rules, WorkflowTransactions tx, AuthorizationPort authz,
+            Clock clock) {
+        return new com.ga.disclosure.workflow.customer.CustomerRegistrationService(register, limits, receipts, rules, tx, authz, clock);
+    }
+
+    /** 카탈로그 상품 검색(6B §9.8) — 설계사·관리자·준법. */
+    @Bean
+    public com.ga.disclosure.workflow.catalog.CatalogQueryService catalogQueryService(com.ga.disclosure.workflow.catalog.ProductCatalogPort catalog,
+            WorkflowTransactions tx, AuthorizationPort authz, Clock clock) {
+        return new com.ga.disclosure.workflow.catalog.CatalogQueryService(catalog, tx, authz, clock);
+    }
+
     @Bean
     @ConditionalOnNotWebApplication
     public CursorPort ephemeralCursorCodec() {

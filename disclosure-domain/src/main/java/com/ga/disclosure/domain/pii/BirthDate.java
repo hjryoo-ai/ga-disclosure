@@ -47,6 +47,20 @@ public final class BirthDate implements SensitiveValue {
     }
 
     /**
+     * {@link #parse(String)}에 상한을 더한다 — {@code latest}(호출자가 주는 기준일, 이 값객체는 시계를 모른다)보다 늦은 날짜는 거부한다(6B §9.2 미래 생년월일).
+     * 예외 메시지에 입력값은 없다.
+     */
+    public static Sensitive<BirthDate> parse(String raw, LocalDate latest) {
+        Objects.requireNonNull(latest, "latest");
+        Sensitive<BirthDate> parsed = parse(raw);
+        LocalDate date = LocalDate.parse(new String(compact(raw), StandardCharsets.US_ASCII), COMPACT);
+        if (date.isAfter(latest)) {
+            throw new IllegalArgumentException("birth date must not be in the future");
+        }
+        return parsed;
+    }
+
+    /**
      * 본인확인 대조. 입력을 정규화(형식이 틀리면 자리값)한 뒤 저장값과 {@link MessageDigest#isEqual}로 비교한다 —
      * 형식 오류와 불일치가 같은 비교 경로를 지난다. 입력값·저장값은 반환하지도 기록하지도 않는다.
      */

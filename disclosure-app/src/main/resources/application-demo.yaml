@@ -9,5 +9,6 @@ ga:
       public-key-location: ${ga.demo.oidc-public-pem:build/demo/demo-oidc.pem}
     cursor-key-file: ${user.home}/.ga-disclosure/api-cursor.key
     request-hash-key-file: ${user.home}/.ga-disclosure/api-request-hash.key
+    receipt-key-file: ${user.home}/.ga-disclosure/api-customer-receipt.key
   public-sign:
     min-response-millis: 250

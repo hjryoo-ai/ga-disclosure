@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-TEST-REASON@877d20c83971",
+  "bundleId": "DISC-TEST-REASON@f757fa180ac0",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-TEST-REASON",
@@ -252,7 +252,8 @@
       "retention",
       "customerRef",
       "draft",
-      "contractLink"
+      "contractLink",
+      "customers"
     ],
     "validations": [
       {
@@ -509,6 +510,9 @@
     },
     "gate": {
       "perMinutePerPrincipal": 600
+    },
+    "customers": {
+      "registerPerMinute": 30
     }
   }
 }

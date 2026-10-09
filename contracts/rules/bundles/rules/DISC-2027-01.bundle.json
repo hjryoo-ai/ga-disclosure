@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-2027-01@0cccda49aa76",
+  "bundleId": "DISC-2027-01@d15246c81473",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-2027-01",
@@ -247,7 +247,8 @@
       "retention",
       "customerRef",
       "draft",
-      "contractLink"
+      "contractLink",
+      "customers"
     ],
     "validations": [
       {
@@ -504,6 +505,9 @@
     },
     "gate": {
       "perMinutePerPrincipal": 600
+    },
+    "customers": {
+      "registerPerMinute": 30
     }
   }
 }

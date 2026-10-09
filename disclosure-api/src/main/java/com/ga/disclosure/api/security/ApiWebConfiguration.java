@@ -47,5 +47,6 @@ public class ApiWebConfiguration implements WebMvcConfigurer {
         resolvers.add(new CallerArgumentResolver());
         resolvers.add(new ClientContextArgumentResolver());
         resolvers.add(new PublicTokenArgumentResolver());
+        resolvers.add(new IdempotencyKeyArgumentResolver());
     }
 }

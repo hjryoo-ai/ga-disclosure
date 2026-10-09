@@ -45,6 +45,7 @@ public enum Action {
     ANCHOR_RUN,
     CATALOG_IMPORT,
     CUSTOMER_REGISTER,
+    CATALOG_READ,
     CUSTOMER_REKEY,
     JOB_READ,
     REPORT_VIEW,

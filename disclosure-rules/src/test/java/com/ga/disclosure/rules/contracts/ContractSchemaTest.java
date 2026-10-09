@@ -422,7 +422,7 @@ class ContractSchemaTest {
         assertThat(rule.path("tenantOverridable")).extracting(JsonNode::asString).containsExactly(
                 "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "complianceQueue",
                 "retainUnlinked", "masking", "gateRequiresManager", "sessionTtlMinutes", "agentSignMethod", "retention", "customerRef",
-                "draft", "contractLink");
+                "draft", "contractLink", "customers");
         // Phase 6B(6B 계획 §5·§7, 승인 §3): 옛 자유 문자열 kpi는 없다 — 징구율은 닫힌 산식 ID(내부 지표), 준법 큐는 유형별 정책
         assertThat(rule.has("kpi")).isFalse();
         assertThat(rule.at("/collectionRate/formula").asString()).isEqualTo("LINKED_COMPLETED_BY_CONTRACT_DATE");
@@ -430,6 +430,7 @@ class ContractSchemaTest {
         assertThat(rule.at("/draft/abandonAfterDays").isNull()).isTrue();
         assertThat(rule.at("/contractLink/unmatchedRetentionDays").isNull()).isTrue();
         assertThat(rule.at("/gate/perMinutePerPrincipal").asInt()).isEqualTo(600);
+        assertThat(rule.at("/customers/registerPerMinute").asInt()).isEqualTo(30);
         // Phase 5(5 계획 승인 Q5·Q7·Q10): 앵커 깊이는 GLOBAL(옛 테넌트 키 anchor 제거), 보존기간 = 년 + 일, 파기·검증 절차 파라미터
         assertThat(rule.has("anchor")).isFalse();
         assertThat(rule.at("/anchoring/treeDepth").asInt()).isEqualTo(16);
@@ -503,7 +504,8 @@ class ContractSchemaTest {
     /** Phase 6B: 준법 큐 유형은 닫힌 11개(빠짐·추가 모두 위반), 징구율 산식·게이트는 GLOBAL 전용, "없음"은 null로만. */
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = {"type-missing", "type-extra", "role-agent", "sla-zero", "evidence-missing", "formula-free-text",
-            "overridable:collectionRate", "overridable:gate", "abandon-zero", "abandon-reasons-empty", "unmatched-string", "gate-null", "legacy-kpi"})
+            "overridable:collectionRate", "overridable:gate", "abandon-zero", "abandon-reasons-empty", "unmatched-string", "gate-null", "legacy-kpi",
+            "customers-zero", "customers-missing", "customers-extra"})
     void complianceQueueAndCollectionRateAreClosed(String change) {
         ObjectNode body = (ObjectNode) read(DISC_2026_07).get("body");
         ObjectNode types = (ObjectNode) body.at("/complianceQueue/types");
@@ -518,6 +520,9 @@ class ContractSchemaTest {
             case "abandon-reasons-empty" -> ((ObjectNode) body.get("draft")).set("abandonReasons", YAML.readTree("[]"));
             case "unmatched-string" -> ((ObjectNode) body.get("contractLink")).put("unmatchedRetentionDays", "90");
             case "gate-null" -> ((ObjectNode) body.get("gate")).putNull("perMinutePerPrincipal");
+            case "customers-zero" -> ((ObjectNode) body.get("customers")).put("registerPerMinute", 0);
+            case "customers-missing" -> body.remove("customers");
+            case "customers-extra" -> ((ObjectNode) body.get("customers")).put("dedupeBy", "name");
             case "legacy-kpi" -> body.set("kpi", YAML.readTree("{\"collectionRate\": \"COMPLETED_LINKED / SUBJECT\"}"));
             default -> ((ArrayNode) body.get("tenantOverridable")).add(change.substring("overridable:".length()));
         }
