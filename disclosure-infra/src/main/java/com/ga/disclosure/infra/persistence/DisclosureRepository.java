@@ -575,11 +575,11 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         }
     }
 
-    /** 보존기한 연장(더 늦을 때만 — GD094가 단축을 막는다). 바뀌었으면 true. */
+    /** 보존기한 연장(더 늦을 때만·파기되지 않았을 때만 — GD094가 단축을 막는다). 바뀌었으면 true. 계약 연결·이월·보존 재계산이 함께 쓰는 유일한 쓰기. */
     public boolean extendRetention(DisclosureId disclosure, java.time.LocalDate until) {
         return update("""
                 UPDATE disclosure SET retention_until = :until
-                 WHERE tenant_id = :tenantId AND disclosure_id = :disclosureId AND retention_until < :until
+                 WHERE tenant_id = :tenantId AND disclosure_id = :disclosureId AND retention_until < :until AND destroyed_at IS NULL
                 """, java.util.Map.of("disclosureId", disclosure.value(), "until", java.sql.Date.valueOf(until))) == 1;
     }
 }

@@ -22,7 +22,9 @@ public enum JobKind {
     /** 6B: 룰 {@code draft.abandonAfterDays}보다 오래 바뀌지 않은 봉인 전 초안을 폐기(null이면 아무것도 하지 않는다). */
     ABANDON_DRAFTS,
     /** 6B: 끝난 달(기본 전월, KST)의 징구율 스냅샷(내부 지표 — 규제 정의 없음). 같은 (달, 룰 버전)은 거부. */
-    COLLECTION_RATE_SNAPSHOT;
+    COLLECTION_RATE_SNAPSHOT,
+    /** 6B: 지정 GLOBAL 룰 버전의 보존기간으로 봉인 이후 확인서의 보존기한을 다시 계산한다 — 연장만, 기본 dry-run. */
+    RETENTION_RECOMPUTE;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

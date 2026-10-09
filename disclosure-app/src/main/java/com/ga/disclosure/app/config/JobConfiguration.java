@@ -79,6 +79,7 @@ public class JobConfiguration {
                                    com.ga.disclosure.workflow.contract.ContractLinkService contractLinks,
                                    com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts,
                                    com.ga.disclosure.workflow.rate.CollectionRateService rates,
+                                   com.ga.disclosure.workflow.disclosure.RetentionRecomputeService recompute,
                                    Clock clock,
                                    @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String trustPem) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
@@ -126,6 +127,10 @@ public class JobConfiguration {
             java.time.YearMonth period = StandardJobs.yearMonth(p, "periodMonth").orElseGet(rates::previousMonth);
             rates.requireFinished(period);
             return StandardJobs.collectionRateSnapshot(rates, period);
+        });
+        h.put(JobKind.RETENTION_RECOMPUTE, p -> {
+            StandardJobs.only(p, Set.of("ruleVersionId", "apply"));
+            return StandardJobs.retentionRecompute(recompute, StandardJobs.ruleVersion(p, "ruleVersionId"), StandardJobs.bool(p, "apply", false));
         });
         h.put(JobKind.VERIFY_TENANT, p -> {
             StandardJobs.only(p, Set.of());

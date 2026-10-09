@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.5.0
+  version: 2.6.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -487,7 +487,7 @@ paths:
       - $ref: '#/components/parameters/JobKind'
     post:
       operationId: submitJob
-      summary: 작업 제출(준법은 VERIFY_TENANT·(6B) COLLECTION_RATE_SNAPSHOT). ANCHOR는 HTTP에 없다(404). COLLECTION_RATE_SNAPSHOT은 같은 (달, 룰 버전)이 있으면 작업을 만들지 않고 409 SNAPSHOT_EXISTS.
+      summary: 작업 제출(준법은 VERIFY_TENANT·(6B) COLLECTION_RATE_SNAPSHOT·RETENTION_RECOMPUTE — 기본 dry-run, 연장만). ANCHOR는 HTTP에 없다(404). COLLECTION_RATE_SNAPSHOT은 같은 (달, 룰 버전)이 있으면 작업을 만들지 않고 409 SNAPSHOT_EXISTS.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -604,7 +604,7 @@ components:
     JobKind:
       type: string
       enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
-             COLLECTION_RATE_SNAPSHOT]
+             COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE]
       description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
     Problem:
       type: object
@@ -646,7 +646,7 @@ components:
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
         kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
-                                       COLLECTION_RATE_SNAPSHOT] }
+                                       COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }
@@ -665,11 +665,13 @@ components:
     JobParams:
       type: object
       additionalProperties: false
-      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE·ABANDON_DRAFTS는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음, COLLECTION_RATE_SNAPSHOT은 periodMonth(끝난 달, 없으면 KST 전월).
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE·ABANDON_DRAFTS는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음, COLLECTION_RATE_SNAPSHOT은 periodMonth(끝난 달, 없으면 KST 전월), RETENTION_RECOMPUTE는 ruleVersionId(필수 — 이 테넌트의 ACTIVE·APPROVED GLOBAL 버전, 아니면 작업 없이 422 RULE_VERSION_NOT_USABLE)·apply(기본 false = dry-run).
       properties:
         asOf: { $ref: '#/components/schemas/Instant' }
         limit: { type: integer, minimum: 1 }
         periodMonth: { $ref: '#/components/schemas/YearMonth' }
+        ruleVersionId: { $ref: '#/components/schemas/RuleVersionId' }
+        apply: { type: boolean }
     DisclosureSummary:
       type: object
       additionalProperties: false

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/verify/v1/retention-recompute-report.schema.json",
+  "title": "Retention recompute report (v1)",
+  "description": "보존 재계산 작업(RETENTION_RECOMPUTE) 보고서 — 6B 계획 §8. 한 테넌트의 한 실행: 지정 GLOBAL 룰 버전과 그 보존기간, 적용 여부(기본 dry-run), 봉인 이후·미파기 확인서마다 이전 기한·후보(지정 버전의 앵커 산식 — 짧을 수도 있다)·결과(연장만 — 짧거나 같으면 UNCHANGED), 파기돼 제외된 수, 잠금 재적용이 남은 수. 개인정보 없음 — ID·번호·날짜·수. 형식은 format이 아니라 pattern. 모든 객체는 닫혀 있다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reportVersion", "kind", "ruleVersionId", "retentionYears", "retentionDays", "apply", "items", "extended", "unchanged", "destroyedExcluded",
+               "relockPending"],
+  "properties": {
+    "reportVersion": { "const": 1 },
+    "kind": { "const": "RETENTION_RECOMPUTE" },
+    "ruleVersionId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
+    "retentionYears": { "type": "integer", "minimum": 0 },
+    "retentionDays": { "type": "integer", "minimum": 0 },
+    "apply": { "type": "boolean" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["disclosureId", "disclosureNo", "before", "candidate", "outcome"],
+        "properties": {
+          "disclosureId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+          "disclosureNo": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-[0-9]{4}-[0-9]{6}$" },
+          "before": { "$ref": "#/$defs/date" },
+          "candidate": { "$ref": "#/$defs/date" },
+          "outcome": { "enum": ["EXTENDED", "UNCHANGED"] }
+        }
+      }
+    },
+    "extended": { "type": "integer", "minimum": 0 },
+    "unchanged": { "type": "integer", "minimum": 0 },
+    "destroyedExcluded": { "type": "integer", "minimum": 0 },
+    "relockPending": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+  }
+}

@@ -77,6 +77,8 @@ public final class ScopePolicy {
         grant(m, Action.COLLECTION_RATE_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
         // 6B 청약 게이트(계획 §6): 게이트 서비스 주체만(사람·피드·스케줄러는 404)
         grant(m, Action.GATE_CHECK, Role.GATE_CLIENT, Scope.TENANT);
+        // 6B 보존 재계산(계획 §8): 준법만(스케줄러 없음 — 규제 변경 대응은 사람이 결정한다)
+        grant(m, Action.RETENTION_RECOMPUTE, Role.COMPLIANCE, Scope.TENANT);
         grant(m, Action.VERIFY_TENANT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.JOB_READ, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         // 파기 실행·dry-run은 사람 역할에 없다 — 준법은 보고서 열람만(REPORT_VIEW). 앵커는 플랫폼 배치라 CLI만(6A 승인 Q7)

@@ -1,4 +1,4 @@
-c8acd024020317538b0d94e932b7bb821984579509edb8693f9240169ef97fd3  api/v1/disclosure-api.openapi.yaml
+92b10d8a88a0663fbd2b7cfba51b032735374e5002f6e3889256b193820588b6  api/v1/disclosure-api.openapi.yaml
 6711214b601536985138a78a05ccf6f94ffb5cae48b8c165a94668f26ad6fda2  api/v1/disclosure-internal.openapi.yaml
 cd097046267baf109a678149b1fb7c25738bb93fa3b28ff7d64b1ea1d847bcee  api/v1/disclosure-public.openapi.yaml
 58d5b45e4bd0016c41a958cf159beefd79f1a9a3a23be395cda7cc3a92b24dea  api/v1/engine-disclosure.openapi.yaml
@@ -40,4 +40,5 @@ de66b81ae0fdfc3559586af58346d8df78ace65bef59d3c55a87db487b6df9b3  rules/v1/rule-
 45d5868893deff4a403cf3b71445271cfd0fa82e78e5f2e901f6d68fd7efabaf  seal/v1/evidence-manifest.schema.json
 cfe306f2675dbb00a99e86c289502fda7802dfc585afd32ac4890b91dff8b7be  verify/v1/anchor-receipt-export.schema.json
 168e2ed1cbf197dda3944bd5c48c20e4b8a33afce4a3b2fdebc56cd331311ee6  verify/v1/destruction-report.schema.json
+92b41cad4b2ddd26fb96ad833c1dfe8bd0ef342474543343726ac5e37ebadabc  verify/v1/retention-recompute-report.schema.json
 6374c976012d94ec7a3c2e24196941441cbdb5566fbf200f4ad19b60c3eeeb9d  verify/v1/verify-report.schema.json

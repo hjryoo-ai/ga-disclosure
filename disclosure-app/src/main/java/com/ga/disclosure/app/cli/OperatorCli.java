@@ -163,7 +163,8 @@ public class OperatorCli implements ApplicationRunner {
                        JobRunner jobRunner, JobQueryService jobQueries, NotificationDispatcher notifications,
                        ObjectProvider<DemoOidcIssuer> demoOidc, com.ga.disclosure.workflow.contract.ContractLinkService contractLinks,
                        com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon,
-                       com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate) {
+                       com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate,
+                       com.ga.disclosure.workflow.disclosure.RetentionRecomputeService retentionRecompute) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -187,8 +188,8 @@ public class OperatorCli implements ApplicationRunner {
         this.demoOidc = demoOidc;
         this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
-        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, jobs, this::tenants, clock,
-                out);
+        this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, retentionRecompute, jobs, this::tenants,
+                clock, out);
         this.contractLinks = new ContractLinkCommands(contractLinks, jobs, out);
         this.drafts = new DraftCommands(draftAbandon, jobs, out);
         this.collectionRates = new CollectionRateCommands(collectionRates, jobs, out);

@@ -97,6 +97,15 @@ public class QueryConfiguration {
         return new com.ga.disclosure.workflow.rate.CollectionRateService(store, rules, audit, tx, authz, clock, java.util.UUID::randomUUID);
     }
 
+    /** 보존 재계산(6B 계획 §8) — 준법·운영자, 기본 dry-run, 연장만. */
+    @Bean
+    public com.ga.disclosure.workflow.disclosure.RetentionRecomputeService retentionRecomputeService(
+            com.ga.disclosure.workflow.disclosure.RetentionRecomputeStore store, com.ga.disclosure.rules.version.RuleVersionPort versions,
+            com.ga.disclosure.workflow.artifact.DocumentRecordStore records, com.ga.disclosure.workflow.artifact.ArtifactStore storage,
+            com.ga.disclosure.audit.AuditPort audit, WorkflowTransactions tx, AuthorizationPort authz, java.time.Clock clock) {
+        return new com.ga.disclosure.workflow.disclosure.RetentionRecomputeService(store, versions, records, storage, audit, tx, authz, clock);
+    }
+
     /** 청약 게이트(6B 계획 §6) — 게이트 서비스 주체 전용, 요청마다 감사. 한도 창은 인스턴스 메모리라 빈 하나. */
     @Bean
     public com.ga.disclosure.workflow.gate.GateService gateService(com.ga.disclosure.workflow.gate.GateLookup lookup,

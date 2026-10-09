@@ -111,7 +111,7 @@ public final class JobRunner {
      */
     @UseCaseEntry({Action.ANCHOR_RUN, Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN,
             Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_IMPORT,
-            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS, Action.COLLECTION_RATE_SNAPSHOT})
+            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS, Action.COLLECTION_RATE_SNAPSHOT, Action.RETENTION_RECOMPUTE})
     public <R> Run<R> run(List<Caller> callers, JobKind kind, ObjectNode params, JobWork<R> work) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(params, "params");
@@ -130,6 +130,7 @@ public final class JobRunner {
             case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
             case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
             case COLLECTION_RATE_SNAPSHOT -> Action.COLLECTION_RATE_SNAPSHOT;
+            case RETENTION_RECOMPUTE -> Action.RETENTION_RECOMPUTE;
         };
         List<Caller> sorted = callers.stream().sorted(Comparator.comparing(c -> c.tenant().value())).toList();
         if (sorted.stream().map(Caller::tenant).distinct().count() != sorted.size()) {
@@ -165,7 +166,7 @@ public final class JobRunner {
      */
     @UseCaseEntry({Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN, Action.VERIFY_TENANT,
             Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS,
-            Action.COLLECTION_RATE_SNAPSHOT})
+            Action.COLLECTION_RATE_SNAPSHOT, Action.RETENTION_RECOMPUTE})
     public JobRecord submit(Caller caller, JobKind kind, ObjectNode params) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(params, "params");
@@ -183,6 +184,7 @@ public final class JobRunner {
             case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
             case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
             case COLLECTION_RATE_SNAPSHOT -> Action.COLLECTION_RATE_SNAPSHOT;
+            case RETENTION_RECOMPUTE -> Action.RETENTION_RECOMPUTE;
         };
         Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, action, Target.none()));
         JobWork<?> work = handlers.work(kind, params)

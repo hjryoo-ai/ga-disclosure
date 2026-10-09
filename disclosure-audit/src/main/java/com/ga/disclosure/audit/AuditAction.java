@@ -90,6 +90,8 @@ public enum AuditAction {
     COLLECTION_RATE_SNAPSHOT_REJECTED,
     /** 6B: 청약 게이트 판정(요청마다 1행, BLOCKED 포함) — 식별자 종류·SHA-256(원문 없음)·판정·사유·후보 수·확인서 ID·번호·룰 버전·대기 역할. */
     GATE_DECISION,
+    /** 6B: 보존 재계산의 연장(대상 DISCLOSURE, 적용 실행만 — dry-run은 남기지 않는다): 이전·이후 기한·룰 버전·작업 ID. */
+    RETENTION_RECOMPUTED,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

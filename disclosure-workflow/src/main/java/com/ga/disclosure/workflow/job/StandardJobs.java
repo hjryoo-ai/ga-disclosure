@@ -184,6 +184,59 @@ public final class StandardJobs {
         };
     }
 
+    /**
+     * 보존 재계산(6B 계획 §8): 본체는 작업 ID를 감사에 남긴다. HTTP 제출 전 룰 버전 검사(422 {@code RULE_VERSION_NOT_USABLE}). 보고서는 계약 스키마
+     * ({@code retention-recompute-report.schema.json}) 그대로.
+     */
+    public static JobWork<com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Report> retentionRecompute(
+            com.ga.disclosure.workflow.disclosure.RetentionRecomputeService service, com.ga.disclosure.domain.vo.RuleVersionId ruleVersion, boolean apply) {
+        return new JobWork<>() {
+            @Override
+            public com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Report run(List<Caller> acquired) {
+                throw new IllegalStateException("the retention recompute records its job id — run(acquired, jobIds)");
+            }
+
+            @Override
+            public com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Report run(List<Caller> acquired, List<UUID> jobIds) {
+                if (acquired.size() != 1 || jobIds.size() != 1) {
+                    throw new IllegalArgumentException("a single-tenant job runs with exactly one caller");
+                }
+                return service.run(acquired.getFirst(), ruleVersion, apply, jobIds.getFirst());
+            }
+
+            @Override
+            public void admit(Caller caller) {
+                service.admit(caller, ruleVersion);
+            }
+
+            @Override
+            public byte[] report(com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Report r, TenantId tenant) {
+                return Canonicalizer.canonicalize(r.toJson());
+            }
+        };
+    }
+
+    /** 룰 버전 매개변수(필수, 룰 버전 ID 형식). */
+    public static com.ga.disclosure.domain.vo.RuleVersionId ruleVersion(ObjectNode params, String name) {
+        JsonNode v = params.get(name);
+        if (v == null || !v.isString() || !v.asString().matches("[A-Z0-9][A-Z0-9_-]{0,63}")) {
+            throw new IllegalArgumentException("job parameter " + name + " must be a rule version id");
+        }
+        return com.ga.disclosure.domain.vo.RuleVersionId.of(v.asString());
+    }
+
+    /** 불리언 매개변수(없으면 기본값). */
+    public static boolean bool(ObjectNode params, String name, boolean dflt) {
+        JsonNode v = params.get(name);
+        if (v == null || v.isNull()) {
+            return dflt;
+        }
+        if (!v.isBoolean()) {
+            throw new IllegalArgumentException("job parameter " + name + " must be true or false");
+        }
+        return v.asBoolean();
+    }
+
     /** 기준월 매개변수 {@code periodMonth}(YYYY-MM) — 없으면 빈 값(본체가 전월로). */
     public static Optional<YearMonth> yearMonth(ObjectNode params, String name) {
         JsonNode v = params.get(name);

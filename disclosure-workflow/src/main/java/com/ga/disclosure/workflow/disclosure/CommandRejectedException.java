@@ -27,7 +27,9 @@ public final class CommandRejectedException extends RuntimeException {
         /** 6B 중간 회신 ①: 같은 출처·배치 ID에 다른 내용. */
         BATCH_REF_REUSED,
         /** 6B 7단계: 같은 (달, 룰 버전)의 징구율 스냅샷이 이미 있다. */
-        SNAPSHOT_EXISTS(RejectionCategory.CONFLICT);
+        SNAPSHOT_EXISTS(RejectionCategory.CONFLICT),
+        /** 6B 9단계: 보존 재계산의 룰 버전이 이 테넌트에 배포된 ACTIVE·APPROVED GLOBAL 버전이 아니다. */
+        RULE_VERSION_NOT_USABLE;
 
         private final RejectionCategory category;
 
