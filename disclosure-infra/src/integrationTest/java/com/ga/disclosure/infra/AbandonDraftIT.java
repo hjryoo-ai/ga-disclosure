@@ -59,7 +59,8 @@ class AbandonDraftIT {
     }
 
     static DraftAbandonService service(WorkflowSetup w, Clock clock, IdleDraftStore idle) {
-        return new DraftAbandonService(w.deps(clock), new AbandonGateway(w.db.appDataSource()), new ErasureRepository(w.gateway), idle);
+        return new DraftAbandonService(w.deps(clock), new AbandonGateway(w.db.appDataSource()), new ErasureRepository(w.gateway), idle,
+                new com.ga.disclosure.infra.retention.LegalHoldRepository(w.gateway));
     }
 
     static Clock later(WorkflowSetup w, Duration by) {
@@ -246,6 +247,56 @@ class AbandonDraftIT {
                     w.tenant.value())).isEqualTo("0");
             assertThat(row(w, "SELECT count(*)::text FROM outbox_event WHERE tenant_id = ? AND type = 'DisclosureAbandoned'",
                     w.tenant.value())).isEqualTo("0");
+        }
+    }
+
+    static void hold(WorkflowSetup w, String column, Object target) {
+        w.db.seed(w.tenant.value(), c -> SeedData.exec(c, "INSERT INTO legal_hold (tenant_id, hold_id, " + column
+                + ", reason_code, placed_by, placed_at) VALUES (?, gen_random_uuid(), ?, 'LITIGATION', 'ops', now())", w.tenant.value(), target));
+    }
+
+    /** 보류(확인서 또는 그 고객)가 걸린 초안은 지우지 않는다 — 앱은 업무 거부, 함수도 GD137(파기 전제와 같은 조건). */
+    @Test
+    void aDraftUnderLegalHoldIsNeverAbandoned() {
+        try (WorkflowSetup w = new WorkflowSetup()) {
+            DisclosureId heldDraft = reasonedWithFreeText(w, "APP-HELD-1");
+            hold(w, "disclosure_id", heldDraft.value());
+            DraftAbandonService drafts = service(w, w.clock);
+            LifecycleService.Outcome o = drafts.abandon(Callers.of(w.tenant, WorkflowSetup.AGENT), heldDraft, "DUPLICATE");
+            assertThat(o.rejection()).contains(LifecycleService.Rejection.UNDER_LEGAL_HOLD);
+            assertThat(row(w, "SELECT status || '|' || application_no FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", w.tenant.value(),
+                    heldDraft.value())).isEqualTo("REASONED|APP-HELD-1");
+            // 함수도 다시 본다(앱 검사를 건너뛴 호출)
+            assertThatThrownBy(() -> w.in(() -> {
+                new AbandonGateway(w.db.appDataSource()).abandon(heldDraft, w.clock.instant(), "bypass@test");
+                return null;
+            })).isInstanceOfSatisfying(com.ga.disclosure.workflow.disclosure.AbandonRefusedException.class,
+                    e -> assertThat(e.sqlState()).isEqualTo("GD137"));
+
+            // 고객 보류도 같다 — 그 고객의 다른 초안
+            DisclosureId customerDraft = w.compared();
+            hold(w, "customer_ref", w.customer.value());
+            assertThat(drafts.abandon(Callers.of(w.tenant, WorkflowSetup.AGENT), customerDraft, "DUPLICATE").rejection())
+                    .contains(LifecycleService.Rejection.UNDER_LEGAL_HOLD);
+            assertThat(w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.DISCLOSURE_REJECT)
+                    .extracting(a -> a.entry().detail().get("reason").asString()).containsOnly("UNDER_LEGAL_HOLD").hasSize(2);
+            assertThat(w.auditLog()).noneMatch(a -> a.entry().action() == AuditAction.DRAFT_ABANDONED);
+        }
+    }
+
+    @Test
+    void heldDraftsAreCountedAndKeptByTheIdleBatch() {
+        try (WorkflowSetup w = WorkflowSetup.withRule(body -> ((tools.jackson.databind.node.ObjectNode) body.get("draft")).put("abandonAfterDays", 30))) {
+            DisclosureId kept = w.draft();
+            DisclosureId gone = w.draft();
+            hold(w, "disclosure_id", kept.value());
+            DraftAbandonService.BatchReport r = service(w, later(w, Duration.ofDays(31))).abandonIdle(Callers.cli(w.tenant, RetentionSetup.OPERATOR), 100);
+            assertThat(r.abandoned()).containsExactly(gone);
+            assertThat(r.held()).isOne();
+            assertThat(r.skipped()).isZero();
+            assertThat(row(w, "SELECT status FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", w.tenant.value(), kept.value())).isEqualTo("DRAFT");
+            assertThat(w.auditLog()).filteredOn(a -> a.entry().action() == AuditAction.DRAFT_ABANDON_BATCH).singleElement()
+                    .satisfies(a -> assertThat(a.entry().detail().get("held").asInt()).isOne());
         }
     }
 

@@ -62,7 +62,7 @@ final class DraftCommands {
         int limit = Integer.parseInt(args.optional("limit").orElse(Integer.toString(StandardJobs.DEFAULT_ABANDON_LIMIT)));
         jobs.one(Caller.cli(tenant, args.required("operator")), JobKind.ABANDON_DRAFTS, JSON.createObjectNode().put("limit", limit),
                         StandardJobs.abandonDrafts(drafts, limit))
-                .ifPresent(r -> out.println("ABANDON_DRAFTS " + tenant + " abandoned=" + r.abandoned().size() + " skipped=" + r.skipped()
+                .ifPresent(r -> out.println("ABANDON_DRAFTS " + tenant + " abandoned=" + r.abandoned().size() + " skipped=" + r.skipped() + " held=" + r.held()
                         + " abandonAfterDays=" + (r.abandonAfterDays().isPresent() ? Integer.toString(r.abandonAfterDays().getAsInt()) : "-")));
         jobs.failIfIncomplete();
     }

@@ -21,6 +21,7 @@ import com.ga.disclosure.workflow.authz.Target;
 import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.disclosure.DisclosureLoader.Loaded;
 import com.ga.disclosure.workflow.retention.ErasureReader;
+import com.ga.disclosure.workflow.retention.LegalHoldStore;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -49,7 +50,8 @@ import java.util.stream.Collectors;
  * </ul>
  * 같은 트랜잭션에서: 지울 값의 해시를 읽어 감사 {@code DRAFT_ABANDONED}(파기와 같은 규약 — 평문 없음) → 폐기 함수({@code ga_draft_abandon}, 전용 롤)가
  * 상태를 옮기고 추천사유·검토 사유·항목 입력값·청약번호를 지운다(행 삭제 없음) → 문서 상태로 닫는 플래그를 닫고 → 아웃박스 {@code DisclosureAbandoned}.
- * 번호가 없으므로 체인·채번과 무관하다.
+ * 번호가 없으므로 체인·채번과 무관하다. 법적 보류(확인서 또는 그 고객)가 걸린 초안은 폐기하지 않는다 — 명시 폐기는 업무 거부
+ * {@code UNDER_LEGAL_HOLD}, 배치는 {@code held}로 세고 남긴다(DB V17 GD137이 다시 막는다).
  */
 public final class DraftAbandonService {
 
@@ -65,8 +67,11 @@ public final class DraftAbandonService {
             AuditAction.EXCEPTION_APPROVE, AuditAction.DISCLOSURE_REBASE);
     private static final Set<String> CHANGE_NAMES = CHANGES.stream().map(Enum::name).collect(Collectors.toUnmodifiableSet());
 
-    /** 배치 결과(번호·개인정보 없음). {@code abandonAfterDays}가 비면 룰 값이 null이라 아무것도 하지 않았다. */
-    public record BatchReport(OptionalInt abandonAfterDays, Optional<Instant> changedBefore, List<DisclosureId> abandoned, int skipped) {
+    /**
+     * 배치 결과(번호·개인정보 없음). {@code abandonAfterDays}가 비면 룰 값이 null이라 아무것도 하지 않았다. {@code skipped}는 선택 뒤 고쳐졌거나 상태가
+     * 바뀐 초안, {@code held}는 법적 보류(확인서 또는 그 고객) 때문에 남긴 초안.
+     */
+    public record BatchReport(OptionalInt abandonAfterDays, Optional<Instant> changedBefore, List<DisclosureId> abandoned, int skipped, int held) {
         public BatchReport {
             abandoned = List.copyOf(abandoned);
         }
@@ -84,8 +89,9 @@ public final class DraftAbandonService {
     private final AbandonPort abandoner;
     private final ErasureReader erasure;
     private final IdleDraftStore idle;
+    private final LegalHoldStore holds;
 
-    public DraftAbandonService(DisclosureServiceDeps deps, AbandonPort abandoner, ErasureReader erasure, IdleDraftStore idle) {
+    public DraftAbandonService(DisclosureServiceDeps deps, AbandonPort abandoner, ErasureReader erasure, IdleDraftStore idle, LegalHoldStore holds) {
         this.flags = deps.flags();
         this.rules = deps.rules();
         this.audit = deps.audit();
@@ -98,6 +104,7 @@ public final class DraftAbandonService {
         this.abandoner = Objects.requireNonNull(abandoner, "abandoner");
         this.erasure = Objects.requireNonNull(erasure, "erasure");
         this.idle = Objects.requireNonNull(idle, "idle");
+        this.holds = Objects.requireNonNull(holds, "holds");
     }
 
     /** 명시 폐기. 사유 코드가 고정 룰 목록에 없으면 업무 거부 {@code REASON_CODE_UNKNOWN}(상태 불변, 코드 값은 감사에 싣지 않는다). */
@@ -115,6 +122,11 @@ public final class DraftAbandonService {
                         .put("reason", LifecycleService.Rejection.REASON_CODE_UNKNOWN.name()).put("status", d.status().name()).put("actorRole", actor.role()));
                 return new LifecycleService.Outcome(id, d.status(), Optional.of(LifecycleService.Rejection.REASON_CODE_UNKNOWN), Optional.empty(),
                         List.of());
+            }
+            if (held(d)) {
+                record(actor, AuditAction.DISCLOSURE_REJECT, id, JSON.createObjectNode().put("command", DisclosureCommand.ABANDON.name())
+                        .put("reason", LifecycleService.Rejection.UNDER_LEGAL_HOLD.name()).put("status", d.status().name()).put("actorRole", actor.role()));
+                return new LifecycleService.Outcome(id, d.status(), Optional.of(LifecycleService.Rejection.UNDER_LEGAL_HOLD), Optional.empty(), List.of());
             }
             abandonLocked(actor, d, JSON.createObjectNode().put("trigger", "EXPLICIT").put("reasonCode", reasonCode)
                     .put("ruleVersionId", l.rule().globalRuleVersionId().value()));
@@ -144,41 +156,47 @@ public final class DraftAbandonService {
             return new Plan(actor, rule, days, Optional.of(before), idle.idleSince(before, CHANGE_NAMES, limit));
         });
         if (plan.before().isEmpty()) {
-            return new BatchReport(plan.days(), Optional.empty(), List.of(), 0);
+            return new BatchReport(plan.days(), Optional.empty(), List.of(), 0, 0);
         }
         Instant before = plan.before().get();
+        enum Result { ABANDONED, SKIPPED, HELD }
         List<DisclosureId> abandoned = new ArrayList<>();
         int skipped = 0;
+        int held = 0;
         for (IdleDraftStore.Idle candidate : plan.idle()) {
-            boolean done = transactions.inTenant(tenant, () -> {
+            Result result = transactions.inTenant(tenant, () -> {
                 Disclosure d = loader.load(tenant, candidate.id()).disclosure();            // 잠근다(설계사 명령과 같은 행 잠금)
                 if (!d.status().isMutable()) {
-                    return false;
+                    return Result.SKIPPED;
                 }
                 Optional<Instant> changed = idle.lastChange(candidate.id(), CHANGE_NAMES);
                 if (changed.isEmpty() || !changed.get().isBefore(before)) {
-                    return false;                                                          // 그 사이 고쳐졌다
+                    return Result.SKIPPED;                                                 // 그 사이 고쳐졌다
+                }
+                if (held(d)) {
+                    return Result.HELD;
                 }
                 Instant last = changed.get();
                 abandonLocked(plan.actor(), d, JSON.createObjectNode().put("trigger", "IDLE").put("abandonAfterDays", plan.days().getAsInt())
                         .put("lastChangedAt", last.toString()).put("ruleVersionId", plan.rule().globalRuleVersionId().value()));
-                return true;
+                return Result.ABANDONED;
             });
-            if (done) {
-                abandoned.add(candidate.id());
-            } else {
-                skipped++;
+            switch (result) {
+                case ABANDONED -> abandoned.add(candidate.id());
+                case SKIPPED -> skipped++;
+                case HELD -> held++;
             }
         }
         int skippedCount = skipped;
+        int heldCount = held;
         transactions.inTenant(tenant, () -> {
             audit.append(new AuditEntry(clock.instant(), plan.actor().subject(), plan.actor().role(), AuditAction.DRAFT_ABANDON_BATCH, "TENANT",
                     tenant.value(), JSON.createObjectNode().put("abandonAfterDays", plan.days().getAsInt()).put("changedBefore", before.toString())
-                            .put("candidates", plan.idle().size()).put("abandoned", abandoned.size()).put("skipped", skippedCount)
+                            .put("candidates", plan.idle().size()).put("abandoned", abandoned.size()).put("skipped", skippedCount).put("held", heldCount)
                             .put("ruleVersionId", plan.rule().globalRuleVersionId().value())));
             return null;
         });
-        return new BatchReport(plan.days(), Optional.of(before), abandoned, skipped);
+        return new BatchReport(plan.days(), Optional.of(before), abandoned, skipped, held);
     }
 
     /** 잠근 초안 하나를 폐기한다(호출자의 트랜잭션). 지울 값은 함수 호출 전에 읽어 해시로 감사에 남긴다. */
@@ -201,6 +219,11 @@ public final class DraftAbandonService {
             }
         }
         outbox.append(EventType.DisclosureAbandoned, d.id().toString(), at, OutboxPayloads.disclosureAbandoned(d.id().value(), at));
+    }
+
+    /** 활성 법적 보류 — 확인서 또는 그 고객(파기 전제와 같은 조건, DB V17이 다시 본다). */
+    private boolean held(Disclosure d) {
+        return holds.activeFor(d.id()).isPresent() || holds.activeFor(d.customerRef()).isPresent();
     }
 
     private void record(Actor actor, AuditAction action, DisclosureId id, ObjectNode detail) {

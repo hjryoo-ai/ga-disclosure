@@ -131,7 +131,7 @@ public final class StandardJobs {
             }
             ArrayNode ids = o.putArray("abandoned");
             r.abandoned().forEach(id -> ids.add(id.toString()));
-            o.put("skipped", r.skipped());
+            o.put("skipped", r.skipped()).put("held", r.held());
             return Canonicalizer.canonicalize(o);
         });
     }

@@ -81,7 +81,9 @@ public final class LifecycleService {
         /** 그 사유 코드는 텍스트가 필요하다({@code requiresText}). */
         REASON_TEXT_REQUIRED(RejectionCategory.INVALID),
         /** 사유 텍스트가 룰 상한({@code lifecycleReasonTextMaxLength})을 넘는다. */
-        REASON_TEXT_TOO_LONG(RejectionCategory.INVALID);
+        REASON_TEXT_TOO_LONG(RejectionCategory.INVALID),
+        /** 법적 보류(확인서 또는 그 고객)가 걸린 초안은 폐기하지 않는다(6B — 파기 전제와 같은 조건, DB V17 GD137). */
+        UNDER_LEGAL_HOLD(RejectionCategory.CONFLICT);
 
         private final RejectionCategory category;
 

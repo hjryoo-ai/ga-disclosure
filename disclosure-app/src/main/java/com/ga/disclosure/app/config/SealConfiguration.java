@@ -96,8 +96,9 @@ public class SealConfiguration {
     public com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandonService(DisclosureServiceDeps deps,
                                                                                          com.ga.disclosure.workflow.disclosure.AbandonPort abandoner,
                                                                                          com.ga.disclosure.workflow.retention.ErasureReader erasure,
-                                                                                         com.ga.disclosure.workflow.disclosure.IdleDraftStore idle) {
-        return new com.ga.disclosure.workflow.disclosure.DraftAbandonService(deps, abandoner, erasure, idle);
+                                                                                         com.ga.disclosure.workflow.disclosure.IdleDraftStore idle,
+                                                                                         com.ga.disclosure.workflow.retention.LegalHoldStore holds) {
+        return new com.ga.disclosure.workflow.disclosure.DraftAbandonService(deps, abandoner, erasure, idle, holds);
     }
 
     @Bean
