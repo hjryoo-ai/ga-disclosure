@@ -71,7 +71,8 @@ public final class TenantBindingFilter extends OncePerRequestFilter {
             ApiAuthenticationEntryPoint.write(response);
             return;
         }
-        Channel channel = request.getRequestURI().startsWith(request.getContextPath() + "/internal/") ? Channel.INTERNAL : Channel.API;
+        // 채널은 라우팅되는 디코딩 경로로 — 원 URI 접두로 고르면 /%69nternal/… 이 API 채널로 내부 핸들러에 닿았다(6B 8단계 보안 검토)
+        Channel channel = RoutedPath.of(request).startsWith("/internal/") ? Channel.INTERNAL : Channel.API;
         try {
             TenantContext.runWith(tenant, () -> {
                 if (!tenants.exists(TenantContext.current())) {

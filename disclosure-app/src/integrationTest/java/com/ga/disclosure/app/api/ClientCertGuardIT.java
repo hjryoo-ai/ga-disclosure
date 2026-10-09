@@ -77,6 +77,12 @@ class ClientCertGuardIT {
             assertThat(denied.status()).as(wrong.toString()).isEqualTo(404);
             assertThat(denied.fingerprint()).as(wrong.toString()).isEqualTo(unrouted.fingerprint());
         }
+        // 경로 표기를 바꿔도(퍼센트 인코딩·세미콜론·끝 슬래시·대소문자 무관 문자) 대조를 건너뛰어 게이트에 닿지 못한다 — 보안 검토 반영
+        for (String variant : new String[] {"/internal/v1/%67ate", "/internal/v1/g%61te", "/internal/%761/gate", "/internal/v1/gate;x=1",
+                "/internal/v1/gate/"}) {
+            ApiTestSupport.Response r = post(t, GATE, variant, query, Map.of());
+            assertThat(r.status()).as(variant).isNotEqualTo(200);
+        }
         assertThat(gateAudits(t)).isZero();
         assertThat(post(t, GATE, "/internal/v1/gate", query, Map.of(HEADER, GATE)).status()).isEqualTo(200);
         assertThat(gateAudits(t)).isOne();
