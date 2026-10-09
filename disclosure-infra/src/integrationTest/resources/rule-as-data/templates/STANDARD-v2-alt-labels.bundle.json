@@ -1,0 +1,269 @@
+{
+  "bundleId": "STANDARD.v2@7d4a7e8f17a4",
+  "kind": "TEMPLATE",
+  "scope": "GLOBAL",
+  "templateId": "STANDARD",
+  "templateType": "STANDARD",
+  "version": 2,
+  "applyFrom": "2026-09-01",
+  "supersedes": {
+    "templateId": "STANDARD",
+    "version": 1
+  },
+  "body": {
+    "fields": [
+      {
+        "code": "DISCLOSURE_NO",
+        "label": "확인서 번호(시험 변형)",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 1,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_DISCLOSURE_NO",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "CONSULT_DATE",
+        "label": "상담 일자(시험 변형)",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 2,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_CONSULT_DATE",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "AGENT",
+        "label": "담당 설계사(시험 변형)",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 3,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_AGENT",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "CUSTOMER_NAME",
+        "label": "고객 성명(시험 변형)",
+        "labelRef": "TODO(confirm#2)",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 4,
+        "section": "HEADER",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_CUSTOMER_NAME",
+          "readOnly": true
+        }
+      },
+      {
+        "code": "INSURER_NAME",
+        "label": "보험회사명",
+        "required": true,
+        "source": "CATALOG",
+        "order": 5,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "ITEM_INSURER_NAME"
+        }
+      },
+      {
+        "code": "PRODUCT_GROUP",
+        "label": "비교상품군",
+        "required": true,
+        "source": "CATALOG",
+        "order": 6,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "HEADER_PRODUCT_GROUP"
+        }
+      },
+      {
+        "code": "PRODUCT_NAME",
+        "label": "상품명",
+        "required": true,
+        "source": "CATALOG",
+        "order": 7,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "ITEM_PRODUCT_NAME"
+        }
+      },
+      {
+        "code": "PREMIUM",
+        "label": "보험료",
+        "required": true,
+        "source": "CATALOG",
+        "order": 8,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "CATALOG_DEFAULT"
+        }
+      },
+      {
+        "code": "SURRENDER_VALUE_EXAMPLE",
+        "label": "해약환급예시",
+        "required": true,
+        "source": "CATALOG",
+        "order": 9,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "CATALOG_DEFAULT"
+        }
+      },
+      {
+        "code": "COMMISSION_GRADE",
+        "label": "판매수수료등급",
+        "required": true,
+        "source": "ENGINE",
+        "order": 10,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "ENGINE_GRADE_LABEL",
+          "readOnly": true,
+          "unavailableText": "산출불가"
+        }
+      },
+      {
+        "code": "COMMISSION_RANK",
+        "label": "판매수수료순위",
+        "required": true,
+        "source": "ENGINE",
+        "order": 11,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "ENGINE_RANK",
+          "readOnly": true,
+          "unavailableText": "산출불가"
+        }
+      },
+      {
+        "code": "RECOMMENDATION_REASON",
+        "label": "추천사유",
+        "required": true,
+        "source": "AGENT",
+        "order": 12,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_ITEM",
+          "bind": "RECOMMENDATION"
+        }
+      },
+      {
+        "code": "RECOMMENDABLE_INSURERS",
+        "label": "추천가능보험사",
+        "required": true,
+        "source": "SYSTEM",
+        "order": 13,
+        "section": "COMPARISON",
+        "render": {
+          "scope": "PER_DOCUMENT",
+          "bind": "PANEL_INSURERS",
+          "readOnly": true
+        }
+      }
+    ],
+    "layout": {
+      "title": "보험상품 비교설명 확인서(시험 변형)",
+      "sections": [
+        {
+          "code": "HEADER",
+          "orientation": "DOCUMENT",
+          "fields": [
+            "DISCLOSURE_NO",
+            "CONSULT_DATE",
+            "AGENT",
+            "CUSTOMER_NAME"
+          ]
+        },
+        {
+          "code": "SUMMARY",
+          "orientation": "DOCUMENT",
+          "fields": [
+            "PRODUCT_GROUP",
+            "RECOMMENDABLE_INSURERS"
+          ]
+        },
+        {
+          "code": "COMPARISON",
+          "orientation": "COLUMN_PER_ITEM",
+          "columnsPerTable": 4,
+          "fields": [
+            "INSURER_NAME",
+            "PRODUCT_NAME",
+            "PREMIUM",
+            "SURRENDER_VALUE_EXAMPLE",
+            "COMMISSION_GRADE",
+            "COMMISSION_RANK",
+            "RECOMMENDATION_REASON"
+          ]
+        }
+      ],
+      "signaturePage": {
+        "labelRef": "TODO(confirm#2)",
+        "title": "서명 확인",
+        "columns": {
+          "role": "서명자",
+          "channel": "경로",
+          "method": "방법",
+          "signedAt": "서명 시각",
+          "identity": "본인확인",
+          "image": "서명"
+        },
+        "originalPdfLabel": "원본 확인서 PDF SHA-256",
+        "roleLabels": {
+          "CUSTOMER": "고객",
+          "AGENT": "설계사",
+          "MANAGER": "관리자"
+        },
+        "channelLabels": {
+          "TOUCH_PAD": "현장 터치",
+          "REMOTE_LINK": "원격 링크",
+          "PAPER_SCAN": "종이 스캔",
+          "SSO": "사내 인증"
+        },
+        "methodLabels": {
+          "DRAWN": "자필 서명",
+          "UPLOADED_SCAN": "스캔 업로드",
+          "SSO_APPROVAL": "승인"
+        },
+        "identityLabels": {
+          "LINK_POSSESSION": "링크 소유",
+          "BIRTH_DATE": "생년월일",
+          "AGENT_FACE_TO_FACE": "설계사 대면 확인",
+          "SCROLL_COMPLETE": "열람 완료",
+          "PROVIDER": "인증사업자"
+        },
+        "resultLabels": {
+          "PASS": "확인",
+          "FAIL": "불일치"
+        }
+      }
+    },
+    "pendingConfirmation": [
+      {
+        "ref": "TODO(confirm#2)",
+        "note": "협회 표준확인서(2026.7 개정판) 필수 항목 중 비교 항목(section COMPARISON) 9개(금융위 보도자료 예시 항목) 외의 항목 — 정본 목록·문구·배치 확인 후 fields에 추가한다. 항목명을 지어 넣지 않는다."
+      }
+    ]
+  }
+}
