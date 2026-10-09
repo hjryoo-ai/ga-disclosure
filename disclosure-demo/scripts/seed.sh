@@ -120,3 +120,79 @@ cli retention destroy --tenants DEMO3 --report-dir "$OUT" --operator "$OPERATOR"
 cli anchor run --tenants DEMO3 --operator "$OPERATOR" $TSA_STUB
 # 전 테넌트 무결성 검증(파기 건은 객체 부재가 정상, 영수증 토큰은 데모 신뢰 앵커로)
 cli verify tenant --tenants all --tsa-trust "$TSA_TRUST" --report-dir "$OUT" --operator demo-auditor $LOCAL_BUCKET
+
+# ---------------------------------------------------------------------------------------------- Phase 6B
+# (6B 지시문 §9 데모) DEMO1: 청약번호를 둔 B-1-LINK를 과거 시계(-P3D, 데모 프로파일)로 봉인·3자 서명 완료 → 계약 피드 CSV(계약일 어제)가 청약번호로
+# 연결해 보존기한을 늘린다 + 미매칭 1건 → 징구율 스냅샷(지난달, 내부 지표 — 규제 정의 없음) → 게이트 ALLOWED(B-1-LINK)·BLOCKED(없는 청약) →
+# 봉인 전 초안 B-2-ABANDON 폐기 → 보존 재계산 dry-run. DEMO2: CHAIN_BROKEN — 감사 행 한 줄을 바꿨다가(사고) 되돌리는(백업 복구) 시연 —
+# 근거 없는 해소는 거부, 복구 뒤 verify tenant(MATCH) 작업을 근거로 해소.
+# 같은 날 두 번째 실행은 전부 NOOP: 확인서·서명은 데모 규칙, CSV 배치는 같은 (출처, 배치 ID) 원장, 스냅샷은 있으면 건너뜀, 폐기는 이미 ABANDONED,
+# CHAIN_BROKEN은 해소된 플래그가 있으면 시연을 건너뛴다. 게이트는 질의라 실행마다 판정 감사가 한 줄씩 남는다(상태 변화 없음).
+# 번호(증권·청약)는 파일로만 넘긴다 — CSV·게이트 요청은 build/demo/phase6b(gitignore)에 만든다. 변조·복구는 로컬 compose의 superuser psql
+# (DEMO_PSQL로 바꿀 수 있다 — 감사 detail에는 개인정보가 없다).
+OUT6B="build/demo/phase6b"
+mkdir -p "$OUT6B"
+PAST3="--spring.profiles.active=cli,demo --ga.demo.clock-offset=-P3D"
+TODAY="$(date +%F)"
+YESTERDAY="$(date -v-1d +%F 2>/dev/null || date -d yesterday +%F)"
+LAST_MONTH="$(date -v-1m +%Y-%m 2>/dev/null || date -d 'last month' +%Y-%m)"
+PSQL="${DEMO_PSQL:-docker compose exec -T postgres psql -U postgres -d disclosure}"
+RECOMPUTE_RULE="$([[ "$AS_OF" < "2027-01-01" ]] && echo DISC-2026-07 || echo DISC-2027-01)"
+
+B1_OUT="$(cli demo disclosures --tenant DEMO1 --file "$DEMO/demo/disclosures-6b.json" --operator "$OPERATOR" $ENGINE_STUB $LOCAL_BUCKET $PAST3)"
+echo "$B1_OUT"
+cli demo signatures --tenant DEMO1 --file "$DEMO/demo/signatures-6b.json" --operator "$OPERATOR" $LOCAL_BUCKET $PAST3
+C03_REF="$(cli customer import --tenant DEMO1 --file "$DEMO/customers.json" --operator "$OPERATOR" | sed -n 's/^CUSTOMER_IMPORT DEMO1 C03 .* ref=\(.*\)$/\1/p')"
+
+# 계약 피드 CSV: 1행은 B-1-LINK의 청약번호(연결 → 보존 연장), 1행은 없는 청약(미매칭). 배치 ID는 날짜별 — 같은 날 재실행은 원장이 같은 결과.
+printf '%s\n' "policyNo,applicationNo,contractDate,insurerCode,customerRef,productKey" \
+  "POL-DEMO-6B-0001,APP-DEMO-6B-0001,$YESTERDAY,INS-A,,INS-A:PRD-1001" \
+  "POL-DEMO-6B-0002,APP-DEMO-6B-0002,$YESTERDAY,INS-B,," > "$OUT6B/contract-feed.csv"
+LINK_OUT="$(cli contract-links import --tenant DEMO1 --file "$OUT6B/contract-feed.csv" --format csv --source DEMO_FEED --batch-id "demo-6b-$TODAY" \
+  --operator "$OPERATOR" $LOCAL_BUCKET)"
+echo "$LINK_OUT"
+LINK_JOB="$(printf '%s\n' "$LINK_OUT" | sed -n 's/^JOB \([0-9a-f-]*\) .*/\1/p' | tail -n 1)"
+cli jobs report --tenant DEMO1 --id "$LINK_JOB" --out "$OUT6B/contract-feed.report.json" --operator demo-compliance $LOCAL_BUCKET
+echo "CONTRACT_LINK items: $(jq -c '[.items[] | {outcome, retention}]' "$OUT6B/contract-feed.report.json")"
+
+# 징구율 스냅샷(지난달): 이미 있으면 건너뛴다(같은 (달, 룰 버전)은 409 — 재계산 거부)
+if cli collection-rates list --tenant DEMO1 --from "$LAST_MONTH" --to "$LAST_MONTH" --operator demo-compliance | grep -q "^COLLECTION_RATE DEMO1 $LAST_MONTH / "; then
+  echo "COLLECTION_RATE_SNAPSHOT DEMO1 $LAST_MONTH NOOP (snapshot exists)"
+else
+  cli collection-rates snapshot --tenant DEMO1 --period "$LAST_MONTH" --operator "$OPERATOR" $LOCAL_BUCKET
+fi
+
+# 게이트: 완료된 B-1-LINK의 청약(ALLOWED), 없는 청약(BLOCKED) — 번호는 파일로
+jq -n --arg ref "$C03_REF" '{applicationNo: "APP-DEMO-6B-0001", customerRef: $ref}' > "$OUT6B/gate-allowed.json"
+jq -n --arg ref "$C03_REF" '{applicationNo: "APP-DEMO-6B-9999", customerRef: $ref}' > "$OUT6B/gate-blocked.json"
+cli gate check --tenant DEMO1 --file "$OUT6B/gate-allowed.json" --operator demo-gate
+cli gate check --tenant DEMO1 --file "$OUT6B/gate-blocked.json" --operator demo-gate
+
+# 보존 재계산 dry-run(시행 중 GLOBAL 버전 — 쓰기·감사 없음)
+cli retention recompute --tenants DEMO1 --rule-version "$RECOMPUTE_RULE" --operator demo-compliance $LOCAL_BUCKET
+
+# CHAIN_BROKEN(DEMO2): 해소된 시연 플래그가 있으면 건너뛴다
+if cli flags list --tenant DEMO2 --type CHAIN_BROKEN --status RESOLVED --operator demo-compliance | grep -q '^FLAG DEMO2 '; then
+  echo "CHAIN_BROKEN DEMO2 NOOP (the demo incident was resolved in an earlier run)"
+else
+  SEQ="$($PSQL -tA -c "SELECT min(seq) FROM audit_log WHERE tenant_id = 'DEMO2' AND action = 'RULE_ACTIVATE'")"
+  $PSQL -tA -c "SELECT detail::text FROM audit_log WHERE tenant_id = 'DEMO2' AND seq = $SEQ" > "$OUT6B/audit-row.json"
+  echo "INCIDENT DEMO2 audit seq=$SEQ altered (superuser, triggers off) — original kept in $OUT6B/audit-row.json"
+  $PSQL -q -c "BEGIN; SET LOCAL session_replication_role = replica; UPDATE audit_log SET detail = '{\"tampered\": true}' WHERE tenant_id = 'DEMO2' AND seq = $SEQ; COMMIT;"
+  cli verify tenant --tenants DEMO2 --tsa-trust "$TSA_TRUST" --report-dir "$OUT6B" --operator demo-auditor $LOCAL_BUCKET || echo "VERIFY DEMO2 exit=$? (mismatch expected)"
+  FLAGS="$(cli flags list --tenant DEMO2 --type CHAIN_BROKEN --status OPEN --operator demo-compliance | sed -n 's/^FLAG DEMO2 \([0-9a-f-]*\) .*/\1/p')"
+  for flag in $FLAGS; do
+    cli flags resolve --tenant DEMO2 --id "$flag" --code VERIFIED_MATCH --operator demo-compliance || echo "FLAG_RESOLVE refused without a MATCH (expected)"
+  done
+  # psql 변수는 -c에서 펼쳐지지 않는다 — 표준 입력으로
+  printf '%s\n' "BEGIN;" "SET LOCAL session_replication_role = replica;" \
+    "UPDATE audit_log SET detail = :'detail'::jsonb WHERE tenant_id = 'DEMO2' AND seq = $SEQ;" "COMMIT;" \
+    | $PSQL -q -v detail="$(cat "$OUT6B/audit-row.json")"
+  echo "RESTORED DEMO2 audit seq=$SEQ from $OUT6B/audit-row.json (backup)"
+  VERIFY_OUT="$(cli verify tenant --tenants DEMO2 --tsa-trust "$TSA_TRUST" --report-dir "$OUT6B" --operator demo-auditor $LOCAL_BUCKET)"
+  echo "$VERIFY_OUT"
+  VERIFY_JOB="$(printf '%s\n' "$VERIFY_OUT" | sed -n 's/^JOB \([0-9a-f-]*\) SUCCEEDED.*/\1/p' | tail -n 1)"
+  for flag in $FLAGS; do
+    cli flags resolve --tenant DEMO2 --id "$flag" --code VERIFIED_MATCH --verify-job "$VERIFY_JOB" --operator demo-compliance
+  done
+fi

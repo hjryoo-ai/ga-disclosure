@@ -40,6 +40,8 @@ import java.util.Objects;
  *
  * <p><b>데모 편의 규칙(운영 동작이 아님):</b> 같은 고객·상담일·상품군의 확인서가 이미 있으면 생성을 NOOP으로 건너뛰고, 그 중 봉인 이후 상태가
  * 있으면 봉인을, 정정본(supersedes가 있는 버전)이 있으면 정정을 NOOP으로 건너뛴다 — 시드를 두 번 돌려도 확인서·번호가 늘지 않게 하려는 것뿐이다.
+ * (6B) 사례의 선택 필드: {@code applicationNo}(작성 때 청약번호 — 계약 연결·게이트 데모), {@code abandon}({@code {reasonCode}} — 봉인 전 초안을 설계사가
+ * 폐기, 이미 ABANDONED면 NOOP).
  */
 final class DemoDisclosureSeeder {
 
@@ -49,16 +51,18 @@ final class DemoDisclosureSeeder {
     private final TenantTransactions transactions;
     private final SealService seal;
     private final LifecycleService lifecycle;
+    private final com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts;
     private final PrintStream out;
 
     DemoDisclosureSeeder(DisclosureService disclosures, DisclosureLookup lookup, CustomerVault customers, TenantTransactions transactions,
-                         SealService seal, LifecycleService lifecycle, PrintStream out) {
+                         SealService seal, LifecycleService lifecycle, com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts, PrintStream out) {
         this.disclosures = Objects.requireNonNull(disclosures, "disclosures");
         this.lookup = Objects.requireNonNull(lookup, "lookup");
         this.customers = Objects.requireNonNull(customers, "customers");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.seal = Objects.requireNonNull(seal, "seal");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
+        this.drafts = Objects.requireNonNull(drafts, "drafts");
         this.out = Objects.requireNonNull(out, "out");
     }
 
@@ -85,9 +89,11 @@ final class DemoDisclosureSeeder {
             out.println("DEMO_DISCLOSURE " + tenant + " " + id + " NOOP existing=" + existing.getFirst().id() + " (demo rule: same customer, date, group)");
             sealAndSupersede(tenant, agent, manager, id, c, existing.getFirst().id(), existing);
             voidIfAsked(tenant, manager, id, c, existing.getFirst().id(), existing);
+            abandonIfAsked(tenant, agent, id, c, existing.getFirst().id(), existing);
             return;
         }
-        DisclosureId d = disclosures.createDraft(Caller.cli(tenant, agent.subject()), customer, group, consult, TemplateType.STANDARD, java.util.Optional.empty());
+        DisclosureId d = disclosures.createDraft(Caller.cli(tenant, agent.subject()), customer, group, consult, TemplateType.STANDARD,
+                c.path("applicationNo").isString() ? java.util.Optional.of(c.get("applicationNo").asString()) : java.util.Optional.empty());
         List<ItemInput> items = new ArrayList<>();
         c.get("items").forEach(i -> items.add(item(i)));
         step(id, "replace", disclosures.replaceItems(Caller.cli(tenant, agent.subject()), d, items));
@@ -104,6 +110,24 @@ final class DemoDisclosureSeeder {
         out.println("DEMO_DISCLOSURE " + tenant + " " + id + " CREATED id=" + d + " status=" + last.status());
         sealAndSupersede(tenant, agent, manager, id, c, d, List.of());
         voidIfAsked(tenant, manager, id, c, d, List.of());
+        abandonIfAsked(tenant, agent, id, c, d, List.of());
+    }
+
+    /** 6B: 사례에 {@code abandon}이 있으면 봉인 전 초안을 설계사가 폐기(이미 ABANDONED면 NOOP) — 사유는 코드만. */
+    private void abandonIfAsked(TenantId tenant, Actor agent, String id, JsonNode c, DisclosureId d, List<DisclosureLookup.Summary> existing) {
+        JsonNode spec = c.get("abandon");
+        if (spec == null) {
+            return;
+        }
+        if (existing.stream().anyMatch(x -> x.status() == com.ga.disclosure.domain.enums.DisclosureStatus.ABANDONED)) {
+            out.println("  " + id + " abandon NOOP (already ABANDONED)");
+            return;
+        }
+        LifecycleService.Outcome o = drafts.abandon(Caller.cli(tenant, agent.subject()), d, spec.get("reasonCode").asString());
+        if (!o.applied()) {
+            throw new CliFailure("case " + id + " could not be abandoned: " + o.rejection().orElseThrow());
+        }
+        out.println("  " + id + " abandon -> " + o.status());
     }
 
     /** Phase 5: 사례에 {@code void}가 있으면 봉인본을 관리자가 무효로(이미 VOID면 NOOP) — 짧은 보존 데모의 종료 상태. */
