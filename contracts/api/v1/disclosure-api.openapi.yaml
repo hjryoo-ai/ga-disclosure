@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.2.0
+  version: 2.3.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -163,6 +163,23 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/LifecycleRequest' }
             example: { reasonCode: DUPLICATE }
+      responses:
+        '200': { $ref: '#/components/responses/LifecycleReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/abandon:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    post:
+      operationId: abandonDraft
+      summary: 초안 폐기(봉인 전, 고정 룰의 사유 코드 draft.abandonReasons — 텍스트 없음). 추천사유·항목 입력값·청약번호를 지운 묘비가 된다
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AbandonRequest' }
+            example: { reasonCode: CUSTOMER_DECLINED }
       responses:
         '200': { $ref: '#/components/responses/LifecycleReceipt' }
         default: { $ref: '#/components/responses/Problem' }
@@ -566,10 +583,10 @@ components:
         - { $ref: '#/components/schemas/Instant' }
     DisclosureStatus:
       type: string
-      enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED]
+      enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED, ABANDONED]
     JobKind:
       type: string
-      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE]
+      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS]
       description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
     Problem:
       type: object
@@ -610,7 +627,7 @@ components:
       required: [jobId, kind, status, channel, requestedBy, requestedAt, startedAt, finishedAt, errorCode, reportSha256]
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
-        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE] }
+        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }
@@ -629,7 +646,7 @@ components:
     JobParams:
       type: object
       additionalProperties: false
-      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음.
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE·ABANDON_DRAFTS는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음.
       properties:
         asOf: { $ref: '#/components/schemas/Instant' }
         limit: { type: integer, minimum: 1 }
@@ -816,6 +833,12 @@ components:
       properties:
         reasonCode: { $ref: '#/components/schemas/Code' }
         reasonText: { type: string }
+    AbandonRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode]
+      properties:
+        reasonCode: { $ref: '#/components/schemas/Code' }
     ExceptionApprovalRequest:
       type: object
       additionalProperties: false

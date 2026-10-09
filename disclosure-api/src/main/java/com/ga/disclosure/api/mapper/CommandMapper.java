@@ -5,6 +5,7 @@ import com.ga.disclosure.api.dto.DisclosureReceipt;
 import com.ga.disclosure.api.dto.Download;
 import com.ga.disclosure.api.dto.ExceptionApprovalReceipt;
 import com.ga.disclosure.api.dto.ItemsRequest;
+import com.ga.disclosure.api.dto.AbandonRequest;
 import com.ga.disclosure.api.dto.LifecycleReceipt;
 import com.ga.disclosure.api.dto.LifecycleRequest;
 import com.ga.disclosure.api.dto.RecommendationsRequest;
@@ -112,6 +113,12 @@ public final class CommandMapper {
 
     public static ValidationStage stage(String stage) {
         return parse("stage", () -> ValidationStage.valueOf(required("stage", stage)));
+    }
+
+    /** 폐기 사유 코드 — 형식은 무효 사유 코드와 같다(목록 대조는 유스케이스가 고정 룰로). */
+    public static String abandonReason(AbandonRequest r) {
+        String code = required("reasonCode", r == null ? null : r.reasonCode());
+        return parse("reasonCode", () -> new LifecycleReason(code, null)).code();
     }
 
     public static LifecycleReason reason(LifecycleRequest r) {

@@ -129,6 +129,49 @@ public class ErasureRepository extends TenantScopedRepository implements Erasure
         return out;
     }
 
+    @Override
+    public List<Erased> abandonedDraft(DisclosureId disclosure) {
+        Map<String, Object> id = Map.of("id", disclosure.value());
+        List<Erased> out = new ArrayList<>();
+        query("""
+                SELECT application_no
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id
+                """, id, (rs, n) -> {
+            text(out, "disclosure", "application_no", disclosure.toString(), rs.getString("application_no"));
+            return null;
+        });
+        query("""
+                SELECT item_no, reason_text
+                  FROM recommendation
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND reason_text IS NOT NULL
+                 ORDER BY item_no
+                """, id, (rs, n) -> {
+            text(out, "recommendation", "reason_text", disclosure + "/" + rs.getInt("item_no"), rs.getString("reason_text"));
+            return null;
+        });
+        query("""
+                SELECT review_id, reason
+                  FROM review
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND reason IS NOT NULL
+                 ORDER BY review_id
+                """, id, (rs, n) -> {
+            text(out, "review", "reason", rs.getString("review_id"), rs.getString("reason"));
+            return null;
+        });
+        // 항목 입력값은 NOT NULL이라 '{}'로 비운다(6B 계획 Q14) — 이미 '{}'인 행은 지울 값이 없다
+        query("""
+                SELECT item_no, field_values::text AS field_values
+                  FROM disclosure_item
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND field_values <> '{}'::jsonb
+                 ORDER BY item_no
+                """, id, (rs, n) -> {
+            json(out, "disclosure_item", "field_values", disclosure + "/" + rs.getInt("item_no"), rs.getString("field_values"));
+            return null;
+        });
+        return out;
+    }
+
     /** 해제된 보류의 사유 텍스트(V11 — 활성 보류가 있으면 파기 자체가 거부된다). */
     private void releasedHoldTexts(List<Erased> out, String sql, Map<String, Object> params) {
         query(sql, params, (rs, n) -> {

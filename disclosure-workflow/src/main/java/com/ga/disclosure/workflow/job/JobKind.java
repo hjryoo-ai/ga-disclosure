@@ -18,7 +18,9 @@ public enum JobKind {
     /** 6B: 계약 연결 배치(입력은 요청 본문 — 작업 행에는 번호 없는 요약만). */
     CONTRACT_LINK_IMPORT,
     /** 6B: 룰 기간이 지난 미매칭 보고 행 삭제. */
-    CONTRACT_LINK_UNMATCHED_PURGE;
+    CONTRACT_LINK_UNMATCHED_PURGE,
+    /** 6B: 룰 {@code draft.abandonAfterDays}보다 오래 바뀌지 않은 봉인 전 초안을 폐기(null이면 아무것도 하지 않는다). */
+    ABANDON_DRAFTS;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

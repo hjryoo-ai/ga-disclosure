@@ -19,6 +19,11 @@ public interface ErasureReader {
     /** {@code ga_disclosure_destroy}가 NULL로 바꿀 컬럼 전부(확인서·추천·검토·서명·세션·플래그). */
     List<Erased> disclosure(DisclosureId disclosure);
 
+    /**
+     * {@code ga_draft_abandon}이 지울 값 전부(6B): 확인서 청약번호, 추천사유 텍스트, 검토 사유, 항목 입력값({@code '{}'}가 아닌 것 — 그 값으로 비운다).
+     */
+    List<Erased> abandonedDraft(DisclosureId disclosure);
+
     /** {@code ga_customer_ref_destroy}가 NULL로 바꿀 컬럼 전부. */
     List<Erased> customer(CustomerRef customer);
 

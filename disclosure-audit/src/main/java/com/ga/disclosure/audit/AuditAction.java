@@ -76,6 +76,10 @@ public enum AuditAction {
     CONTRACT_LINK_IMPORT,
     /** (6B) 미매칭 보고 행 정리(대상 TENANT): 기준 시각·지운 수·룰 일수·룰 버전. */
     CONTRACT_LINK_UNMATCHED_PURGE,
+    /** 6B: 초안 폐기(대상 DISCLOSURE) — 지운 값의 해시({@code erased}, 파기와 같은 규약)·계기(설계사 사유 코드 또는 방치 일수). */
+    DRAFT_ABANDONED,
+    /** 6B: 방치 초안 폐기 배치 요약(대상 TENANT). */
+    DRAFT_ABANDON_BATCH,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

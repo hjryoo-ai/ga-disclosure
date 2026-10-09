@@ -93,6 +93,14 @@ public class SealConfiguration {
     }
 
     @Bean
+    public com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandonService(DisclosureServiceDeps deps,
+                                                                                         com.ga.disclosure.workflow.disclosure.AbandonPort abandoner,
+                                                                                         com.ga.disclosure.workflow.retention.ErasureReader erasure,
+                                                                                         com.ga.disclosure.workflow.disclosure.IdleDraftStore idle) {
+        return new com.ga.disclosure.workflow.disclosure.DraftAbandonService(deps, abandoner, erasure, idle);
+    }
+
+    @Bean
     public ArtifactService artifactService(DocumentRecordStore records, DocumentCryptoPort crypto, ArtifactStore storage, AuditPort audit,
                                            WorkflowTransactions tx, Clock clock, SealService seal, AuthorizationPort authz) {
         return new ArtifactService(records, crypto, storage, audit, tx, clock, seal.transactionTimeout(), authz);

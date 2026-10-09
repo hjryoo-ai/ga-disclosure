@@ -189,6 +189,14 @@ final class WorkflowSetup implements AutoCloseable {
         return List.of(catalogItem("INS-A:PRD-1001", true), catalogItem("INS-B:PRD-2044", false), catalogItem("INS-C:PRD-3120", true));
     }
 
+    /** 같은 테넌트·어댑터에 다른 시계를 쓰는 작성 유스케이스(6B 방치 초안: 나중에 고친 초안). */
+    DisclosureService serviceAt(Clock at) {
+        return new DisclosureService(disclosures, reviews, flags, new TenantRepository(gateway),
+                new EngineGradeClient(new HttpEngineTransport(settings, t -> Optional.of(TOKEN), t -> engine.baseUrl())),
+                catalog, catalog, vault, new RuleResolver(rules), new TemplateResolver(templates), StandardValidations.registry(), audit, tx,
+                at, agents, outbox, Callers.authz(at));
+    }
+
     /** 봉인·정정·무효 유스케이스가 함께 쓰는 포트 묶음(같은 저장소 어댑터·시계). */
     com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps deps(Clock at) {
         return new com.ga.disclosure.workflow.disclosure.DisclosureServiceDeps(disclosures, reviews, flags, new TenantRepository(gateway), catalog,

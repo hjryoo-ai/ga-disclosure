@@ -111,7 +111,7 @@ public final class JobRunner {
      */
     @UseCaseEntry({Action.ANCHOR_RUN, Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN,
             Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_IMPORT,
-            Action.CONTRACT_LINK_UNMATCHED_PURGE})
+            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS})
     public <R> Run<R> run(List<Caller> callers, JobKind kind, ObjectNode params, JobWork<R> work) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(params, "params");
@@ -128,6 +128,7 @@ public final class JobRunner {
             case FLAG_SLA_SWEEP -> Action.FLAG_SLA_SWEEP;
             case CONTRACT_LINK_IMPORT -> Action.CONTRACT_LINK_IMPORT;
             case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
+            case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
         };
         List<Caller> sorted = callers.stream().sorted(Comparator.comparing(c -> c.tenant().value())).toList();
         if (sorted.stream().map(Caller::tenant).distinct().count() != sorted.size()) {
@@ -162,7 +163,7 @@ public final class JobRunner {
      * {@code QUEUED→FAILED(REJECTED)}로 닫고 {@link RejectedExecutionException}을 다시 던진다. 앵커는 HTTP가 아니다(승인 Q7).
      */
     @UseCaseEntry({Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN, Action.VERIFY_TENANT,
-            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_UNMATCHED_PURGE})
+            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS})
     public JobRecord submit(Caller caller, JobKind kind, ObjectNode params) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(params, "params");
@@ -178,6 +179,7 @@ public final class JobRunner {
             case FLAG_SLA_SWEEP -> Action.FLAG_SLA_SWEEP;
             case CONTRACT_LINK_IMPORT -> throw new IllegalArgumentException("CONTRACT_LINK_IMPORT carries its batch in the request body");
             case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
+            case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
         };
         Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, action, Target.none()));
         JobWork<?> work = handlers.work(kind, params)

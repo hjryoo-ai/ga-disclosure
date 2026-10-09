@@ -77,6 +77,7 @@ public class JobConfiguration {
     public JobHandlers jobHandlers(ExpireService expiry, ArtifactService artifacts, DestructionJob destruction, TenantVerifier verifier,
                                    NotificationDispatcher dispatcher, IdempotencyPurge purge, com.ga.disclosure.workflow.flag.FlagCommandService flags,
                                    com.ga.disclosure.workflow.contract.ContractLinkService contractLinks,
+                                   com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts,
                                    Clock clock,
                                    @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String trustPem) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
@@ -113,6 +114,11 @@ public class JobConfiguration {
             StandardJobs.only(p, Set.of("limit"));
             return StandardJobs.contractLinkUnmatchedPurge(contractLinks, StandardJobs.limit(p, StandardJobs.DEFAULT_PURGE_LIMIT,
                     com.ga.disclosure.workflow.contract.ContractLinkService.MAX_PURGE));
+        });
+        h.put(JobKind.ABANDON_DRAFTS, p -> {
+            StandardJobs.only(p, Set.of("limit"));
+            return StandardJobs.abandonDrafts(drafts, StandardJobs.limit(p, StandardJobs.DEFAULT_ABANDON_LIMIT,
+                    com.ga.disclosure.workflow.disclosure.DraftAbandonService.MAX_BATCH));
         });
         h.put(JobKind.VERIFY_TENANT, p -> {
             StandardJobs.only(p, Set.of());

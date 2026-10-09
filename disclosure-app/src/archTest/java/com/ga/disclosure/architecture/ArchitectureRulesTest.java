@@ -55,6 +55,9 @@ class ArchitectureRulesTest {
             new Allowed(P + "infra.retention.DestroyerGateway",
                     "파기 함수 3개 호출 — 호출자 트랜잭션의 연결에서 SET LOCAL ROLE disclosure_destroyer(전용 롤, 함수 EXECUTE만) → 함수 → RESET ROLE. "
                             + "테넌트 데이터를 읽지 않는다(5 계획 승인 Q2, 설계서 §9)"),
+            new Allowed(P + "infra.retention.AbandonGateway",
+                    "초안 폐기 함수 1개 호출 — 호출자 트랜잭션의 연결에서 SET LOCAL ROLE disclosure_abandoner(전용 롤, ga_draft_abandon EXECUTE만) → "
+                            + "함수 → RESET ROLE. 테넌트 데이터를 읽지 않는다(6B 계획 Q10)"),
             new Allowed(P + "infra.jobs.JobLockGateway",
                     "작업 잠금 — 전용 롤 disclosure_job_lock(테이블·스키마 권한 0, V12 단언)으로 풀 없이 연 커넥션의 세션 advisory lock과 "
                             + "pg_locks 보유 확인만. 테넌트 데이터를 읽지 않는다(6A 계획 §6.1, 승인 Q8·B1)"));

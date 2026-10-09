@@ -38,6 +38,7 @@ public final class StandardJobs {
     public static final int DEFAULT_NOTIFY_LIMIT = 100;
     public static final int DEFAULT_PURGE_LIMIT = 10_000;
     public static final int DEFAULT_SLA_SWEEP_LIMIT = 500;
+    public static final int DEFAULT_ABANDON_LIMIT = 200;
 
     private StandardJobs() {
     }
@@ -114,6 +115,23 @@ public final class StandardJobs {
             } else {
                 o.putNull("retentionDays");
             }
+            return Canonicalizer.canonicalize(o);
+        });
+    }
+
+    /** 방치 초안 폐기(6B 지시문 §6): 보고서는 룰 일수·기준 시각·폐기한 확인서 ID·건너뛴 수(번호·개인정보 없음 — 봉인 전이라 번호도 없다). */
+    public static JobWork<com.ga.disclosure.workflow.disclosure.DraftAbandonService.BatchReport> abandonDrafts(
+            com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts, int limit) {
+        return single(c -> drafts.abandonIdle(c, limit), r -> {
+            ObjectNode o = JSON.createObjectNode().put("kind", JobKind.ABANDON_DRAFTS.name());
+            if (r.abandonAfterDays().isPresent()) {
+                o.put("abandonAfterDays", r.abandonAfterDays().getAsInt()).put("changedBefore", r.changedBefore().orElseThrow().toString());
+            } else {
+                o.putNull("abandonAfterDays").putNull("changedBefore");
+            }
+            ArrayNode ids = o.putArray("abandoned");
+            r.abandoned().forEach(id -> ids.add(id.toString()));
+            o.put("skipped", r.skipped());
             return Canonicalizer.canonicalize(o);
         });
     }

@@ -67,6 +67,9 @@ public final class ScopePolicy {
         // 6B 계약 연결(계획 §4): 배치는 계약 피드 서비스 주체만, 미매칭 보고 행 정리는 배치
         grant(m, Action.CONTRACT_LINK_IMPORT, Role.CONTRACT_FEED, Scope.TENANT);
         grant(m, Action.CONTRACT_LINK_UNMATCHED_PURGE, Role.SCHEDULER, Scope.TENANT);
+        // 6B 초안 폐기(지시문 §6): 명시 폐기는 작성 설계사(사유 코드 — 룰 draft.abandonReasons), 방치 초안 폐기는 배치(룰 draft.abandonAfterDays)
+        grant(m, Action.DRAFT_ABANDON, Role.AGENT, Scope.OWN);
+        grant(m, Action.ABANDON_DRAFTS, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.VERIFY_TENANT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.JOB_READ, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         // 파기 실행·dry-run은 사람 역할에 없다 — 준법은 보고서 열람만(REPORT_VIEW). 앵커는 플랫폼 배치라 CLI만(6A 승인 Q7)

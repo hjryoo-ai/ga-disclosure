@@ -6,6 +6,7 @@ import com.ga.disclosure.api.dto.Download;
 import com.ga.disclosure.api.dto.ExceptionApprovalReceipt;
 import com.ga.disclosure.api.dto.ExceptionApprovalRequest;
 import com.ga.disclosure.api.dto.ItemsRequest;
+import com.ga.disclosure.api.dto.AbandonRequest;
 import com.ga.disclosure.api.dto.LifecycleReceipt;
 import com.ga.disclosure.api.dto.LifecycleRequest;
 import com.ga.disclosure.api.dto.RecommendationsRequest;
@@ -17,6 +18,7 @@ import com.ga.disclosure.api.mapper.DisclosureMapper;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.DisclosureService;
+import com.ga.disclosure.workflow.disclosure.DraftAbandonService;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.verify.ReceiptExporter;
@@ -44,9 +46,11 @@ public class DisclosureCommandsController {
     private final LifecycleService lifecycle;
     private final ArtifactService artifacts;
     private final ReceiptExporter receipts;
+    private final DraftAbandonService drafts;
 
     public DisclosureCommandsController(DisclosureService disclosures, SealService seals, LifecycleService lifecycle, ArtifactService artifacts,
-                                        ReceiptExporter receipts) {
+                                        ReceiptExporter receipts, DraftAbandonService drafts) {
+        this.drafts = drafts;
         this.disclosures = disclosures;
         this.seals = seals;
         this.lifecycle = lifecycle;
@@ -96,6 +100,11 @@ public class DisclosureCommandsController {
     @PostMapping("/{id}/void")
     public LifecycleReceipt voidDisclosure(Caller caller, @PathVariable("id") String id, @RequestBody LifecycleRequest request) {
         return CommandMapper.lifecycle(lifecycle.voidDisclosure(caller, DisclosureMapper.id(id), CommandMapper.reason(request)));
+    }
+
+    @PostMapping("/{id}/abandon")
+    public LifecycleReceipt abandon(Caller caller, @PathVariable("id") String id, @RequestBody AbandonRequest request) {
+        return CommandMapper.lifecycle(drafts.abandon(caller, DisclosureMapper.id(id), CommandMapper.abandonReason(request)));
     }
 
     @PostMapping("/{id}/rebase")
