@@ -103,7 +103,8 @@ public final class TableEngineStub {
                         .put("tie", sharing.get(rank.get(k)) > 1);
             }
         }
-        out.put("generatedAt", generatedAt.atOffset(ZoneOffset.ofHours(9)).toString());
+        // RFC 3339 — 초를 늘 쓴다(OffsetDateTime.toString()은 0초를 생략해 계약 1.2.1 pattern에 어긋났다). 엔진과 같은 형식기
+        out.put("generatedAt", DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(generatedAt.atOffset(ZoneOffset.ofHours(9))));
         return out;
     }
 

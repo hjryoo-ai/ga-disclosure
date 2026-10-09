@@ -1,7 +1,7 @@
 e76951043b5b10d78c09753cc8c2ae0b599d607542359c7643d258072cfa4104  api/v1/disclosure-api.openapi.yaml
 6711214b601536985138a78a05ccf6f94ffb5cae48b8c165a94668f26ad6fda2  api/v1/disclosure-internal.openapi.yaml
 cd097046267baf109a678149b1fb7c25738bb93fa3b28ff7d64b1ea1d847bcee  api/v1/disclosure-public.openapi.yaml
-58d5b45e4bd0016c41a958cf159beefd79f1a9a3a23be395cda7cc3a92b24dea  api/v1/engine-disclosure.openapi.yaml
+f58d74b0cabeeb614491047d8dc38bfc32936f3b70d99615bd449940ad107ea8  api/v1/engine-disclosure.openapi.yaml
 6bba3a1140094f03c87d6a852055b1aa90972685e8748bb19003d8b2d50f7b8c  catalog/v1/catalog-file.schema.json
 b8c8882f988a6175cd7df7ea816be114e07761450ca5df11cd2b155aec4050f5  contract-link/v1/contract-link-batch.schema.json
 33bc0330440454ae2a09a83cd289b34e2b4fb6d2dd30840a9b19b741fb8fce4c  contract-link/v1/samples/contract-link-batch.json
