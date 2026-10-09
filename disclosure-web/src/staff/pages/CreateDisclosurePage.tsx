@@ -3,7 +3,7 @@ import { type SubmitEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { staff } from '../../shared/messages.ko.json';
 import { useApi, write } from '../api/useApi';
-import { formText, ResultLine, useShown } from '../components/ui';
+import { Choice, formText, ResultLine, useShown } from '../components/ui';
 
 const TEMPLATE_TYPES = ['STANDARD', 'AUTO'] as const;
 const todayKst = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
@@ -39,10 +39,8 @@ export function CreateDisclosurePage() {
         <input id="d-group" name="groupCode" required autoComplete="off" />
         <label htmlFor="d-date">{staff.create.consultDate}</label>
         <input id="d-date" name="consultDate" type="date" required defaultValue={todayKst()} />
-        <label htmlFor="d-type">{staff.create.templateType}</label>
-        <select id="d-type" name="templateType" defaultValue={TEMPLATE_TYPES[0]}>
-          {TEMPLATE_TYPES.map((t) => <option key={t} value={t}>{staff.templateType[t]}</option>)}
-        </select>
+        <Choice id="d-type" name="templateType" legend={staff.create.templateType} defaultValue={TEMPLATE_TYPES[0]}
+          options={TEMPLATE_TYPES.map((t) => ({ value: t, label: staff.templateType[t] }))} />
         <div><button type="submit">{staff.create.submit}</button></div>
       </form>
       <ResultLine shown={shown} />

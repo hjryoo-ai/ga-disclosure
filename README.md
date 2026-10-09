@@ -18,6 +18,8 @@
 docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + 봉인 산출물 저장소(SeaweedFS, digest 고정, 허구 S3 키)
 disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정 + 서명·완료·만료(운영자 CLI, 멱등)
 disclosure-demo/scripts/http-demo.sh   # (6A) seed.sh 뒤, 같은 DB에서 HTTP 흐름 — 데모 OIDC 토큰 → 초안~봉인 → 원격 링크·NOTIFY 작업 → 고객 공개 경로 → 서명·완료 → 피드 → VERIFY_TENANT → 거부 3종 바이트 비교(curl·jq 필요, 같은 날 두 번째 실행은 전부 재생)
+./gradlew :disclosure-web:e2e        # (7) 화면 E2E — 격리 컨테이너 + 부트 jar(demo) + Playwright Chromium(데스크톱·모바일), Docker 없으면 실패
+./gradlew :disclosure-web:e2eDemo    # (7) 같은 흐름을 한 번 돌리며 스크린샷을 disclosure-web/build/demo/phase7/에
 GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest   # (opt-in) 실 TSA 계약 시험 — check에 없다, 두 값이 없으면 스킵이 아니라 실패
 ```
 
@@ -77,6 +79,31 @@ GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest 
 - **파기**: 보존기간이 끝나면 문서 키 파기 → 객체의 모든 버전·마커 삭제 → 묘비 순으로 진행한다. 묘비는 지정 개인정보 컬럼만 NULL이 되고 번호·상태·해시·시각·체인은 남는다. 파기는 전용 롤의 DB 함수만 할 수 있고 감사에는 지운 값의 해시를 남긴다. 지정 컬럼 전수는 설계서의 기계 판독 표가 정본이며 테스트가 DB 함수·카탈로그와 양방향 대조한다. 법적 보류(DB가 통제, 저장소 legal hold는 보조)는 파기를 막는다.
 - 보존기간·대기 일수·보류 사유 코드는 룰 데이터다. 데모의 짧은 보존(0년 1일)은 데모 전용 번들과, 데모 프로파일에서만 존재하는 시계 오프셋으로 만든다.
 
+## 화면 (Phase 7)
+
+데모 프로파일의 웹 앱이 같은 출처로 서빙한다: 직원 화면 `/staff`, 고객 서명 `/s#{토큰}`, 로그인 콜백 `/oidc-callback`. CSP는 `default-src 'self'`(인라인 스크립트·`unsafe-eval` 없음), 외부 출처 요청 0, 토큰·개인정보는 브라우저 저장소에 두지 않는다(새로 고침 = 다시 로그인). 운영 배포·도메인 분리는 Phase 8.
+
+손으로 둘러보려면 E2E 하네스로 격리 환경을 띄운다(시드·키 생성 포함, 사용자 compose 볼륨과 무관 — 끝나면 `down`):
+
+```bash
+./gradlew :disclosure-app:bootJar
+GA_E2E_JAVA=<JDK 25의 bin/java> GA_E2E_JAR=disclosure-app/build/libs/disclosure-app-0.1.0-SNAPSHOT.jar node disclosure-web/e2e/env.mjs up   # 출력의 주소로 /staff 열기
+node disclosure-web/e2e/env.mjs down
+```
+
+**로그인(데모 OIDC — Authorization Code + PKCE)**: "데모 로그인" → 새 창에서 계정 선택 → Sign in. 계정은 `application-demo.yaml`의 닫힌 목록이고 역할은 `identity_link`(시드)에서 온다.
+
+| 계정 | 역할 | 둘러보기 |
+|---|---|---|
+| `DEMO1 · demo-agent` | 설계사 | 고객 등록(응답은 가명뿐) → 새 확인서 → 비교 상품 고르기(추천 표시) → 비교표·등급·순위 → 추천 사유 입력(코드 예 `PREMIUM`·`COVERAGE`는 룰 데이터의 코드) → 검증(봉인 단계) → 봉인 → 미리보기(워터마크) → 서명 세션: 현장 터치패드(대면 확인 기록 → 고객 서명 창) 또는 원격 서명 링크("발송 대기" — 링크는 통지 작업이 콘솔에 `SIGN LINK`로 낸다) → 설계사 서명 |
+| `DEMO1 · demo-manager` | 관리자 | 확인서 목록(조직 범위) → 상세의 "이 확인서의 플래그" 체크 → 관리자 확인(마지막 서명이면 완료) · 예외 승인(검증 결과 행) · 무효 · 종이 스캔 검토 · 징구율 |
+| `DEMO1 · demo-compliance`, `demo-compliance-2` | 준법 | 준법 플래그(필터·배정·해소) · 법적 보존 걸기 → **다른** 준법 계정으로 해제(4-eyes) · 작업(보존 재계산은 "실제 적용" 끔 = dry-run) · 징구율(정의 문구는 서버 응답 그대로) |
+| `DEMO2 · demo-compliance` | 준법 | 하네스가 만든 `CHAIN_BROKEN` 플래그 → "검증 작업 접수" → 보고서 → 그 작업 ID를 증거로 해소 |
+
+버튼은 역할·상태로 숨기지 않는다 — 할 수 없는 동작은 서버가 거부하고 화면은 그 코드를 사전 문구와 함께 보인다(사전에 없는 코드는 코드 그대로). 확인서 라벨은 그 확인서가 고정한 서식에서 온다(`GET /api/v1/disclosures/{id}/template`). 추천 사유는 설계사만 쓴다 — 입력 칸은 비어 있고 자동완성·예시가 없다.
+
+E2E(`:disclosure-web:e2e`)는 위 흐름을 데스크톱·모바일로 키보드만(서명 패드 제외) 돌리고, 실행마다 만든 허구 이름·전화·생년월일과 서명 토큰이 콘솔·URL·헤더·저장소·파일 이름·앱 로그에 없음을 확인한다. 끝으로 화면이 보낸 쓰기를 같은 멱등 키로 다시 보내 서버 상태가 그대로임(재생, 테이블별 행 수 동일)을 본다. 산출물: `disclosure-web/build/e2e/`(HTML 리포트·JUnit·누출 스캔·재전송·axe 요약).
+
 ## 플랫폼 아티팩트 소비
 
 `platform-core`·`platform-canonical`·`platform-spring`은 같은 SemVer 버전(현재 `0.1.0`)으로 함께 발행한다(`com.ga.platform`). 소비자(`ga-agent-portal` 등)는 **mavenLocal을 먼저**, 없으면 **GitHub Packages**를 쓴다.
@@ -123,6 +150,6 @@ dependencyResolutionManagement {
 | `disclosure-app` | Spring Boot 조립, `/actuator/health`, 운영자 CLI(`cli` 프로파일), 아키텍처 테스트(`archTest`) | 웹 모드는 `ga.api.jwt.issuer`·`ga.api.jwt.audience`와 `ga.api.jwt.jwk-set-uri` 또는 `ga.api.jwt.public-key-location` 중 하나, 목록 커서 키 `ga.api.cursor-key-file`(저장소 밖, 없으면 소유자 전용으로 생성), 멱등 요청 해시 키 `ga.api.request-hash-key-file`(같은 규약, 6B), 고객 등록 영수증 키 `ga.api.receipt-key-file`(같은 규약, 6B), 고객 공개 서명 응답 하한 `ga.public-sign.min-response-millis`(1 이상)가 없으면 기동하지 않는다(기본값 없음) |
 | `disclosure-demo` | 데모 테넌트·사규 시드와 시드 스크립트(Phase 1), 가상 카탈로그 파일(Phase 2), 확인서·엔진 스텁(Phase 8) | 어떤 모듈도 의존하지 않음 |
 | `contracts/` | 엔진·내부 OpenAPI, 이벤트 스키마(v1, 포털 §4.1 Envelope), 룰·서식·번들 스키마, 규제 번들, `CHECKSUMS` | |
-| `web/` | 프론트(Phase 7) | |
+| `disclosure-web` | (Phase 7) 직원 화면(React 19)·고객 공개 서명 화면(프레임워크 없음, pdf.js 워커 번들) — Node 24 빌드를 Gradle이 감싸고 산출물은 jar의 `classpath:/ga-web/`(데모 프로파일만 서빙). 계약에서 생성한 클라이언트만(수기 `fetch` 금지 린트), E2E는 Playwright | 화면은 상태·검증·게이트를 계산하지 않는다(시험) |
 
 의존 방향: `app → api → workflow/compliance → rules/seal/sign/audit → domain → platform-core` (Gradle 프로젝트 의존 + ArchUnit 이중 강제).

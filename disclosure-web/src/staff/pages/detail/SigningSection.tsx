@@ -7,7 +7,7 @@ import { fingerprint } from '../../../shared/fingerprint';
 import { staff } from '../../../shared/messages.ko.json';
 import { SignaturePad } from '../../../shared/pad';
 import { useApi, write } from '../../api/useApi';
-import { formText, label, ResultLine, Section, useShown } from '../../components/ui';
+import { Choice, formText, label, ResultLine, Section, useShown } from '../../components/ui';
 
 type Detail = components['schemas']['DisclosureDetail'];
 type Channel = components['schemas']['SessionIssueRequest']['channel'];
@@ -76,10 +76,8 @@ export function SigningSection({ id, detail, reload }: { id: string; detail: Det
         </ul>
       )}
       <form onSubmit={issue}>
-        <label htmlFor="s-channel">{staff.signing.channel}</label>
-        <select id="s-channel" name="channel" defaultValue="TOUCH_PAD">
-          {CHANNELS.map((c) => <option key={c} value={c}>{label(staff.channel, c)}</option>)}
-        </select>
+        <Choice id="s-channel" name="channel" legend={staff.signing.channel} defaultValue="TOUCH_PAD"
+          options={CHANNELS.map((c) => ({ value: c, label: label(staff.channel, c) }))} />
         <button type="submit">{staff.signing.issue}</button>
       </form>
       {issued !== null && (

@@ -67,7 +67,7 @@ export function JobsPage() {
           <label htmlFor="j-asof">{staff.jobs.asOf}</label>
           <input id="j-asof" name="asOf" autoComplete="off" spellCheck={false} />
           <label htmlFor="j-month">{staff.jobs.periodMonth}</label>
-          <input id="j-month" name="periodMonth" type="month" />
+          <input id="j-month" name="periodMonth" inputMode="numeric" pattern="[0-9]{4}-[0-9]{2}" autoComplete="off" spellCheck={false} />
           <label htmlFor="j-rule">{staff.jobs.ruleVersionId}</label>
           <input id="j-rule" name="ruleVersionId" autoComplete="off" spellCheck={false} />
           <div className="inline">

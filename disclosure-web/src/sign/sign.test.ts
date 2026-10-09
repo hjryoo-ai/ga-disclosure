@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sign } from '../shared/messages.ko.json';
 import type { PublicClient } from '../shared/api/publicClient';
 import { SignaturePad } from '../shared/pad';
+import { dashedDate } from './main';
 import { takeToken } from './token';
 import { ViewTracker } from './viewer';
 
@@ -142,7 +143,8 @@ describe('sign flow', () => {
     expect(input).not.toBeNull();
     if (input === null) return;
     expect(input.getAttribute('autocomplete')).toBe('off');
-    input.value = '1990-01-31';
+    expect(input.getAttribute('type')).toBe('text');                       // 휴대폰 날짜 선택기 대신 숫자 자판(8자리)
+    input.value = '19900131';
     root.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
     expect(input.value).toBe('');
     await vi.waitFor(() => { expect(root.textContent).toContain(sign.identity.passed); });
@@ -166,5 +168,14 @@ describe('sign flow', () => {
     submit?.click();
     await vi.waitFor(() => { expect(root.querySelector('.rejected')?.textContent).toBe(`${sign.problem.REJECTED} (IDENTITY_INCOMPLETE)`); });
     expect(root.querySelector('h1')?.textContent).toBe(sign.app.title);
+  });
+});
+
+describe('birth date notation', () => {
+  it('rewrites eight digits as yyyy-MM-dd and leaves anything else to the server', () => {
+    expect(dashedDate(' 19900131 ')).toBe('1990-01-31');
+    expect(dashedDate('1990-01-31')).toBe('1990-01-31');
+    expect(dashedDate('900131')).toBe('900131');
+    expect(dashedDate('')).toBe('');
   });
 });

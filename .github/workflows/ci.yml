@@ -46,6 +46,38 @@ jobs:
             **/build/reports/tests/**
             disclosure-web/build/reports/vitest/**
 
+  e2e:
+    # Phase 7 계획 ⑦·Q12: 화면 E2E(Playwright Chromium 데스크톱·모바일) — 부트 jar + 격리 컨테이너(PostgreSQL·SeaweedFS digest 고정).
+    # Docker가 없으면 실패한다(스킵 없음). 아티팩트: HTML 리포트·JUnit·누출 스캔·재전송·axe 요약. server.log·seed.log는 올리지 않는다(데모 링크 토큰).
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Docker available
+        run: docker info --format '{{.ServerVersion}}'
+
+      - name: E2E (G4·G5·G9·G10·G11)
+        run: ./gradlew :disclosure-web:e2e --console=plain
+
+      - name: E2E reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-reports
+          path: |
+            disclosure-web/build/e2e/report/**
+            disclosure-web/build/e2e/junit.xml
+            disclosure-web/build/e2e/*-summary.json
+            disclosure-web/build/e2e/leak-scan/**
+            disclosure-web/build/e2e/axe/**
+
   pdfa-verify:
     # 3B S12: 골든 PDF를 veraPDF(PDF/A-2b 프로파일)로 검증한다 — 실패 규칙 1건 이상이면 잡 실패. veraPDF는 GPL-3.0/MPL-2.0이라
     # 메인 의존성에 넣지 않고 독립 빌드(verification/pdfa-verify)로 돌린다. 골든 PDF는 메인 빌드가 커밋된 골든 입력에서 렌더한다.

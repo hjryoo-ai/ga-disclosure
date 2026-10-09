@@ -101,3 +101,40 @@ tasks.named<ProcessResources>("processResources") {
 tasks.named("check") {
     dependsOn(webTypecheck, webLint, webTest, webLicenses)
 }
+
+// E2E(계획 ⑦, G4·G5·G9·G10·G11): 부트 jar + 격리 컨테이너(e2e/env.mjs) 위에서 Playwright(Chromium 데스크톱·모바일). Docker가 없으면 실패한다(스킵 없음).
+// check에 넣지 않는다 — CI는 별도 잡 e2e(Q12: PR과 main). 개인정보는 실행마다 만드는 허구 센티널 파일로만(e2e/run.mjs).
+val e2eInstall = tasks.register<NpmTask>("e2eInstall") {
+    description = "Downloads the Chromium build pinned by @playwright/test."
+    dependsOn(tasks.named("npmInstall"))
+    // CI(ubuntu)는 브라우저가 쓰는 시스템 라이브러리도 설치한다(apt, 러너의 sudo)
+    args = if (providers.environmentVariable("CI").orNull == "true") listOf("run", "e2e:install", "--", "--with-deps") else listOf("run", "e2e:install")
+    outputs.upToDateWhen { false }
+}
+
+fun NpmTask.e2eRun() {
+    webInputs()
+    dependsOn(clientCheck, e2eInstall, ":disclosure-app:bootJar")
+    val bootJar = project(":disclosure-app").tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar").flatMap { it.archiveFile }
+    val launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(libs.versions.java.get()) }
+    inputs.dir("e2e").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file("playwright.config.ts").withPathSensitivity(PathSensitivity.RELATIVE)
+    environment.put("GA_E2E_JAR", bootJar.map { it.asFile.absolutePath })
+    environment.put("GA_E2E_JAVA", launcher.map { it.executablePath.asFile.absolutePath })
+    args = listOf("run", "e2e")
+    outputs.upToDateWhen { false }
+}
+
+tasks.register<NpmTask>("e2e") {
+    description = "Runs the Playwright end-to-end suite against the demo profile in isolated containers."
+    group = "verification"
+    e2eRun()
+}
+
+// 지시문 6절 e2e-demo: 같은 흐름을 한 번 돌리며 화면을 build/demo/phase7/(git 무시)에 남긴다. 시험·단언은 e2e와 같다.
+tasks.register<NpmTask>("e2eDemo") {
+    description = "Runs the E2E flows once and keeps screenshots in build/demo/phase7/."
+    group = "verification"
+    e2eRun()
+    environment.put("GA_E2E_DEMO", "1")
+}

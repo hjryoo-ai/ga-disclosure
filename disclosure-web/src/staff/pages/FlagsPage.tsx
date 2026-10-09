@@ -6,7 +6,7 @@ import { staff } from '../../shared/messages.ko.json';
 import { outcome, useApi, write, type Outcome } from '../api/useApi';
 import { JobPanel } from '../components/JobPanel';
 import { ProblemView } from '../components/ProblemView';
-import { formText, label, ResultLine, useShown } from '../components/ui';
+import { Choice, formText, label, ResultLine, useShown } from '../components/ui';
 
 type Flag = components['schemas']['Flag'];
 type Job = components['schemas']['Job'];
@@ -64,16 +64,10 @@ export function FlagsPage() {
     <>
       <h1>{staff.flags.title}</h1>
       <form onSubmit={filter} className="filters">
-        <label htmlFor="f-status">{staff.flags.status}</label>
-        <select id="f-status" name="status" defaultValue="">
-          <option value="">{staff.common.any}</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{label(staff.flagStatus, s)}</option>)}
-        </select>
-        <label htmlFor="f-role">{staff.flags.assignedRole}</label>
-        <select id="f-role" name="assignedRole" defaultValue="">
-          <option value="">{staff.common.any}</option>
-          {ROLES.map((s) => <option key={s} value={s}>{label(staff.role, s)}</option>)}
-        </select>
+        <Choice id="f-status" name="status" legend={staff.flags.status} defaultValue=""
+          options={[{ value: '', label: staff.common.any }, ...STATUSES.map((s) => ({ value: s, label: label(staff.flagStatus, s) }))]} />
+        <Choice id="f-role" name="assignedRole" legend={staff.flags.assignedRole} defaultValue=""
+          options={[{ value: '', label: staff.common.any }, ...ROLES.map((s) => ({ value: s, label: label(staff.role, s) }))]} />
         <label htmlFor="f-type">{staff.flags.type}</label>
         <input id="f-type" name="type" autoComplete="off" spellCheck={false} />
         <button type="submit">{staff.common.apply}</button>

@@ -4,7 +4,7 @@ import { useState, type SubmitEvent } from 'react';
 import type { components } from '../../../gen/disclosure-api';
 import { staff } from '../../../shared/messages.ko.json';
 import { useApi, write } from '../../api/useApi';
-import { formText, label, ResultLine, Section, useShown } from '../../components/ui';
+import { Choice, formText, label, ResultLine, Section, useShown } from '../../components/ui';
 
 const STAGES = ['COMPARE', 'GRADE', 'REASON', 'SEAL'] as const;
 type Results = components['schemas']['ValidationReceipt']['results'];
@@ -48,10 +48,8 @@ export function StepsSection({ id, reload }: { id: string; reload: () => void })
       <button type="button" onClick={() => { void write((k) => api.POST('/api/v1/disclosures/{disclosureId}/rebase', opts(k))).then(done(staff.steps.rebased)); }}>
         {staff.steps.rebase}</button>
       <form onSubmit={validate}>
-        <label htmlFor="v-stage">{staff.steps.stage}</label>
-        <select id="v-stage" name="stage" defaultValue="SEAL">
-          {STAGES.map((s) => <option key={s} value={s}>{label(staff.stage, s)}</option>)}
-        </select>
+        <Choice id="v-stage" name="stage" legend={staff.steps.stage} defaultValue="SEAL"
+          options={STAGES.map((s) => ({ value: s, label: label(staff.stage, s) }))} />
         <button type="submit">{staff.steps.validate}</button>
       </form>
       {results !== null && (

@@ -1,4 +1,4 @@
-// 회수율 스냅샷(준법·관리자, listCollectionRates): 기간(달)·조직 경로. 정의 문구는 서버 응답의 definitionText 그대로(내부 지표 — 규제 정의 없음).
+// 징구율 스냅샷(준법·관리자, listCollectionRates): 기간(달)·조직 경로. 정의 문구는 서버 응답의 definitionText 그대로(내부 지표 — 규제 정의 없음).
 // 만분율(rateBp)은 서버 정수이고, 표시는 정수 몫·나머지로만 쓴다(소수 연산 없음).
 import { useState, type SubmitEvent } from 'react';
 import type { components } from '../../gen/disclosure-api';
@@ -33,9 +33,9 @@ export function CollectionRatesPage() {
       <h1>{staff.rates.title}</h1>
       <form onSubmit={search} className="filters" autoComplete="off">
         <label htmlFor="r-from">{staff.rates.from}</label>
-        <input id="r-from" name="from" type="month" required />
+        <input id="r-from" name="from" inputMode="numeric" pattern="[0-9]{4}-[0-9]{2}" autoComplete="off" spellCheck={false} required />
         <label htmlFor="r-to">{staff.rates.to}</label>
-        <input id="r-to" name="to" type="month" required />
+        <input id="r-to" name="to" inputMode="numeric" pattern="[0-9]{4}-[0-9]{2}" autoComplete="off" spellCheck={false} required />
         <label htmlFor="r-org">{staff.rates.orgPath}</label>
         <input id="r-org" name="orgPath" autoComplete="off" spellCheck={false} />
         <button type="submit">{staff.common.apply}</button>

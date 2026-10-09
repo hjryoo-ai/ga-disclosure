@@ -39,7 +39,7 @@ export function CustomerRegisterPage() {
         <label htmlFor="c-phone">{staff.customer.phone}</label>
         <input id="c-phone" name="phone" inputMode="tel" autoComplete="off" />
         <label htmlFor="c-birth">{staff.customer.birthDate}</label>
-        <input id="c-birth" name="birthDate" type="date" autoComplete="off" />
+        <input id="c-birth" name="birthDate" inputMode="numeric" autoComplete="off" spellCheck={false} />
         <div><button type="submit">{staff.customer.submit}</button></div>
       </form>
       <ResultLine shown={shown} />

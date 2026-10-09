@@ -39,6 +39,12 @@ function rejectedLine(codes: string[]): HTMLElement {
   return el('p', { class: 'rejected', role: 'alert', text: `${sign.problem.REJECTED} (${codes.join(', ')})` });
 }
 
+/** 숫자 8자리(연월일)는 계약 형식 yyyy-MM-dd로 옮겨 적는다. 그 밖은 그대로 보낸다 — 맞는지는 서버가 본다(표기 변환이지 판단이 아니다). */
+export function dashedDate(raw: string): string {
+  const v = raw.trim();
+  return /^\d{8}$/.test(v) ? `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6)}` : v;
+}
+
 interface Problem {
   status: number;
   codes: string[];
@@ -71,7 +77,7 @@ export async function start(root: HTMLElement, client: PublicClient): Promise<vo
   const inputs = status.identityRequired.filter((m) => m in CUSTOMER_INPUT_METHODS && !status.identityPassed.includes(m));
   let identityForm: HTMLFormElement | null = null;
   if (inputs.length > 0) {
-    const input = el('input', { id: 'birth-date', type: 'date', name: 'birthDate', autocomplete: 'off', required: '' });
+    const input = el('input', { id: 'birth-date', type: 'text', inputmode: 'numeric', name: 'birthDate', autocomplete: 'off', required: '' });
     identityForm = el('form', { 'aria-labelledby': 'h-identity', novalidate: '' },
       el('h2', { id: 'h-identity', text: sign.identity.heading }),
       el('label', { for: 'birth-date', text: sign.identity.birthDate }), input,
@@ -105,7 +111,7 @@ export async function start(root: HTMLElement, client: PublicClient): Promise<vo
       e.preventDefault();
       const input = form.querySelector<HTMLInputElement>('#birth-date');
       if (input === null) return;
-      const body = { birthDate: input.value };                           // 값은 요청 본문 하나에만
+      const body = { birthDate: dashedDate(input.value) };               // 값은 요청 본문 하나에만
       input.value = '';                                                    // 제출 즉시 요소를 비운다
       void (async () => {
         const r = outcome(await client.POST('/public/v1/sign/verify-identity', { body }));

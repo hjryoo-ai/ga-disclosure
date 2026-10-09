@@ -21,7 +21,7 @@
       "flags": "준법 플래그",
       "legalHolds": "법적 보존",
       "jobs": "작업",
-      "collectionRates": "회수율"
+      "collectionRates": "징구율"
     },
     "common": {
       "loading": "불러오는 중…",
@@ -63,7 +63,7 @@
       "intro": "이름·연락처·생년월일은 암호화되어 저장되고 이 화면에 다시 보이지 않습니다. 응답은 가명 참조뿐입니다.",
       "name": "성명",
       "phone": "휴대전화(선택)",
-      "birthDate": "생년월일(선택)",
+      "birthDate": "생년월일(선택, 연월일 8자리)",
       "submit": "등록",
       "registered": "등록했습니다.",
       "ref": "가명 참조",
@@ -253,7 +253,7 @@
       "kind": "작업 종류",
       "limit": "최대 건수(선택)",
       "asOf": "기준 시각(선택, ISO-8601)",
-      "periodMonth": "대상 달(선택)",
+      "periodMonth": "대상 달(선택, YYYY-MM)",
       "ruleVersionId": "룰 버전 ID(선택)",
       "apply": "실제 적용(끄면 미리보기만)",
       "submitButton": "접수",
@@ -288,12 +288,12 @@
       "releaseCode": "해제 사유 코드"
     },
     "rates": {
-      "title": "회수율 스냅샷",
-      "from": "시작 달",
-      "to": "끝 달",
+      "title": "징구율 스냅샷",
+      "from": "시작 달(YYYY-MM)",
+      "to": "끝 달(YYYY-MM)",
       "orgPath": "조직 경로(선택)",
       "empty": "스냅샷이 없습니다.",
-      "caption": "달·조직별 회수율",
+      "caption": "달·조직별 징구율",
       "month": "달",
       "formula": "산식",
       "numerator": "분자",
@@ -315,7 +315,7 @@
       "REJECTED": "요청을 처리할 수 없습니다."
     },
     "view": {
-      "heading": "1. 확인서 읽기",
+      "heading": "확인서 읽기",
       "hint": "확인서를 끝까지 읽은 뒤 아래 버튼을 누르세요.",
       "documentLabel": "확인서 문서",
       "pageLabel": "확인서 쪽",
@@ -323,14 +323,14 @@
       "recorded": "열람을 기록했습니다."
     },
     "identity": {
-      "heading": "2. 본인확인",
-      "birthDate": "생년월일을 입력하세요",
+      "heading": "본인확인하기",
+      "birthDate": "생년월일 8자리(연월일)를 입력하세요",
       "submit": "본인확인 제출",
       "passed": "본인확인을 마쳤습니다.",
       "failed": "입력한 정보가 맞지 않습니다."
     },
     "pad": {
-      "heading": "3. 서명하기",
+      "heading": "서명하기",
       "hint": "아래 칸에 손가락이나 펜으로 서명하세요.",
       "canvasLabel": "서명 입력 칸",
       "clear": "지우기",

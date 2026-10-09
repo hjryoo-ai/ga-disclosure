@@ -44,3 +44,23 @@ export function formText(data: FormData, name: string): string {
   const v = data.get(name);
   return typeof v === 'string' ? v : '';
 }
+
+/**
+ * 작은 닫힌 선택지(계약 enum): 라디오 묶음. 선택 상자 대신 쓴다 — 화살표로 고르는 동작이 플랫폼마다 같고(macOS Chromium의 닫힌 select는
+ * 화살표가 팝업을 연다) 한 화면에 선택지가 다 보인다. 폼 값은 선택 상자와 같다(name = 고른 value).
+ */
+export function Choice({ id, name, legend, options, defaultValue }: {
+  id: string; name: string; legend: string; options: readonly { value: string; label: string }[]; defaultValue: string;
+}) {
+  return (
+    <fieldset className="choice" id={id}>
+      <legend>{legend}</legend>
+      {options.map((o) => (
+        <div className="inline" key={o.value}>
+          <input type="radio" id={`${id}-${o.value === '' ? 'any' : o.value}`} name={name} value={o.value} defaultChecked={o.value === defaultValue} />
+          <label htmlFor={`${id}-${o.value === '' ? 'any' : o.value}`}>{o.label}</label>
+        </div>
+      ))}
+    </fieldset>
+  );
+}
