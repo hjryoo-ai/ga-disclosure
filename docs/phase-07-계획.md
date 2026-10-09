@@ -1,8 +1,27 @@
 # Phase 7 계획 — 화면 (지시문 v1.1)
 
-> 지시문 `docs/phase-07-지시문.md`(v1.1, 2026-10-09 — 협회 서식 원문 확보 건너뜀). 브랜치 `work/phase-7`(main `688cc46`, 첫 커밋 `4620e15` = 6B 수용심사 보관·6B 보고서 D-8·CLAUDE.md 예외 줄). 0단계는 지시문대로 계획 전에 끝냈다(②). **나머지는 이 계획의 승인 뒤에 시작한다.**
+> 지시문 `docs/phase-07-지시문.md`(v1.1, 2026-10-09 — 협회 서식 원문 확보 건너뜀). 브랜치 `work/phase-7`(main `688cc46`, 첫 커밋 `4620e15` = 6B 수용심사 보관·6B 보고서 D-8·CLAUDE.md 예외 줄). 0단계는 지시문대로 계획 전에 끝냈다(②). **승인 2026-10-10(`docs/phase-07-계획승인.md`) — 아래 "승인 반영"이 본문보다 우선한다.**
 >
 > 6B 수용 심사의 요구대로 계획 맨 앞에 6B D 표 전체와 "첫 시도에 놓친 것" 표, 6B 보고서 §8의 Phase 7 질문을 붙인다. 넓히는 항목은 **[넓힘]**으로 표시한다.
+
+
+## 승인 반영 (2026-10-10)
+
+| # | 결정 | 이 계획에서 바뀌는 것 |
+|---|---|---|
+| Q1 [넓힘] | `FLAG_READ` AGENT OWN 승인 | 필터는 **서버 유스케이스**(`visible_to_agent` 행만) — 화면 필터 0. 시험: ① 룰 기본(11유형 전부 `false`) → 자기 확인서 **200 빈 배열**(404 아님) ② 한 유형만 `visibleToAgent=true`인 룰 변형 → 그 유형만, 나머지 0 ③ 다른 설계사의 확인서 → 404. 설계사는 `GET /api/v1/disclosures/{id}/flags`만(테넌트 큐 `GET /api/v1/flags`는 칸 없음 그대로) |
+| Q3 [넓힘] | `GET /api/v1/disclosures/{id}/template` 승인 | 범위 = `DISCLOSURE_READ`(OWN/ORG/TENANT). 응답 = 고정 서식 버전의 라벨 집합(`fields{code,label,required,order,section}`·`layout{title,sections}`) + `templateId`·`version`·`bundleHash`·`pinned`뿐 — 상태·검증·업무 판단 0(계약 `additionalProperties:false`). 초안(고정 전)은 상담일 기준 ACTIVE 서식 + `pinned:false`. `ETag` = 번들 해시. 감사는 `getDisclosure`와 같은 규칙(준법 조회만 `DISCLOSURE_VIEW` 1행, 새 감사 행위 없음) |
+| Q4 | `messages.ko.json` 하나 | 화면 문구 + `Problem.code` 문구. **서식 라벨은 넣지 않는다** — 시험: 메시지 값 집합 ∩ 서식 라벨 집합 = ∅. 사전에 없는 코드는 코드 그대로. 한글 리터럴 스캔을 `disclosure-web` 원천까지 — 이 파일 외 0 |
+| 스택 | 승인(계획 ③ 그대로) | 조건 ① pdf.js **워커까지 번들**(같은 출처, CDN 0), `isEvalSupported:false` — E2E가 CSP 위반 0(`securitypolicyviolation`·콘솔) 단언, 라이선스 목록에 Apache-2.0 ② **스크롤 완료 = "마지막 페이지가 렌더되어 뷰포트에 들어온 시점", 열람 초 = 단조 시계(`performance.now`)** — 둘 다 `recordView`로 보고(⑤의 `visibilitychange` 정지는 그 위에서 화면이 가려진 동안을 빼는 것) |
+| 그 밖 Q2·Q5~Q14 | 권장안 채택 | Q5 GLOBAL 룰 키 `preview.watermark`, Q6 데모 OIDC Authorization Code + PKCE, Q7 TS 5.9.3·openapi-fetch 0.17 등 ⑧ 권장 그대로 |
+
+**넓힘 여부 표시(승인 단서)**: Q1·Q3 외에 계약을 **더하는** 것이 둘 있어 보고서에 따로 표시한다 — Q5 룰 스키마(`contracts/rules/v1`)의 GLOBAL 키 하나 추가(선택 키, 기존 번들 유효), Q6 데모 전용 계약(`demo-oidc`, `prod` 기동 가드 — 운영 인가 표 변화 0). 인가 표·불변식을 넓히는 것은 Q1·Q3뿐.
+
+**B1 주입 추가**: ⓐ 플래그 가시성 필터를 화면으로(서버는 전부 반환) → 서버 시험 실패 ⓑ `template` 응답에 상태·검증 결과 끼워 넣기 → 계약 검증 실패 ⓒ pdf.js를 `isEvalSupported:true`·CSP `unsafe-eval` 없이 → CSP 단언 실패(잡히지 않으면 그대로 보고). G12 최소 8건과 함께 10단계 주입 기록에.
+
+**B2 설계서 v1.17**: Q1·Q3 인가 표·§7 경로, Q4 메시지 파일 규약, 스택 선택 사유 한 문단(§3.2), 0단계 결과와 Phase 1 C5 시험 공백 기록 — 해당 코드와 같은 커밋으로 단계마다.
+
+**모듈 위치**: 설계서 §3.3의 `web/`(자리표시 README 하나, "포털 PWA 저장소에 라우트 추가")를 Gradle 하위 프로젝트 `disclosure-web/`으로 바꾼다 — 지시문 1항(Gradle로 Node 빌드를 감싸 CI 한 번에)과 같은 출처 서빙 때문. 포털 저장소 통합은 Phase 8 이후.
 
 ## ① 6B에서 넘어온 것
 
@@ -124,7 +143,7 @@
 
 - **별도 번들**: Vite 다중 진입점 — `staff/index.html`(React)과 `sign/index.html`(프레임워크 없음). 공개 번들의 의존 그래프에 react·react-router·인증 코드가 없음을 빌드 산출 매니페스트로 단언(모듈 목록 스캔). 공유 코드는 `shared/`의 순수 모듈(생성 클라이언트 중 공개 계약분, 카탈로그 중 `sign.*`·`problem.SIGN_LINK_UNAVAILABLE`·`problem.REJECTED`)만.
 - **토큰**: `location.hash`에서 읽어 모듈 지역 변수에만 두고 즉시 `history.replaceState(null, '', '/s')`. 모든 요청은 `X-Sign-Token` 헤더(계약대로 — 본문 `token`은 쓰지 않는다; 지시문의 "본문으로"는 계약상 헤더가 우선이고 쿼리는 거부되므로 헤더로 통일, G4). 저장소 API 0(린트 + E2E에서 `localStorage`·`sessionStorage`·쿠키·IndexedDB 목록 단언).
-- **열람**: pdf.js로 쪽마다 캔버스(스크롤 컨테이너), 마지막 쪽이 보이면 스크롤 완료, 열람 초는 화면이 보인 동안의 경과(`visibilitychange`로 멈춤) → `recordView{scrollComplete, viewSeconds}`. PDF는 `openSigningDocument`의 바이트 그대로(워터마크 없음 — G7이 바이트 해시 = 봉인 PDF 단언).
+- **열람**: pdf.js로 쪽마다 캔버스(스크롤 컨테이너), **스크롤 완료 = 마지막 페이지가 렌더되어 뷰포트에 들어온 시점**(승인 조건 ②), 열람 초 = 단조 시계 `performance.now` 경과(화면이 가려진 동안은 `visibilitychange`로 멈춤) → `recordView{scrollComplete, viewSeconds}`. PDF는 `openSigningDocument`의 바이트 그대로(워터마크 없음 — G7이 바이트 해시 = 봉인 PDF 단언).
 - **본인확인**: 입력값은 제출 직후 입력 요소와 변수 모두 비운다(`value=''`, 참조 해제). 콘솔·오류 보고 경로 없음(전역 `console` 사용을 린트로 금지, 공개 번들).
 - **서명**: Pointer Events로 스트로크 `[[{x,y,t}]]`(t = 첫 점부터 ms, Phase 4 형식), 캔버스 PNG `imagePngBase64`, 기기 정보는 계약의 `deviceFingerprint` 문자열 하나만(지시문의 "Phase 4 `device` 형식"은 계약에 없다 — 서버가 User-Agent를 헤더에서 직접 읽는다).
 - **거부**: 404 `SIGN_LINK_UNAVAILABLE`과 그 밖의 실패(네트워크 포함)는 사유를 나누지 않는 **한 화면**. 422 `REJECTED`(예: 본인확인 불일치)는 단계 안 안내 — 코드 → 카탈로그 문구.
