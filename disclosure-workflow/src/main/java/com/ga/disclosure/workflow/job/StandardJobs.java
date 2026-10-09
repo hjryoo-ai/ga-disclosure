@@ -10,6 +10,8 @@ import com.ga.disclosure.workflow.contract.ContractLinkService;
 import com.ga.disclosure.workflow.disclosure.NotificationDispatcher;
 import com.ga.disclosure.workflow.flag.FlagCommandService;
 import com.ga.disclosure.workflow.idempotency.IdempotencyPurge;
+import com.ga.disclosure.workflow.rate.CollectionRateService;
+import com.ga.disclosure.rules.metric.CollectionRates;
 import com.ga.disclosure.workflow.retention.DestructionJob;
 import com.ga.disclosure.workflow.verify.TenantVerifier;
 import com.ga.platform.canonical.Canonicalizer;
@@ -21,9 +23,11 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Phase 4·5 유스케이스를 작업 본체로 감싼다(6A 계획 §6.2) — CLI와 HTTP가 같은 본체·같은 보고서 형식을 쓴다. 보고서는 JCS 바이트이고 그 테넌트의 것만 싣는다.
@@ -134,6 +138,66 @@ public final class StandardJobs {
             o.put("skipped", r.skipped()).put("held", r.held());
             return Canonicalizer.canonicalize(o);
         });
+    }
+
+    /**
+     * 징구율 스냅샷(6B 계획 §5): 본체는 작업 ID를 행에 남긴다. HTTP 제출 전 같은 (달, 룰 버전) 검사(409 {@code SNAPSHOT_EXISTS}). 보고서는 기준월·룰 버전·
+     * 산식·정의 표기와 묶음별 수치·입력 해시(번호·개인정보 없음).
+     */
+    public static JobWork<CollectionRateService.Report> collectionRateSnapshot(CollectionRateService rates, YearMonth period) {
+        return new JobWork<>() {
+            @Override
+            public CollectionRateService.Report run(List<Caller> acquired) {
+                throw new IllegalStateException("the collection-rate snapshot records its job id — run(acquired, jobIds)");
+            }
+
+            @Override
+            public CollectionRateService.Report run(List<Caller> acquired, List<UUID> jobIds) {
+                if (acquired.size() != 1 || jobIds.size() != 1) {
+                    throw new IllegalArgumentException("a single-tenant job runs with exactly one caller");
+                }
+                return rates.snapshot(acquired.getFirst(), period, jobIds.getFirst());
+            }
+
+            @Override
+            public void admit(Caller caller) {
+                rates.admit(caller, period);
+            }
+
+            @Override
+            public byte[] report(CollectionRateService.Report r, TenantId tenant) {
+                ObjectNode o = JSON.createObjectNode().put("kind", JobKind.COLLECTION_RATE_SNAPSHOT.name()).put("periodMonth", r.period().toString())
+                        .put("ruleVersionId", r.ruleVersionId().value()).put("formula", r.result().formula().name())
+                        .put("definition", CollectionRates.DEFINITION).put("computedAt", r.computedAt().toString());
+                ArrayNode groups = o.putArray("groups");
+                r.result().groups().forEach(g -> {
+                    ObjectNode row = groups.addObject().put("orgPath", g.orgPath()).put("denominator", g.denominator()).put("numerator", g.numerator())
+                            .put("inputsHash", g.inputsHash());
+                    if (g.rateBp().isPresent()) {
+                        row.put("rateBp", g.rateBp().getAsInt());
+                    } else {
+                        row.putNull("rateBp");
+                    }
+                });
+                return Canonicalizer.canonicalize(o);
+            }
+        };
+    }
+
+    /** 기준월 매개변수 {@code periodMonth}(YYYY-MM) — 없으면 빈 값(본체가 전월로). */
+    public static Optional<YearMonth> yearMonth(ObjectNode params, String name) {
+        JsonNode v = params.get(name);
+        if (v == null || v.isNull()) {
+            return Optional.empty();
+        }
+        if (!v.isString() || !v.asString().matches("\\d{4}-\\d{2}")) {
+            throw new IllegalArgumentException("job parameter " + name + " must be YYYY-MM");
+        }
+        try {
+            return Optional.of(YearMonth.parse(v.asString()));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException("job parameter " + name + " must be YYYY-MM");
+        }
     }
 
     /** SLA 경과 표시(6B 계획 §7): 보고서는 표시한 플래그 ID·유형·기한(개인정보 없음). */

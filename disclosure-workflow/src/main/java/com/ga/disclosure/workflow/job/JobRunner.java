@@ -111,7 +111,7 @@ public final class JobRunner {
      */
     @UseCaseEntry({Action.ANCHOR_RUN, Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN,
             Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_IMPORT,
-            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS})
+            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS, Action.COLLECTION_RATE_SNAPSHOT})
     public <R> Run<R> run(List<Caller> callers, JobKind kind, ObjectNode params, JobWork<R> work) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(params, "params");
@@ -129,6 +129,7 @@ public final class JobRunner {
             case CONTRACT_LINK_IMPORT -> Action.CONTRACT_LINK_IMPORT;
             case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
             case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
+            case COLLECTION_RATE_SNAPSHOT -> Action.COLLECTION_RATE_SNAPSHOT;
         };
         List<Caller> sorted = callers.stream().sorted(Comparator.comparing(c -> c.tenant().value())).toList();
         if (sorted.stream().map(Caller::tenant).distinct().count() != sorted.size()) {
@@ -163,7 +164,8 @@ public final class JobRunner {
      * {@code QUEUED→FAILED(REJECTED)}로 닫고 {@link RejectedExecutionException}을 다시 던진다. 앵커는 HTTP가 아니다(승인 Q7).
      */
     @UseCaseEntry({Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN, Action.VERIFY_TENANT,
-            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS})
+            Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS,
+            Action.COLLECTION_RATE_SNAPSHOT})
     public JobRecord submit(Caller caller, JobKind kind, ObjectNode params) {
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(params, "params");
@@ -180,10 +182,12 @@ public final class JobRunner {
             case CONTRACT_LINK_IMPORT -> throw new IllegalArgumentException("CONTRACT_LINK_IMPORT carries its batch in the request body");
             case CONTRACT_LINK_UNMATCHED_PURGE -> Action.CONTRACT_LINK_UNMATCHED_PURGE;
             case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
+            case COLLECTION_RATE_SNAPSHOT -> Action.COLLECTION_RATE_SNAPSHOT;
         };
         Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, action, Target.none()));
         JobWork<?> work = handlers.work(kind, params)
                 .orElseThrow(() -> new IllegalArgumentException("job kind " + kind + " is not available over HTTP"));
+        work.admit(caller);                                               // 작업 행을 만들기 전의 업무 거부(예: 징구율 SNAPSHOT_EXISTS 409)
         return queue(caller, actor, kind, params, work);
     }
 
@@ -279,7 +283,7 @@ public final class JobRunner {
     private <R> R execute(List<Started> started, JobWork<R> work, List<Outcome> outcomes) {
         R result;
         try {
-            result = work.run(started.stream().map(Started::caller).toList());
+            result = work.run(started.stream().map(Started::caller).toList(), started.stream().map(Started::jobId).toList());
         } catch (RuntimeException e) {
             started.forEach(s -> outcomes.add(fail(s, JobRecord.Status.RUNNING, JobError.EXECUTION_FAILED, e)));
             throw e;

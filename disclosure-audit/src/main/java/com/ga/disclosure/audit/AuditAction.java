@@ -84,6 +84,10 @@ public enum AuditAction {
     DRAFT_ABANDONED,
     /** 6B: 방치 초안 폐기 배치 요약(대상 TENANT). */
     DRAFT_ABANDON_BATCH,
+    /** 6B: 징구율 스냅샷(대상 TENANT) — 기준월·룰 버전·산식·정의 표기·작업 ID·행 수·테넌트 전체 수치와 입력 해시(내부 지표 — 규제 정의 없음). */
+    COLLECTION_RATE_SNAPSHOT,
+    /** 6B: 같은 (달, 룰 버전)의 징구율 재계산 거부 {@code SNAPSHOT_EXISTS}(대상 TENANT, 새 행 없음). */
+    COLLECTION_RATE_SNAPSHOT_REJECTED,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

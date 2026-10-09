@@ -20,7 +20,9 @@ public enum JobKind {
     /** 6B: 룰 기간이 지난 미매칭 보고 행 삭제. */
     CONTRACT_LINK_UNMATCHED_PURGE,
     /** 6B: 룰 {@code draft.abandonAfterDays}보다 오래 바뀌지 않은 봉인 전 초안을 폐기(null이면 아무것도 하지 않는다). */
-    ABANDON_DRAFTS;
+    ABANDON_DRAFTS,
+    /** 6B: 끝난 달(기본 전월, KST)의 징구율 스냅샷(내부 지표 — 규제 정의 없음). 같은 (달, 룰 버전)은 거부. */
+    COLLECTION_RATE_SNAPSHOT;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

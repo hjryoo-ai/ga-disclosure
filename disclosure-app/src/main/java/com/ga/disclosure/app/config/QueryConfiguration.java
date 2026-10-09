@@ -89,6 +89,14 @@ public class QueryConfiguration {
         return new com.ga.disclosure.workflow.contract.ContractLinkService(store, rules, audit, outbox, tx, authz, clock, java.util.UUID::randomUUID);
     }
 
+    /** 징구율 스냅샷·조회(6B 계획 §5) — 내부 지표(규제 정의 없음), HTTP·CLI 공용. */
+    @Bean
+    public com.ga.disclosure.workflow.rate.CollectionRateService collectionRateService(com.ga.disclosure.workflow.rate.CollectionRateStore store,
+            com.ga.disclosure.rules.resolve.RuleResolver rules, com.ga.disclosure.audit.AuditPort audit, WorkflowTransactions tx, AuthorizationPort authz,
+            java.time.Clock clock) {
+        return new com.ga.disclosure.workflow.rate.CollectionRateService(store, rules, audit, tx, authz, clock, java.util.UUID::randomUUID);
+    }
+
     /** 준법 큐 명령(6B 계획 §7): 배정·수동 해소·SLA 경과 표시 — 해소 코드·근거 필요 여부는 해소 시점의 룰. */
     @Bean
     public com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService(FlagLookup flags,

@@ -72,6 +72,9 @@ public final class ScopePolicy {
         // 6B 초안 폐기(지시문 §6): 명시 폐기는 작성 설계사(사유 코드 — 룰 draft.abandonReasons), 방치 초안 폐기는 배치(룰 draft.abandonAfterDays)
         grant(m, Action.DRAFT_ABANDON, Role.AGENT, Scope.OWN);
         grant(m, Action.ABANDON_DRAFTS, Role.SCHEDULER, Scope.TENANT);
+        // 6B 징구율(계획 §5): 스냅샷은 배치·준법(테넌트), 조회는 준법(테넌트 — 테넌트 전체 행 포함)·관리자(조직 아래 행만)
+        grant(m, Action.COLLECTION_RATE_SNAPSHOT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
+        grant(m, Action.COLLECTION_RATE_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
         grant(m, Action.VERIFY_TENANT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.JOB_READ, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         // 파기 실행·dry-run은 사람 역할에 없다 — 준법은 보고서 열람만(REPORT_VIEW). 앵커는 플랫폼 배치라 CLI만(6A 승인 Q7)

@@ -78,6 +78,7 @@ public class JobConfiguration {
                                    NotificationDispatcher dispatcher, IdempotencyPurge purge, com.ga.disclosure.workflow.flag.FlagCommandService flags,
                                    com.ga.disclosure.workflow.contract.ContractLinkService contractLinks,
                                    com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts,
+                                   com.ga.disclosure.workflow.rate.CollectionRateService rates,
                                    Clock clock,
                                    @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String trustPem) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
@@ -119,6 +120,12 @@ public class JobConfiguration {
             StandardJobs.only(p, Set.of("limit"));
             return StandardJobs.abandonDrafts(drafts, StandardJobs.limit(p, StandardJobs.DEFAULT_ABANDON_LIMIT,
                     com.ga.disclosure.workflow.disclosure.DraftAbandonService.MAX_BATCH));
+        });
+        h.put(JobKind.COLLECTION_RATE_SNAPSHOT, p -> {
+            StandardJobs.only(p, Set.of("periodMonth"));
+            java.time.YearMonth period = StandardJobs.yearMonth(p, "periodMonth").orElseGet(rates::previousMonth);
+            rates.requireFinished(period);
+            return StandardJobs.collectionRateSnapshot(rates, period);
         });
         h.put(JobKind.VERIFY_TENANT, p -> {
             StandardJobs.only(p, Set.of());

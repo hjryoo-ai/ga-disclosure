@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.3.0
+  version: 2.4.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -454,6 +454,22 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/LegalHoldReceipt' }
         default: { $ref: '#/components/responses/Problem' }
+  /api/v1/collection-rates:
+    get:
+      operationId: listCollectionRates
+      summary: >-
+        (6B) 징구율 스냅샷 — 내부 지표, 규제 정의 없음(INTERNAL_METRIC_NO_REGULATORY_DEFINITION). 준법은 테넌트 전체(테넌트 행 orgPath "/" 포함), 관리자는
+        조직 아래 행만, 설계사는 404. 달마다 기본은 그 달 마지막 날(KST)에 시행 중이던 GLOBAL 룰 버전의 행, ruleVersionId로 다른 버전. 기간은 24개월까지.
+      parameters:
+        - { name: from, in: query, required: true, schema: { $ref: '#/components/schemas/YearMonth' } }
+        - { name: to, in: query, required: true, schema: { $ref: '#/components/schemas/YearMonth' } }
+        - { name: orgPath, in: query, required: false, description: 이 조직 경로의 행만(접두가 아니라 같은 경로), schema: { $ref: '#/components/schemas/RateOrgPath' } }
+        - { name: ruleVersionId, in: query, required: false, schema: { $ref: '#/components/schemas/RuleVersionId' } }
+      responses:
+        '200':
+          description: 달·조직 순(쪽 나눔 없음)
+          content: { application/json: { schema: { $ref: '#/components/schemas/CollectionRateList' } } }
+        default: { $ref: '#/components/responses/Problem' }
   /api/v1/jobs:
     get:
       operationId: listJobs
@@ -471,7 +487,7 @@ paths:
       - $ref: '#/components/parameters/JobKind'
     post:
       operationId: submitJob
-      summary: 작업 제출(준법은 VERIFY_TENANT). ANCHOR는 HTTP에 없다(404).
+      summary: 작업 제출(준법은 VERIFY_TENANT·(6B) COLLECTION_RATE_SNAPSHOT). ANCHOR는 HTTP에 없다(404). COLLECTION_RATE_SNAPSHOT은 같은 (달, 룰 버전)이 있으면 작업을 만들지 않고 409 SNAPSHOT_EXISTS.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -574,6 +590,7 @@ components:
     Date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
     Sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
     Code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+    RuleVersionId: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{0,63}$' }
     Cursor: { type: string, pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$', maxLength: 512 }
     DisclosureNo: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' }
     NullableString: { type: [string, 'null'] }
@@ -586,7 +603,8 @@ components:
       enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED, ABANDONED]
     JobKind:
       type: string
-      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS]
+      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
+             COLLECTION_RATE_SNAPSHOT]
       description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
     Problem:
       type: object
@@ -627,7 +645,8 @@ components:
       required: [jobId, kind, status, channel, requestedBy, requestedAt, startedAt, finishedAt, errorCode, reportSha256]
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
-        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS] }
+        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
+                                       COLLECTION_RATE_SNAPSHOT] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }
@@ -646,10 +665,11 @@ components:
     JobParams:
       type: object
       additionalProperties: false
-      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE·ABANDON_DRAFTS는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음.
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE·ABANDON_DRAFTS는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음, COLLECTION_RATE_SNAPSHOT은 periodMonth(끝난 달, 없으면 KST 전월).
       properties:
         asOf: { $ref: '#/components/schemas/Instant' }
         limit: { type: integer, minimum: 1 }
+        periodMonth: { $ref: '#/components/schemas/YearMonth' }
     DisclosureSummary:
       type: object
       additionalProperties: false
@@ -1054,6 +1074,33 @@ components:
         raisedAt: { $ref: '#/components/schemas/Instant' }
         disclosureId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
         disclosureNo: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/DisclosureNo' } ] }
+    YearMonth: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+    RateOrgPath: { type: string, pattern: '^(/|(/[A-Za-z0-9_-]+)+)$' }
+    CollectionRateList:
+      type: object
+      additionalProperties: false
+      required: [definition, definitionText, items]
+      properties:
+        definition: { const: INTERNAL_METRIC_NO_REGULATORY_DEFINITION }
+        definitionText: { const: 내부 지표 — 규제 정의 없음 }
+        items: { type: array, items: { $ref: '#/components/schemas/CollectionRate' } }
+    CollectionRate:
+      type: object
+      additionalProperties: false
+      description: 스냅샷 한 행. rateBp는 만분율(numerator × 10000 / denominator 버림), 분모 0이면 null. inputsHash는 입력 확인서 번호 집합의 SHA-256(JCS).
+      required: [snapshotId, periodMonth, orgPath, formula, definition, ruleVersionId, denominator, numerator, rateBp, computedAt, inputsHash]
+      properties:
+        snapshotId: { $ref: '#/components/schemas/Uuid' }
+        periodMonth: { $ref: '#/components/schemas/YearMonth' }
+        orgPath: { $ref: '#/components/schemas/RateOrgPath' }
+        formula: { type: string, enum: [LINKED_COMPLETED_BY_CONTRACT_DATE, TARGET_INCLUDING_UNMATCHED] }
+        definition: { const: INTERNAL_METRIC_NO_REGULATORY_DEFINITION }
+        ruleVersionId: { $ref: '#/components/schemas/RuleVersionId' }
+        denominator: { type: integer, minimum: 0 }
+        numerator: { type: integer, minimum: 0 }
+        rateBp: { oneOf: [ { type: 'null' }, { type: integer, minimum: 0, maximum: 10000 } ] }
+        computedAt: { $ref: '#/components/schemas/Instant' }
+        inputsHash: { $ref: '#/components/schemas/Sha256' }
     FlagList:
       type: object
       additionalProperties: false
