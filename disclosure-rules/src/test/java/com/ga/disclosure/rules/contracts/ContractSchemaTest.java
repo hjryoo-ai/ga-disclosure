@@ -316,9 +316,72 @@ class ContractSchemaTest {
     }
 
     @Test
-    void engineContractIsVersion120AndRequestExamplePasses() {
-        assertThat(YAML.readTree(readString(ENGINE)).at("/info/version").asString()).isEqualTo("1.2.0");
+    void engineContractIsVersion121AndRequestExamplePasses() {
+        assertThat(YAML.readTree(readString(ENGINE)).at("/info/version").asString()).isEqualTo("1.2.1");
         assertThat(schema(GRADES_REQUEST).validate(engineRequestExample())).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ 계약 1.2.1: format → pattern (엔진 E3.2)
+
+    private static int formatKeywords(JsonNode node) {
+        int n = 0;
+        if (node.isObject()) {
+            for (String name : node.propertyNames()) {
+                n += (name.equals("format") ? 1 : 0) + formatKeywords(node.get(name));
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                n += formatKeywords(child);
+            }
+        }
+        return n;
+    }
+
+    /** 검증기(networknt)는 {@code format}을 단언하지 않는다(Phase 5 D14) — 형식 약속은 {@code pattern}으로만. 설명 문장이 아니라 키워드를 센다. */
+    @Test
+    void engineContractHasNoFormatKeyword() {
+        assertThat(formatKeywords(YAML.readTree(readString(ENGINE)))).isZero();
+    }
+
+    @ParameterizedTest(name = "generatedAt {0} -> {1}")
+    @MethodSource("generatedAtCases")
+    void generatedAtIsRfc3339WithSecondsAndOffset(String value, boolean accepted) {
+        ObjectNode response = engineExample();
+        response.put("generatedAt", value);
+        assertThat(schema(GRADES_RESPONSE).validate(response).isEmpty()).isEqualTo(accepted);
+    }
+
+    static Stream<Arguments> generatedAtCases() {
+        return Stream.of(
+                Arguments.of("2026-09-23T10:15:30+09:00", true),        // 엔진: ISO_OFFSET_DATE_TIME, 초 절사
+                Arguments.of("2026-09-23T01:15:30Z", true),             // 엔진 시계가 UTC일 때
+                Arguments.of("2026-09-23T10:15:00+09:00", true),        // 0초도 초를 쓴다
+                Arguments.of("2026-09-23T10:15:30.5-05:00", true),
+                Arguments.of("2026-09-23T10:15:30.123456789+09:00", true),
+                Arguments.of("2026-09-23T10:15+09:00", false),          // OffsetDateTime.toString()의 0초 생략형
+                Arguments.of("2026-09-23T10:15:30", false),             // 오프셋 없음
+                Arguments.of("2026-09-23 10:15:30+09:00", false),
+                Arguments.of("2026-09-23T10:15:30.1234567890Z", false),
+                Arguments.of("2026-09-23T10:15:30+0900", false),
+                Arguments.of("2026-09-23", false),
+                Arguments.of("", false));
+    }
+
+    @ParameterizedTest(name = "asOfDate {0} -> {1}")
+    @MethodSource("asOfDateCases")
+    void asOfDateIsCalendarDateOnly(String value, boolean accepted) {
+        ObjectNode request = engineRequestExample();
+        request.put("asOfDate", value);
+        assertThat(schema(GRADES_REQUEST).validate(request).isEmpty()).isEqualTo(accepted);
+    }
+
+    static Stream<Arguments> asOfDateCases() {
+        return Stream.of(
+                Arguments.of("2026-09-23", true),
+                Arguments.of("2026-9-23", false),
+                Arguments.of("20260923", false),
+                Arguments.of("2026-09-23T00:00:00Z", false),
+                Arguments.of(" 2026-09-23", false));
     }
 
     @ParameterizedTest(name = "accepted {0}")

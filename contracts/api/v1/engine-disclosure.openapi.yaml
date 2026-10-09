@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-commission-engine — 비교설명 확인서용 판매수수료 등급·순위 API
-  version: 1.2.0
+  version: 1.2.1
   description: |
     설계서 §4.1. 서버 구현은 ga-commission-engine 저장소 Phase E3, 소비자는 ga-disclosure(disclosure-infra 엔진 클라이언트, Phase 3).
     - 등급은 유사상품군 전체 대비, 순위는 요청 세트 안에서 매긴다(1순위가 가장 저렴).
@@ -19,6 +19,8 @@ info:
       임시등록 상품은 요청하지 않는다 — 소비자가 로컬에서 UNAVAILABLE(TEMP_PRODUCT, source=LOCAL)로 표기하고, 응답 집합 = 요청 집합 검사는 요청한 항목에만 적용한다.
       오류 코드 추가(엔진 E3 요청 1~3): POST 400 AS_OF_IN_FUTURE·UNKNOWN_PRODUCT_GROUP, POST 422 INVALID_POLICY, GET 500 SNAPSHOT_INTEGRITY.
       GET 403 설명 변경(엔진 E3 요청 4, E3 심사 §3-3): 토큰은 유효하나 인가 거부. 다른 테넌트의 스냅샷은 404. 응답 형태는 그대로.
+    - 1.2.1(엔진 E3.2, 2026-10-09, 표기만): `format`을 `pattern`으로 — asOfDate `yyyy-MM-dd`, generatedAt RFC 3339(초 필수, 소수 초 1~9자리 선택, `Z` 또는 `±hh:mm`).
+      양쪽 검증기는 `format`을 단언하지 않는다(ga-disclosure Phase 5 보고서 D14). 엔진 출력(`ISO_OFFSET_DATE_TIME`, 초 단위 절사)은 그대로 통과한다.
 servers:
   - url: https://engine.{tenant}.internal
     variables:
@@ -157,7 +159,7 @@ components:
       required: [tenantId, asOfDate, productGroupCode, products]
       properties:
         tenantId: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}$' }
-        asOfDate: { type: string, format: date, description: '기준일 = 상담일(consult_date)' }
+        asOfDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$', description: '기준일 = 상담일(consult_date)' }
         productGroupCode: { type: string, description: '유사상품군(외부 코드 체계, 설계서 §14 #1)' }
         products:
           type: array
@@ -190,7 +192,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GradeResult'
-        generatedAt: { type: string, format: date-time }
+        generatedAt: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$' }
     GradeResult:
       oneOf:
         - $ref: '#/components/schemas/GradeResultOk'
