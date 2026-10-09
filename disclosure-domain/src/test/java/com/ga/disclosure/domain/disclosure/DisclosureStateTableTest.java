@@ -77,7 +77,7 @@ class DisclosureStateTableTest {
                 cells++;
             }
         }
-        assertThat(cells).isEqualTo(110);           // 상태 10 × 명령 11(3B REBASE)
+        assertThat(cells).isEqualTo(132);           // 상태 11 × 명령 12(3B REBASE, 6B ABANDONED·ABANDON)
     }
 
     @ParameterizedTest

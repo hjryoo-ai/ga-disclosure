@@ -59,8 +59,39 @@ public enum AuditAction {
     DISCLOSURE_SUPERSEDE,
     /** 재기준: 이전·새 고정 버전과 새 룰의 COMPARE 검증 결과, 결과 상태(COMPARED|DRAFT). */
     DISCLOSURE_REBASE,
-    /** 준법 플래그 해소(해소 사유·해소자). */
+    /** 준법 플래그 해소(해소 사유·해소자). 6B 수동 해소는 detail에 유형·해소 코드·근거(닫힌 모양)·룰 버전. */
     FLAG_RESOLVE,
+    /** (6B) 준법 플래그 담당자 배정(대상 FLAG): 유형·담당자 주체. */
+    FLAG_ASSIGN,
+    /** (6B) 준법 큐 명령 거부(대상 FLAG, 업무 트랜잭션 커밋): 거부 코드, CHAIN_BROKEN 근거 판정의 세부(문제 코드·작업 ID). */
+    FLAG_COMMAND_REJECTED,
+    /** (6B) SLA 경과 표시(대상 FLAG, 배치): 유형·기한. 새 플래그를 만들지 않는다. */
+    FLAG_SLA_BREACHED,
+    /**
+     * (6B) 확인서의 계약 연결이 생기거나 바뀌었다(대상 DISCLOSURE — 첫 연결도 이 이름 하나, 계획 §A-6): 결과(LINKED·CORRECTED)·링크 ID·이전 링크 ID·출처
+     * 참조, 증권번호의 SHA-256(원문 없음), 이전·이후 계약일, 이전·이후 보존기한과 연장 여부, 고정 룰 버전.
+     */
+    CONTRACT_LINK_CHANGED,
+    /** (6B) 계약 연결 배치 요약(대상 TENANT, 배치 끝): 출처·배치 ID·입력 SHA-256·항목 수·결과별 수(번호 없음). */
+    CONTRACT_LINK_IMPORT,
+    /** (6B) 미매칭 보고 행 정리(대상 TENANT): 기준 시각·지운 수·룰 일수·룰 버전. */
+    CONTRACT_LINK_UNMATCHED_PURGE,
+    /** 6B 중간 회신 ①: 같은 출처·배치 ID에 다른 내용 — 배치 전체 거부(대상 TENANT, 두 내용 해시만). */
+    CONTRACT_LINK_BATCH_REJECTED,
+    /** 6B 중간 회신 ③: 연결이 다른 확인서로 옮겨졌다(정정 새 버전 봉인 때 이월, 무효·정정·만료된 확인서의 연결 인수 — 대상은 받은 확인서). */
+    CONTRACT_LINK_CARRIED,
+    /** 6B: 초안 폐기(대상 DISCLOSURE) — 지운 값의 해시({@code erased}, 파기와 같은 규약)·계기(설계사 사유 코드 또는 방치 일수). */
+    DRAFT_ABANDONED,
+    /** 6B: 방치 초안 폐기 배치 요약(대상 TENANT). */
+    DRAFT_ABANDON_BATCH,
+    /** 6B: 징구율 스냅샷(대상 TENANT) — 기준월·룰 버전·산식·정의 표기·작업 ID·행 수·테넌트 전체 수치와 입력 해시(내부 지표 — 규제 정의 없음). */
+    COLLECTION_RATE_SNAPSHOT,
+    /** 6B: 같은 (달, 룰 버전)의 징구율 재계산 거부 {@code SNAPSHOT_EXISTS}(대상 TENANT, 새 행 없음). */
+    COLLECTION_RATE_SNAPSHOT_REJECTED,
+    /** 6B: 청약 게이트 판정(요청마다 1행, BLOCKED 포함) — 식별자 종류·SHA-256(원문 없음)·판정·사유·후보 수·확인서 ID·번호·룰 버전·대기 역할. */
+    GATE_DECISION,
+    /** 6B: 보존 재계산의 연장(대상 DISCLOSURE, 적용 실행만 — dry-run은 남기지 않는다): 이전·이후 기한·룰 버전·작업 ID. */
+    RETENTION_RECOMPUTED,
     /** 커밋 후 Object Lock 적용(객체 키·보존 기한). 봉인 직후 또는 재적용(reconcile). */
     ARTIFACT_RETAIN,
     /** 커밋 후 Object Lock 적용 실패 — 재적용 대상으로 남았다(오류 코드만). */

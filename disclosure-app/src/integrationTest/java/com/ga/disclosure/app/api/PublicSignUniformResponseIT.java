@@ -222,6 +222,30 @@ class PublicSignUniformResponseIT {
         assertThat(rejections.values().stream().map(ApiTestSupport.Response::text)).allSatisfy(t -> assertThat(t).doesNotContain(valid, reissued, remote, fresh));
     }
 
+    /**
+     * 6B 8단계 회신 ②: 방화벽 거부는 보안 체인 밖이다 — 어떤 체인·테넌트·토큰 판단보다 먼저 일어나므로 토큰·테넌트의 유효성을 담을 수 없다. 그래서 체인의
+     * 균일 거부 바이트와는 다르지만(패딩·공개 헤더 없음), 토큰이 유효하든 틀리든 없든 테넌트가 있든 없든 서로 같은 응답이다.
+     */
+    @Test
+    void aFirewallRejectionIsOutsideTheChainAndCarriesNoTokenOrTenantInformation() throws Exception {
+        String valid = FlowSupport.deviceToken(port, T, FlowSupport.sealed(port, T, customer), "TOUCH_PAD");
+        Map<String, ApiTestSupport.Response> firewall = new LinkedHashMap<>();
+        SLEEPS.clear();
+        firewall.put("valid token", ApiTestSupport.send(port, "POST", "/public;x=1/v1/sign/open", null, null, Map.of("X-Sign-Token", valid)));
+        firewall.put("wrong secret", ApiTestSupport.send(port, "POST", "/public;x=1/v1/sign/open", null, null, Map.of("X-Sign-Token", otherSecret(valid))));
+        firewall.put("unknown tenant", ApiTestSupport.send(port, "POST", "/public;x=1/v1/sign/open", null, null,
+                Map.of("X-Sign-Token", "NOPE_" + SeedData.uniqueTenant("FW") + valid.substring(valid.indexOf('~')))));
+        firewall.put("malformed", ApiTestSupport.send(port, "POST", "/public;x=1/v1/sign/open", null, null, Map.of("X-Sign-Token", "not-a-token")));
+        firewall.put("no token", ApiTestSupport.send(port, "POST", "/public;x=1/v1/sign/open", null, null, Map.of()));
+        assertThat(SLEEPS).as("the gate (and its padding) never ran").isEmpty();
+        ApiTestSupport.Response reference = firewall.get("no token");
+        assertThat(reference.status()).isEqualTo(404);
+        firewall.forEach((reason, r) -> assertThat(r.fingerprint()).as(reason).isEqualTo(reference.fingerprint()));
+        assertThat(firewall.values().stream().map(ApiTestSupport.Response::text)).allSatisfy(t -> assertThat(t).doesNotContain(valid).doesNotContain(T));
+        // 거부는 토큰을 쓰지 않았다 — 체인을 지나는 요청에는 그대로 유효하다
+        assertThat(call("/public/v1/sign/status", valid, null).status()).isEqualTo(200);
+    }
+
     @Test
     void theTenantRateLimitIsTheSameRejectionAndPaddedTheSameWay() throws Exception {
         // 고정 1분 창 — 창 경계에 걸리지 않게 분의 앞쪽에서 시작한다

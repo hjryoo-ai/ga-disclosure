@@ -65,8 +65,19 @@ class ChannelSeparationIT {
                 get(port, "/api/v1/jobs", token("agent-1")),                        // 역할 칸 없음
                 get(port, "/api/v1/jobs/" + java.util.UUID.randomUUID(), token("compliance-1")),   // 없는 자원
                 get(port, "/api/v1/jobs/not-a-uuid", token("compliance-1")),
-                get(port, "/internal/v1/no-such-route", token("scheduler-1")));
-        assertThat(denied).allSatisfy(r -> assertThat(r.fingerprint()).isEqualTo(unknownRoute.fingerprint()));
+                get(port, "/internal/v1/no-such-route", token("scheduler-1")),
+                // 접두를 다른 표기로 써도(퍼센트 인코딩·중복 슬래시·세미콜론) 사람 역할이 /internal 핸들러에 닿지 못한다 — 채널은 라우팅되는 경로로 정한다
+                get(port, "/%69nternal/v1/jobs", token("compliance-1")),
+                get(port, "/inter%6eal/v1/jobs", token("compliance-1")),
+                get(port, "/%61pi/v1/jobs", token("scheduler-1")));
+        // 세미콜론 경로는 방화벽이 처리 전에 거부한다 — 같은 404 본문(핸들러에 닿지 않음), 보안 헤더는 붙지 않는다(관찰: 보고서)
+        ApiTestSupport.Response semicolon = get(port, "/internal;x=1/v1/jobs", token("compliance-1"));
+        assertThat(semicolon.status()).isEqualTo(404);
+        assertThat(semicolon.text()).isEqualTo(unknownRoute.text());
+        for (int i = 0; i < denied.size(); i++) {
+            assertThat(denied.get(i).fingerprint()).as("case " + i + ": " + denied.get(i).status() + " " + denied.get(i).text())
+                    .isEqualTo(unknownRoute.fingerprint());
+        }
     }
 
     @Test

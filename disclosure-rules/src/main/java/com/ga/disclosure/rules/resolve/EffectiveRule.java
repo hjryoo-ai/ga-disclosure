@@ -304,6 +304,93 @@ public record EffectiveRule(
         }
     }
 
+    // ------------------------------------------------------------------ 6B: 준법 큐·징구율·초안 폐기·계약 연결·게이트
+
+    /** 플래그 유형별 준법 큐 정책(키 = 유형, 룰 순서). 유형 목록은 닫혀 있다(스키마·DB CHECK·코드 상수 — FlagTypeTableTest). */
+    public Map<String, FlagTypePolicy> complianceQueue() {
+        JsonNode types = object(object("complianceQueue"), "complianceQueue.types", "types");
+        Map<String, FlagTypePolicy> out = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> e : types.properties()) {
+            out.put(e.getKey(), flagPolicy(e.getKey(), e.getValue()));
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    /** 유형 하나의 정책. 룰에 그 유형이 없으면 예외(기본값 없음 — 해석 불가 시 기본값은 호출자가 정한다, 6B 계획 §7). */
+    public FlagTypePolicy flagPolicy(String type) {
+        JsonNode n = object(object("complianceQueue"), "complianceQueue.types", "types").get(type);
+        if (n == null) {
+            throw missing("complianceQueue.types." + type);
+        }
+        return flagPolicy(type, n);
+    }
+
+    private FlagTypePolicy flagPolicy(String type, JsonNode n) {
+        String path = "complianceQueue.types." + type;
+        if (!n.isObject()) {
+            throw missing(path);
+        }
+        List<LifecycleReasonRule> codes = new ArrayList<>();
+        JsonNode arr = n.get("resolutionCodes");
+        if (arr == null || !arr.isArray()) {
+            throw missing(path + ".resolutionCodes");
+        }
+        for (JsonNode c : arr) {
+            codes.add(new LifecycleReasonRule(text(c, path + ".resolutionCodes[].code", "code"),
+                    text(c, path + ".resolutionCodes[].label", "label"), false));
+        }
+        try {
+            return new FlagTypePolicy(FlagAssignee.valueOf(text(n, path + ".assignedRole", "assignedRole")),
+                    optionalInt(n, path + ".slaHours", "slaHours"), boolValue(n, path + ".visibleToAgent", "visibleToAgent"),
+                    codes, boolValue(n, path + ".requiresEvidence", "requiresEvidence"));
+        } catch (IllegalArgumentException e) {
+            throw missing(path + " (" + e.getMessage() + ")");
+        }
+    }
+
+    /** 징구율 산식 ID — 내부 지표, 규제 정의 없음(§14 #17). GLOBAL 전용. */
+    public CollectionRateFormula collectionRateFormula() {
+        String formula = text(object("collectionRate"), "collectionRate.formula", "formula");
+        try {
+            return CollectionRateFormula.valueOf(formula);
+        } catch (IllegalArgumentException e) {
+            throw missing("collectionRate.formula");
+        }
+    }
+
+    /** 초안 자동 폐기 일수 — 없으면(null) 배치 {@code ABANDON_DRAFTS}가 아무것도 하지 않는다. TODO(confirm#13) */
+    public java.util.OptionalInt draftAbandonAfterDays() {
+        return optionalInt(object("draft"), "draft.abandonAfterDays", "abandonAfterDays");
+    }
+
+    /** 설계사 명시 폐기 사유 코드(닫힌 목록, 텍스트 없음). */
+    public List<LifecycleReasonRule> draftAbandonReasons() {
+        JsonNode arr = object("draft").get("abandonReasons");
+        if (arr == null || !arr.isArray() || arr.isEmpty()) {
+            throw missing("draft.abandonReasons");
+        }
+        List<LifecycleReasonRule> out = new ArrayList<>();
+        for (JsonNode n : arr) {
+            out.add(new LifecycleReasonRule(text(n, "draft.abandonReasons[].code", "code"), text(n, "draft.abandonReasons[].label", "label"), false));
+        }
+        return List.copyOf(out);
+    }
+
+    /** 미매칭 보고 행 보관 일수 — 없으면(null) 지우지 않는다. TODO(confirm#16) */
+    public java.util.OptionalInt contractLinkUnmatchedRetentionDays() {
+        return optionalInt(object("contractLink"), "contractLink.unmatchedRetentionDays", "unmatchedRetentionDays");
+    }
+
+    /** 청약 게이트의 서비스 주체별 분당 한도. GLOBAL 전용. TODO(confirm#10) */
+    public int gatePerMinutePerPrincipal() {
+        return intValue(object("gate"), "gate.perMinutePerPrincipal", "perMinutePerPrincipal");
+    }
+
+    /** 고객 등록 API(6B §9)의 등록 주체별 지난 60초 등록 시도 한도. 사규로 덮어쓸 수 있다. TODO(confirm#10) — 예시값 30. */
+    public int customersRegisterPerMinute() {
+        return intValue(object("customers"), "customers.registerPerMinute", "registerPerMinute");
+    }
+
     /** 고객 파기 유예: 그 고객의 마지막 확인서 파기 뒤 일수. */
     public int customerGraceDaysAfterLastDestruction() {
         return intValue(object("customerRef"), "customerRef.graceDaysAfterLastDestruction", "graceDaysAfterLastDestruction");
@@ -454,6 +541,21 @@ public record EffectiveRule(
             throw missing(path);
         }
         return n.intValue();
+    }
+
+    /** 키는 있어야 하고 값은 정수 ≥ 1 또는 null(명시적 "없음"). */
+    private java.util.OptionalInt optionalInt(JsonNode parent, String path, String key) {
+        JsonNode n = parent.get(key);
+        if (n == null) {
+            throw missing(path);
+        }
+        if (n.isNull()) {
+            return java.util.OptionalInt.empty();
+        }
+        if (!n.isInt() || n.intValue() < 1) {
+            throw missing(path);
+        }
+        return java.util.OptionalInt.of(n.intValue());
     }
 
     private boolean boolValue(String key) {

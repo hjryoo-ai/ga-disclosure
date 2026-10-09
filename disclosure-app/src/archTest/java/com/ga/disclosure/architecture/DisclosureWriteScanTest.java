@@ -57,15 +57,18 @@ class DisclosureWriteScanTest {
     private static final String FEED = "com.ga.disclosure.infra.outbox.EventFeedRepository";
 
     /** 허용 목록: FQN#메서드 → 허용 문장 종류(사유). */
-    static final Map<String, Set<String>> ALLOWED = Map.of(
-            REPO + "#insert", Set.of("INSERT disclosure"),          // 새 초안 헤더(DRAFT) — 상태를 정하는 유일한 INSERT
-            REPO + "#save", Set.of("UPDATE disclosure", "DELETE child"),  // 애그리게이트 상태 저장: 헤더 상태·스냅샷, 자식 전부 교체
-            REPO + "#writeChildren", Set.of("INSERT child"),         // insert·save가 부르는 자식 행 쓰기
-            SESSIONS + "#insert", Set.of("INSERT sign_session"),     // 세션 발급(OPEN, 두 해시 고정 — GD101)
-            SESSIONS + "#update", Set.of("UPDATE sign_session"),     // 상태표를 거친 가변 컬럼만(GD101이 다시 지킨다)
-            SIGNATURES + "#insert", Set.of("INSERT signature"),      // 서명 1건(append-only, GD021·022·102~104)
-            OUTBOX + "#append", Set.of("INSERT outbox_event", "INSERT outbox_head", "UPDATE outbox_head"),  // 갭 없는 seq 적재(GD106)
-            FEED + "#markPublished", Set.of("UPDATE outbox_event"));  // 피드 ack — published_at을 NULL에서 값으로 한 번(GD106, 6A)
+    static final Map<String, Set<String>> ALLOWED = Map.ofEntries(
+            Map.entry(REPO + "#insert", Set.of("INSERT disclosure")),          // 새 초안 헤더(DRAFT) — 상태를 정하는 유일한 INSERT
+            Map.entry(REPO + "#save", Set.of("UPDATE disclosure", "DELETE child")),  // 애그리게이트 상태 저장: 헤더 상태·스냅샷, 자식 전부 교체
+            Map.entry(REPO + "#writeChildren", Set.of("INSERT child")),         // insert·save가 부르는 자식 행 쓰기
+            // 6B 계약 연결: 메타 컬럼만 — 현재값 = 활성 연결(GD136·V15), 보존기한 연장만(GD094). 상태·본문은 건드리지 않는다
+            Map.entry(REPO + "#mirrorContractLink", Set.of("UPDATE disclosure")),
+            Map.entry(REPO + "#extendRetention", Set.of("UPDATE disclosure")),
+            Map.entry(SESSIONS + "#insert", Set.of("INSERT sign_session")),     // 세션 발급(OPEN, 두 해시 고정 — GD101)
+            Map.entry(SESSIONS + "#update", Set.of("UPDATE sign_session")),     // 상태표를 거친 가변 컬럼만(GD101이 다시 지킨다)
+            Map.entry(SIGNATURES + "#insert", Set.of("INSERT signature")),      // 서명 1건(append-only, GD021·022·102~104)
+            Map.entry(OUTBOX + "#append", Set.of("INSERT outbox_event", "INSERT outbox_head", "UPDATE outbox_head")),  // 갭 없는 seq 적재(GD106)
+            Map.entry(FEED + "#markPublished", Set.of("UPDATE outbox_event")));  // 피드 ack — published_at을 NULL에서 값으로 한 번(GD106, 6A)
 
     private static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
 

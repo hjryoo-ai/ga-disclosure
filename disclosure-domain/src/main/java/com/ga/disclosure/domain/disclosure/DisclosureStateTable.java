@@ -8,6 +8,7 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 
+import static com.ga.disclosure.domain.disclosure.DisclosureCommand.ABANDON;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.APPLY_SNAPSHOT;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.COMPARE;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.COMPLETE;
@@ -19,6 +20,7 @@ import static com.ga.disclosure.domain.disclosure.DisclosureCommand.SET_RECOMMEN
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.SIGN;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.SUPERSEDE;
 import static com.ga.disclosure.domain.disclosure.DisclosureCommand.VOID;
+import static com.ga.disclosure.domain.enums.DisclosureStatus.ABANDONED;
 import static com.ga.disclosure.domain.enums.DisclosureStatus.COMPARED;
 import static com.ga.disclosure.domain.enums.DisclosureStatus.COMPLETED;
 import static com.ga.disclosure.domain.enums.DisclosureStatus.DRAFT;
@@ -49,16 +51,19 @@ public final class DisclosureStateTable {
         put(t, DRAFT, REPLACE_ITEMS, DRAFT);
         put(t, DRAFT, COMPARE, COMPARED);
         put(t, DRAFT, VOID, DisclosureStatus.VOID);
+        put(t, DRAFT, ABANDON, ABANDONED);
 
         put(t, COMPARED, REPLACE_ITEMS, COMPARED);
         put(t, COMPARED, APPLY_SNAPSHOT, GRADED);
         put(t, COMPARED, VOID, DisclosureStatus.VOID);
+        put(t, COMPARED, ABANDON, ABANDONED);
         put(t, COMPARED, REBASE, COMPARED, DRAFT);
 
         put(t, GRADED, REPLACE_ITEMS, COMPARED);
         put(t, GRADED, APPLY_SNAPSHOT, GRADED);
         put(t, GRADED, SET_RECOMMENDATIONS, REASONED);
         put(t, GRADED, VOID, DisclosureStatus.VOID);
+        put(t, GRADED, ABANDON, ABANDONED);
         put(t, GRADED, REBASE, COMPARED, DRAFT);
 
         put(t, REASONED, REPLACE_ITEMS, COMPARED);
@@ -66,6 +71,7 @@ public final class DisclosureStateTable {
         put(t, REASONED, SET_RECOMMENDATIONS, REASONED);
         put(t, REASONED, SEAL, SEALED);
         put(t, REASONED, VOID, DisclosureStatus.VOID);
+        put(t, REASONED, ABANDON, ABANDONED);
         put(t, REASONED, REBASE, COMPARED, DRAFT);
 
         put(t, SEALED, SIGN, PARTIALLY_SIGNED, COMPLETED);
@@ -84,7 +90,7 @@ public final class DisclosureStateTable {
 
         put(t, EXPIRED, VOID, DisclosureStatus.VOID);
         put(t, EXPIRED, SUPERSEDE, SUPERSEDED);
-        // VOID·SUPERSEDED: 종결 상태, 허용 명령 없음
+        // VOID·SUPERSEDED·ABANDONED: 종결 상태, 허용 명령 없음
 
         Map<DisclosureStatus, Map<DisclosureCommand, Set<DisclosureStatus>>> frozen = new EnumMap<>(DisclosureStatus.class);
         t.forEach((s, row) -> frozen.put(s, Collections.unmodifiableMap(row)));

@@ -10,7 +10,7 @@
     "seq": { "type": "integer", "minimum": 1, "description": "발행자(테넌트) 내 단조 증가 정수. 피드는 seq 오름차순·갭 없음" },
     "type": {
       "description": "이벤트 타입명",
-      "enum": ["DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted", "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised", "DisclosureDestroyed"]
+      "enum": ["DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted", "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised", "DisclosureDestroyed", "DisclosureAbandoned"]
     },
     "version": { "type": "integer", "minimum": 1, "description": "payload 스키마 버전(정수). 필드 추가는 호환, 삭제·의미 변경·타입 변경은 version 증가" },
     "occurredAt": { "$ref": "defs.schema.json#/$defs/instant", "description": "ISO-8601, 오프셋 포함" },
@@ -31,8 +31,10 @@
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureCompleted" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureCompleted.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureVoided" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureVoided.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureDestroyed" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureDestroyed.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureAbandoned" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureAbandoned.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureSuperseded" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSuperseded.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "PolicyLinked" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/PolicyLinked.schema.json" } } } },
+    { "if": { "required": ["type", "version"], "properties": { "type": { "const": "PolicyLinked" }, "version": { "const": 2 } } }, "then": { "properties": { "payload": { "$ref": "payloads/PolicyLinked.v2.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "ComplianceFlagRaised" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/ComplianceFlagRaised.schema.json" } } } }
   ]
 }

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "source": "INS_FEED_A",
+  "batchId": "2026-10-09.001",
+  "items": [
+    { "policyNo": "POL-0000000001", "applicationNo": "APP-0000000001", "contractDate": "2026-09-30", "insurerCode": "INS-A", "productKey": "INS-A:PRD-1001" },
+    { "policyNo": "POL-0000000002", "contractDate": "2026-10-01", "insurerCode": "INS-B" }
+  ]
+}

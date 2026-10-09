@@ -43,6 +43,8 @@ import java.util.function.Function;
  * verify package        --package &lt;zip&gt; [--receipt &lt;json&gt;] [--tsa-trust &lt;pem&gt;] [--report &lt;path&gt;]   (0 일치, 2 불일치, 3 입력 오류)
  * verify tenant         [--tenants all|T1,T2] [--tsa-trust &lt;pem&gt;] [--report-dir &lt;dir&gt;] --operator &lt;id&gt;   (테넌트 중 최대 종료 코드)
  * retention destroy     [--tenants all|T1,T2] [--as-of &lt;instant&gt;] [--dry-run yes] [--limit 100] [--report-dir &lt;dir&gt;] --operator &lt;id&gt;
+ * retention recompute   --rule-version &lt;GLOBAL id&gt; [--apply yes] [--tenants all|T1,T2] [--report-dir &lt;dir&gt;] --operator &lt;id&gt;
+ *                       (6B — 기본 dry-run, 연장만, 쓸 수 없는 룰 버전·미완료 작업은 종료 2)
  * legal-hold place      --tenant T (--id &lt;uuid&gt; | --customer &lt;ref&gt;) --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] [--if-absent yes] --operator &lt;id&gt;
  * legal-hold release    --tenant T --hold &lt;uuid&gt; --reason-code &lt;CODE&gt; --operator &lt;id&gt;
  * </pre>
@@ -57,13 +59,16 @@ final class RetentionCommands {
     private final TenantVerifier verifier;
     private final DestructionJob destruction;
     private final LegalHoldService holds;
+    private final com.ga.disclosure.workflow.disclosure.RetentionRecomputeService recompute;
     private final JobCommands jobs;
     private final Function<String, List<TenantId>> tenants;
     private final Clock clock;
     private final PrintStream out;
 
     RetentionCommands(AnchorJob anchors, ReceiptExporter receipts, TenantVerifier verifier, DestructionJob destruction, LegalHoldService holds,
-                      JobCommands jobs, Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
+                      com.ga.disclosure.workflow.disclosure.RetentionRecomputeService recompute, JobCommands jobs,
+                      Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
+        this.recompute = Objects.requireNonNull(recompute, "recompute");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.verifier = Objects.requireNonNull(verifier, "verifier");
@@ -86,6 +91,7 @@ final class RetentionCommands {
             case "verify package" -> verifyPackage(args);
             case "verify tenant" -> verifyTenant(args);
             case "retention destroy" -> destroy(args);
+            case "retention recompute" -> recompute(args);
             case "legal-hold place" -> place(args);
             case "legal-hold release" -> release(args);
             default -> throw new CliFailure("unknown command '" + args.command() + "' — see RetentionCommands javadoc");
@@ -184,6 +190,39 @@ final class RetentionCommands {
         out.println(head + " " + (report.matches() ? "MATCH" : "MISMATCH") + " findings=" + report.findings().size() + " sha256=" + report.sha256());
         report.findings().forEach(f -> out.println("  " + f.code() + " " + f.where()));
         report.statements().forEach(s -> out.println("  STATEMENT " + s));
+    }
+
+    private void recompute(CliArguments args) {
+        com.ga.disclosure.domain.vo.RuleVersionId version = com.ga.disclosure.domain.vo.RuleVersionId.of(args.required("rule-version"));
+        boolean apply = args.optional("apply").map(v -> v.equals("yes")).orElse(false);
+        ObjectNode params = JSON.createObjectNode().put("ruleVersionId", version.value()).put("apply", apply);
+        boolean rejected = false;
+        for (TenantId tenant : tenants.apply(args.optional("tenants").orElse("all"))) {
+            Optional<com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Report> ran;
+            try {
+                ran = jobs.one(caller(args, tenant), JobKind.RETENTION_RECOMPUTE, params, StandardJobs.retentionRecompute(recompute, version, apply));
+            } catch (com.ga.disclosure.workflow.disclosure.CommandRejectedException e) {
+                out.println("RETENTION_RECOMPUTE " + tenant + " REJECTED " + e.code());
+                rejected = true;
+                continue;
+            }
+            if (ran.isEmpty()) {
+                continue;
+            }
+            var r = ran.get();
+            args.optional("report-dir").ifPresent(d -> write(Path.of(d).resolve("retention-recompute-" + tenant + ".json"),
+                    Canonicalizer.canonicalize(r.toJson())));
+            out.println("RETENTION_RECOMPUTE " + tenant + " rule=" + version + (apply ? " APPLY" : " DRY_RUN") + " extended="
+                    + r.count(com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Outcome.EXTENDED) + " unchanged="
+                    + r.count(com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Outcome.UNCHANGED) + " destroyedExcluded="
+                    + r.destroyedExcluded() + " relockPending=" + r.relockPending());
+            r.items().stream().filter(i -> i.outcome() == com.ga.disclosure.workflow.disclosure.RetentionRecomputeService.Outcome.EXTENDED)
+                    .forEach(i -> out.println("  " + (apply ? "EXTENDED " : "WOULD_EXTEND ") + i.disclosureNo() + " " + i.before() + " -> " + i.candidate()));
+        }
+        if (rejected) {
+            throw new CliRejection("retention recompute rejected: the rule version is not usable");
+        }
+        jobs.failIfIncomplete();
     }
 
     private void destroy(CliArguments args) {

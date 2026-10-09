@@ -91,4 +91,26 @@ public class LegalHoldRepository extends TenantScopedRepository implements Legal
         return queryAtMostOne("SELECT " + COLUMNS + " FROM legal_hold WHERE tenant_id = :tenantId AND customer_ref = :ref AND released_at IS NULL",
                 Map.of("ref", customer.value()), MAPPER);
     }
+
+    @Override
+    public boolean lockErased(DisclosureId disclosure) {
+        return queryAtMostOne("""
+                SELECT d.destroyed_at IS NOT NULL OR d.status = 'ABANDONED'
+                       OR EXISTS (SELECT 1 FROM document_key k
+                                   WHERE k.tenant_id = :tenantId AND k.disclosure_id = d.disclosure_id AND k.shredded_at IS NOT NULL) AS erased
+                  FROM disclosure d
+                 WHERE d.tenant_id = :tenantId AND d.disclosure_id = :id
+                   FOR UPDATE OF d
+                """, Map.of("id", disclosure.value()), (rs, n) -> rs.getBoolean("erased")).orElse(false);
+    }
+
+    @Override
+    public boolean lockErased(CustomerRef customer) {
+        return queryAtMostOne("""
+                SELECT destroyed_at IS NOT NULL AS erased
+                  FROM customer_ref
+                 WHERE tenant_id = :tenantId AND customer_ref = :ref
+                   FOR UPDATE
+                """, Map.of("ref", customer.value()), (rs, n) -> rs.getBoolean("erased")).orElse(false);
+    }
 }

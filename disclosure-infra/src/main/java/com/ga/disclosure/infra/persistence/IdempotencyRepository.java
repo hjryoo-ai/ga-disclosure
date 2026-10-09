@@ -14,7 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Idempotency-Key(V12 {@code idempotency_key}, GD120). 쓰기는 전부 조건부이고 허용 변경(첫 청구·인수·완료 1회·만료 뒤 삭제)은 트리거가 한 번 더 강제한다.
+ * Idempotency-Key(V12 {@code idempotency_key}, GD120). 쓰기는 전부 조건부이고 허용 변경(첫 청구·인수·완료 1회·진행 중 해제·만료 뒤 삭제 — V13)은 트리거가
+ * 한 번 더 강제한다.
  * 만료 판정은 이 프로세스의 시계와 DB 시계 둘 다로 한다 — 트리거는 DB 시계로 "만료 전 삭제"를 거부하므로, 시계가 앞선 노드가 지우려다 실패하지 않게.
  */
 @Repository
@@ -93,6 +94,17 @@ public class IdempotencyRepository extends TenantScopedRepository implements Ide
         return update("""
                 UPDATE idempotency_key
                    SET response_status = :status, response_ref = CAST(:ref AS jsonb), response_hash = :hash
+                 WHERE tenant_id = :tenantId AND actor_subject = :subject AND idem_key = :key
+                   AND claim_seq = :claimSeq AND response_status IS NULL
+                """, p) == 1;
+    }
+
+    @Override
+    public boolean release(String subject, String key, int claimSeq) {
+        Map<String, Object> p = key(subject, key);
+        p.put("claimSeq", claimSeq);
+        return update("""
+                DELETE FROM idempotency_key
                  WHERE tenant_id = :tenantId AND actor_subject = :subject AND idem_key = :key
                    AND claim_seq = :claimSeq AND response_status IS NULL
                 """, p) == 1;

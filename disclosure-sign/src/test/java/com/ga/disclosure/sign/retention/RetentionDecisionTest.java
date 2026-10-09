@@ -92,7 +92,7 @@ class RetentionDecisionTest {
                 }
             }
         }
-        assertThat(cases).isEqualTo(10 * 128);
+        assertThat(cases).isEqualTo(11 * 128);   // 6B ABANDONED 추가 — 종료 상태가 아니다(NOT_TERMINAL)
         assertThat(destroy).as("COMPLETED 3(계약일 있음 2 + 대기 경과 1) + EXPIRED·VOID·SUPERSEDED 각 4(계약일·대기 무관)").isEqualTo(15);
     }
 

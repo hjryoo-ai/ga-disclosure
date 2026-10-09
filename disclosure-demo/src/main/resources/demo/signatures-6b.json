@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "note": "6B 데모 서명(DEMO1): B-1-LINK를 3자 터치 서명으로 완료(게이트 ALLOWED의 근거). seed.sh가 확인서와 같은 시계 오프셋(-P3D)으로 돌린다. 파일은 전부 허구 데이터.",
+  "customerKeyPrefix": "demo:customers.json#",
+  "files": { "strokes": "sign/strokes.json", "image": "sign/signature.png", "scan": "sign/scan.png", "device": "sign/device.json" },
+  "cases": [
+    { "id": "B-1-LINK", "customer": "C03", "groupCode": "PG-HEALTH-SIMPLE-NR", "consultDate": "2026-09-30", "flow": "TOUCH_PAD" }
+  ]
+}

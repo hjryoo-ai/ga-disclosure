@@ -4,8 +4,8 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * {@code idempotency_key} 포트(바인딩된 테넌트). 쓰기는 전부 조건부다 — 기대한 행 상태가 아니면 {@code false}. 허용 변경(첫 청구·임차 인수·완료 1회·만료 뒤
- * 삭제)은 GD120이 한 번 더 강제한다.
+ * {@code idempotency_key} 포트(바인딩된 테넌트). 쓰기는 전부 조건부다 — 기대한 행 상태가 아니면 {@code false}. 허용 변경(첫 청구·임차 인수·완료 1회·진행 중
+ * 해제·만료 뒤 삭제)은 GD120이 한 번 더 강제한다(V13).
  */
 public interface IdempotencyStore {
 
@@ -23,6 +23,9 @@ public interface IdempotencyStore {
 
     /** 완료 기록(1회): 그 청구 순번의 진행 중 행일 때만. */
     boolean complete(String subject, String key, int claimSeq, int status, String responseRef, String responseHash);
+
+    /** 해제: 그 청구 순번의 진행 중 행을 지운다(저장하지 않는 응답 뒤 — 6A 수용심사 §2 ②). 인수됐거나 완료됐으면 {@code false}. */
+    boolean release(String subject, String key, int claimSeq);
 
     /** 만료 행을 최대 {@code limit}건 지운다(오래된 만료부터). */
     int purgeExpired(Instant now, int limit);

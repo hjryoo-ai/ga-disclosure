@@ -5,6 +5,7 @@ import com.ga.disclosure.api.dto.DisclosureReceipt;
 import com.ga.disclosure.api.dto.Download;
 import com.ga.disclosure.api.dto.ExceptionApprovalReceipt;
 import com.ga.disclosure.api.dto.ItemsRequest;
+import com.ga.disclosure.api.dto.AbandonRequest;
 import com.ga.disclosure.api.dto.LifecycleReceipt;
 import com.ga.disclosure.api.dto.LifecycleRequest;
 import com.ga.disclosure.api.dto.RecommendationsRequest;
@@ -54,6 +55,17 @@ public final class CommandMapper {
 
     // ------------------------------------------------------------------ 요청
 
+    /** (6B) 선택 청약번호 — 형식(공백 없는 1~64자)이 틀리면 400(값은 응답에 싣지 않는다). */
+    public static java.util.Optional<String> applicationNo(CreateDisclosureRequest r) {
+        if (r.applicationNo() == null) {
+            return java.util.Optional.empty();
+        }
+        if (!r.applicationNo().matches("\\S{1,64}")) {
+            throw new MalformedRequestException("applicationNo");
+        }
+        return java.util.Optional.of(r.applicationNo());
+    }
+
     public static CustomerRef customerRef(CreateDisclosureRequest r) {
         return parse("customerRef", () -> CustomerRef.of(required("customerRef", r == null ? null : r.customerRef())));
     }
@@ -101,6 +113,12 @@ public final class CommandMapper {
 
     public static ValidationStage stage(String stage) {
         return parse("stage", () -> ValidationStage.valueOf(required("stage", stage)));
+    }
+
+    /** 폐기 사유 코드 — 형식은 무효 사유 코드와 같다(목록 대조는 유스케이스가 고정 룰로). */
+    public static String abandonReason(AbandonRequest r) {
+        String code = required("reasonCode", r == null ? null : r.reasonCode());
+        return parse("reasonCode", () -> new LifecycleReason(code, null)).code();
     }
 
     public static LifecycleReason reason(LifecycleRequest r) {
@@ -188,7 +206,7 @@ public final class CommandMapper {
                 case EVIDENCE_ZIP -> "application/zip";
             });
             case ArtifactService.View.Denied d ->
-                    throw new RejectedOutcomeException(RejectionCategory.CONFLICT, List.of(new Problem.Rejection(d.reason().name(), null)));
+                    throw new RejectedOutcomeException(d.reason().category(), List.of(new Problem.Rejection(d.reason().name(), null)));
         };
     }
 
@@ -196,7 +214,7 @@ public final class CommandMapper {
         return switch (result) {
             case ReceiptExporter.Result.Exported e -> new Download(e.bytes(), "application/json");
             case ReceiptExporter.Result.NotAvailable n ->
-                    throw new RejectedOutcomeException(RejectionCategory.CONFLICT, List.of(new Problem.Rejection(n.code().replace(':', '_'), null)));
+                    throw new RejectedOutcomeException(n.reason().category(), List.of(new Problem.Rejection(n.reason().name(), null)));
         };
     }
 

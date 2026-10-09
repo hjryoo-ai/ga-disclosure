@@ -36,6 +36,20 @@ public sealed interface Target {
         }
     }
 
+    /** 준법 플래그(6B): 확인서에 걸린 플래그는 그 확인서의 사실, 테넌트 수준 플래그는 소유 범위 없음. */
+    record Flag(UUID id) implements Target {
+        public Flag {
+            Objects.requireNonNull(id, "id");
+        }
+    }
+
+    /** 계약 피드의 출처(6B 중간 회신 ②): 주체의 {@code identity_link.feed_sources}에 있어야 한다. 출처 코드는 개인정보가 아니다. */
+    record FeedSource(String source) implements Target {
+        public FeedSource {
+            Objects.requireNonNull(source, "source");
+        }
+    }
+
     static Target none() {
         return new None();
     }
@@ -48,6 +62,10 @@ public sealed interface Target {
         return new Job(id);
     }
 
+    static Target flag(UUID id) {
+        return new Flag(id);
+    }
+
     /** 감사용 종류·ID(응답에는 싣지 않는다). */
     default String kind() {
         return switch (this) {
@@ -56,6 +74,8 @@ public sealed interface Target {
             case Session s -> "SIGN_SESSION";
             case Hold h -> "LEGAL_HOLD";
             case Job j -> "JOB";
+            case Flag f -> "FLAG";
+            case FeedSource s -> "FEED_SOURCE";
         };
     }
 
@@ -66,6 +86,8 @@ public sealed interface Target {
             case Session s -> s.id().toString();
             case Hold h -> h.id().toString();
             case Job j -> j.id().toString();
+            case Flag f -> f.id().toString();
+            case FeedSource f -> f.source();
         };
     }
 }

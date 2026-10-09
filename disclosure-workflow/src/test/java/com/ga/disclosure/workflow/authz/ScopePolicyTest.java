@@ -128,11 +128,16 @@ class ScopePolicyTest {
                 Action.SUPERSEDE, SIBLING)).contains(Role.OPERATOR);
     }
 
-    /** 정정은 관리자 칸만(업무 규칙이 exceptionApproval.role을 요구한다 — 계획 §3.3의 설계사 칸을 고침). */
+    /**
+     * 정정은 사람 칸이 없다(6B 승인 §2): 업무 규칙이 exceptionApproval.role을 요구해 설계사 칸은 업무 거부뿐이고, 관리자 칸은 승인이 거부했다(정정 버전의 agent_id는
+     * 서명할 설계사여야 한다). 운영자 CLI 대리 실행만 남는다.
+     */
     @Test
-    void supersedeIsAManagerCell() {
-        assertThat(ScopePolicy.matrix().get(Action.SUPERSEDE)).containsOnlyKeys(Role.MANAGER, Role.OPERATOR);
+    void supersedeHasNoHumanCell() {
+        assertThat(ScopePolicy.matrix().get(Action.SUPERSEDE)).containsOnlyKeys(Role.OPERATOR);
         assertThat(ScopePolicy.permits(agent(), Channel.API, Action.SUPERSEDE, MINE)).isEmpty();
+        assertThat(ScopePolicy.permits(manager("/HQ"), Channel.API, Action.SUPERSEDE, MINE)).isEmpty();
+        assertThat(ScopePolicy.matrix().get(Action.VALIDATE)).as("VALIDATE keeps its manager cell").containsKey(Role.MANAGER);
     }
 
     /** 목록 범위(6A 6c): 대상 판정 범위를 목록 조건으로 — 준법 테넌트, 관리자 조직, 설계사 자기 것. 범위에 필요한 연결이 없는 역할은 건너뛴다. */
@@ -152,5 +157,20 @@ class ScopePolicyTest {
         assertThat(ScopePolicy.listScope(only(Role.SCHEDULER), Channel.INTERNAL, Action.DISCLOSURE_READ)).isEmpty();
         assertThat(ScopePolicy.listScope(only(Role.COMPLIANCE), Channel.INTERNAL, Action.DISCLOSURE_READ)).as("wrong channel").isEmpty();
         assertThat(ScopePolicy.listScope(agent(), Channel.API, Action.LEGAL_HOLD_READ)).isEmpty();
+    }
+
+    /** 6B 중간 회신 ②: 계약 피드는 자기 출처로만 — 본문 전의 대상 없는 검사는 출처가 하나라도 있어야 통과한다. */
+    @Test
+    void aContractFeedReachesOnlyItsOwnSources() {
+        Principal feed = new Principal("feed-1", Set.of(Role.CONTRACT_FEED), Optional.empty(), Optional.empty(), Set.of("INS_FEED_A"));
+        assertThat(ScopePolicy.permits(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.OfFeedSource("INS_FEED_A")))
+                .contains(Role.CONTRACT_FEED);
+        assertThat(ScopePolicy.permits(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.OfFeedSource("INS_FEED_B"))).isEmpty();
+        assertThat(ScopePolicy.whyDenied(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.OfFeedSource("INS_FEED_B")))
+                .isEqualTo(AuthorizationDenied.Reason.SCOPE);
+        assertThat(ScopePolicy.permits(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.Tenant())).contains(Role.CONTRACT_FEED);
+        assertThat(ScopePolicy.permits(only(Role.CONTRACT_FEED), Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT, new TargetFacts.Tenant()))
+                .as("a feed without sources").isEmpty();
+        assertThat(ScopePolicy.listScope(feed, Channel.INTERNAL, Action.CONTRACT_LINK_IMPORT)).isEmpty();
     }
 }

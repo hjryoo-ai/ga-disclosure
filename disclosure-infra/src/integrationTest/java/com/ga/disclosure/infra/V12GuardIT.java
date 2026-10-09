@@ -165,6 +165,16 @@ class V12GuardIT {
         assertRejected(DB, T, "GD120", "DELETE FROM idempotency_key" + KEY_WHERE, T, k);                         // 만료 전
     }
 
+    /** V13(6A 수용심사 §2 ②): 진행 중 행은 만료 전에도 지울 수 있다(해제), 완료 행은 여전히 만료 뒤에만. */
+    @Test
+    void aLiveKeyIsReleasedOnlyWhileInProgress() {
+        String inProgress = key();
+        assertAllowed(DB, T, "DELETE FROM idempotency_key" + KEY_WHERE, T, inProgress);
+        String completed = key();
+        commit("UPDATE idempotency_key SET response_status = 422, response_ref = '{}', response_hash = repeat('2', 64)" + KEY_WHERE, T, completed);
+        assertRejected(DB, T, "GD120", "DELETE FROM idempotency_key" + KEY_WHERE, T, completed);
+    }
+
     @Test
     void idempotencyKeysStartInProgressAndAreDeletedOnlyAfterExpiry() {
         String insert = """

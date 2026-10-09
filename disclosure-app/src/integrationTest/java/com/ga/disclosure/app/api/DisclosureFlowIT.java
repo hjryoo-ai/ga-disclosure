@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 확인서 쓰기 경로(6A 계획 §4.1)를 HTTP로 끝까지: 초안 201 → 항목 → 비교 → 산출(엔진 스텁) → 추천사유 → 검증 미리보기 → 봉인 → 산출물 PDF 바이트 → 앵커
- * 영수증(아직 덮이지 않음 409) → 관리자 정정 → 원본 SUPERSEDED. 거부는 범주로 — 상태 충돌 409, 업무 거부 422(코드·규칙 ID만), 형식 400, 남의 것 404.
+ * 영수증(아직 덮이지 않음 409) → 정정은 HTTP에 없음(누구에게나 없는 라우트와 같은 404 — 6B 승인 §2) → 관리자 무효(ORG) → VOID. 거부는 범주로 — 상태 충돌 409, 업무 거부 422(코드·규칙 ID만), 형식 400, 남의 것 404.
  * 테넌트 준비(번들·카탈로그·가상 고객)는 운영자 CLI로 한다.
  */
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -67,7 +67,7 @@ class DisclosureFlowIT {
     static final String REASONS = FlowSupport.REASONS;
 
     @Test
-    void anAgentAuthorsAndSealsAndAManagerSupersedes() {
+    void anAgentAuthorsAndSealsAndAManagerVoidsButCannotSupersede() {
         String id = draft();
         String base = "/api/v1/disclosures/" + id;
         assertThat(json(post("agent-1", base + "/items", ITEMS)).get("status").asString()).isEqualTo("DRAFT");
@@ -100,19 +100,66 @@ class DisclosureFlowIT {
 
         // 봉인된 확인서의 비교는 상태 충돌
         assertThat(post("agent-1", base + "/compare", null).status()).isEqualTo(409);
-        // 정정: 관리자 칸(설계사는 칸이 없어 404), 모르는 사유 코드는 업무 거부 422
-        assertThat(post("agent-1", base + "/supersede", "{\"reasonCode\":\"CONTENT_ERROR\"}").status()).isEqualTo(404);
-        ApiTestSupport.Response badReason = post("manager-1", base + "/supersede", "{\"reasonCode\":\"NOPE\"}");
+        // 정정은 HTTP에 없다(6B 승인 §2 — 운영자 CLI 대리 실행만): 설계사·관리자 모두 없는 라우트와 같은 404
+        ApiTestSupport.Response noRoute = post("manager-1", "/api/v1/no-such-route", "{\"reasonCode\":\"CONTENT_ERROR\"}");
+        for (String subject : new String[] {"agent-1", "manager-1"}) {
+            ApiTestSupport.Response supersede = post(subject, base + "/supersede", "{\"reasonCode\":\"CONTENT_ERROR\"}");
+            assertThat(supersede.status()).as(subject).isEqualTo(404);
+            assertThat(supersede.fingerprint()).as(subject).isEqualTo(noRoute.fingerprint());
+        }
+        // 퇴사 등으로 정정할 문서는 관리자가 무효(ORG)하고 다른 설계사가 새로 작성한다. 모르는 사유 코드는 업무 거부 422
+        ApiTestSupport.Response badReason = post("manager-1", base + "/void", "{\"reasonCode\":\"NOPE\"}");
         assertThat(badReason.status()).isEqualTo(422);
         assertThat(badReason.text()).isEqualTo("{\"code\":\"REJECTED\",\"details\":{\"rejections\":[{\"code\":\"REASON_CODE_UNKNOWN\"}]},"
                 + "\"message\":\"The command was rejected.\"}");
-        ApiTestSupport.Response superseded = post("manager-1", base + "/supersede", "{\"reasonCode\":\"CONTENT_ERROR\"}");
-        assertThat(superseded.status()).as(superseded.text()).isEqualTo(200);
-        String newVersion = json(superseded).get("newVersionId").asString();
-        assertThat(json(get("agent-1", base)).get("status").asString()).isEqualTo("SUPERSEDED");
-        JsonNode next = json(get("agent-1", "/api/v1/disclosures/" + newVersion));
-        assertThat(next.get("version").asInt()).isEqualTo(2);
-        assertThat(next.get("supersedesId").asString()).isEqualTo(id);
+        ApiTestSupport.Response voided = post("manager-1", base + "/void", "{\"reasonCode\":\"WRITTEN_IN_ERROR\"}");
+        assertThat(voided.status()).as(voided.text()).isEqualTo(200);
+        assertThat(json(get("agent-1", base)).get("status").asString()).isEqualTo("VOID");
+    }
+
+    /**
+     * 6B 초안 폐기(지시문 §6): 작성 설계사만(관리자·다른 설계사는 없는 라우트와 같은 404), 사유 코드는 고정 룰 목록(모르면 422, 형식 오류 400),
+     * 폐기된 초안은 종단 — 이후 명령은 409. 방치 초안 배치는 스케줄러 작업 {@code ABANDON_DRAFTS}(룰 값 null이면 0건, 보고서에 null).
+     */
+    @Test
+    void anAgentAbandonsItsDraftAndTheSchedulerRunsTheIdleBatch() throws Exception {
+        String id = draft();
+        String base = "/api/v1/disclosures/" + id;
+        assertThat(post("agent-1", base + "/items", ITEMS).status()).isEqualTo(200);
+        ApiTestSupport.Response noRoute = post("manager-1", "/api/v1/no-such-route", "{\"reasonCode\":\"DUPLICATE\"}");
+        for (String subject : new String[] {"manager-1", "agent-x"}) {
+            ApiTestSupport.Response denied = post(subject, base + "/abandon", "{\"reasonCode\":\"DUPLICATE\"}");
+            assertThat(denied.status()).as(subject).isEqualTo(404);
+            assertThat(denied.fingerprint()).as(subject).isEqualTo(noRoute.fingerprint());
+        }
+        assertThat(post("agent-1", base + "/abandon", "{\"reasonCode\":\"nope\"}").text()).contains("\"field\":\"reasonCode\"");
+        ApiTestSupport.Response unknown = post("agent-1", base + "/abandon", "{\"reasonCode\":\"NOPE\"}");
+        assertThat(unknown.status()).isEqualTo(422);
+        assertThat(unknown.text()).contains("\"code\":\"REASON_CODE_UNKNOWN\"").doesNotContain("NOPE");
+        ApiTestSupport.Response abandoned = post("agent-1", base + "/abandon", "{\"reasonCode\":\"DUPLICATE\"}");
+        assertThat(abandoned.status()).as(abandoned.text()).isEqualTo(200);
+        assertThat(json(abandoned).get("status").asString()).isEqualTo("ABANDONED");
+        assertThat(json(get("agent-1", base)).get("status").asString()).isEqualTo("ABANDONED");
+        assertThat(post("agent-1", base + "/items", ITEMS).status()).isEqualTo(409);
+        assertThat(post("agent-1", base + "/abandon", "{\"reasonCode\":\"DUPLICATE\"}").status()).isEqualTo(409);
+
+        ApiTestSupport.DB.seed(T, c -> SeedData.roleLink(c, T, "scheduler-1", "SCHEDULER"));
+        assertThat(post("agent-1", "/internal/v1/jobs/ABANDON_DRAFTS", "{\"limit\":5}").status()).isEqualTo(404);
+        ApiTestSupport.Response queued = post("scheduler-1", "/internal/v1/jobs/ABANDON_DRAFTS", "{\"limit\":5}");
+        assertThat(queued.status()).as(queued.text()).isEqualTo(202);
+        String job = json(queued).get("jobId").asString();
+        String status = "";
+        for (long deadline = System.nanoTime() + java.time.Duration.ofSeconds(30).toNanos(); System.nanoTime() < deadline; Thread.sleep(50)) {
+            status = json(get("compliance-1", "/api/v1/jobs/" + job)).get("status").asString();
+            if (status.equals("SUCCEEDED") || status.equals("FAILED")) {
+                break;
+            }
+        }
+        assertThat(status).isEqualTo("SUCCEEDED");
+        JsonNode report = json(get("compliance-1", "/api/v1/jobs/" + job + "/report"));
+        assertThat(report.get("kind").asString()).isEqualTo("ABANDON_DRAFTS");
+        assertThat(report.get("abandonAfterDays").isNull()).isTrue();
+        assertThat(report.get("abandoned")).isEmpty();
     }
 
     @Test

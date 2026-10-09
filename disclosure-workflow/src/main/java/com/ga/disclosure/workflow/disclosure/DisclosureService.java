@@ -54,6 +54,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -68,6 +69,9 @@ import java.util.UUID;
  * 판정은 3B SEAL 조건이다(계획 승인 B1).
  */
 public final class DisclosureService {
+
+    /** 청약번호 형식(V14 CHECK와 같다 — §14 #19, 공백 없는 1~64자). */
+    static final java.util.regex.Pattern APPLICATION_NO = java.util.regex.Pattern.compile("\\S{1,64}");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String SEVERITY_HIGH = "HIGH";
@@ -123,23 +127,28 @@ public final class DisclosureService {
      * 초안 생성: 상담일로 GLOBAL·TENANT 룰과 서식을 <b>한 번</b> 해석해 버전 ID를 고정한다. 룰의 검증 목록이 전부 등록된 규칙인지도
      * 여기서 확인한다(오타가 봉인 단계까지 숨지 않게). 상담일은 이후 바뀌지 않는다. 확인서의 설계사는 행위자를 {@code identity_link}로 해석한
      * {@code agent_id}다(절대 규칙 5, Phase 4 — 연결이 없거나 AGENT 역할이 아니면 {@code AGENT_NOT_LINKED}). 같은 트랜잭션에서 아웃박스
-     * {@code DisclosureCreated}를 적재한다(승인 Q13).
+     * {@code DisclosureCreated}를 적재한다(승인 Q13). (6B) 청약번호(선택)는 계약 연결의 첫 매칭 키다(계획 §2·§4) — 형식은 공백 없는 1~64자(§14 #19)이고
+     * 작성 뒤에는 바꿀 수 없다(V14 GD132). 감사에는 SHA-256만 남긴다.
      */
     @UseCaseEntry(Action.DISCLOSURE_CREATE)
     public DisclosureId createDraft(Caller caller, CustomerRef customerRef, GroupCode group, LocalDate consultDate,
-                                    TemplateType templateType) {
+                                    TemplateType templateType, Optional<String> applicationNo) {
+        Objects.requireNonNull(applicationNo, "applicationNo");
+        if (applicationNo.isPresent() && !APPLICATION_NO.matcher(applicationNo.get()).matches()) {
+            throw new IllegalArgumentException("applicationNo must be 1..64 non-space characters");
+        }
         TenantId tenant = caller.tenant();
         return runner.inTransaction(caller, "CREATE_DRAFT", null, attempt -> {
             Actor agent = attempt.granted(authz.require(caller, Action.DISCLOSURE_CREATE, Target.none()));
             AgentDirectory.LinkedIdentity link = agents.find(agent.subject()).filter(l -> l.hasRole("AGENT"))
-                    .orElseThrow(() -> new CommandRejectedException("AGENT_NOT_LINKED", "the actor is not linked to an agent in this tenant"));
+                    .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.AGENT_NOT_LINKED, "the actor is not linked to an agent in this tenant"));
             AgentId agentId = link.agentId().orElseThrow();      // AGENT ⇒ agent_id·조직 경로(V12 CHECK)
             OrgPath orgPath = link.orgPath().orElseThrow();
             if (!customers.exists(customerRef)) {
-                throw new CommandRejectedException("UNKNOWN_CUSTOMER", "no customer " + customerRef);
+                throw new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_CUSTOMER, "no customer " + customerRef);
             }
             if (catalog.listGroups(tenant, consultDate).stream().noneMatch(g -> g.code().equals(group))) {
-                throw new CommandRejectedException("UNKNOWN_GROUP", "product group " + group + " is not in the catalog on " + consultDate);
+                throw new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_GROUP, "product group " + group + " is not in the catalog on " + consultDate);
             }
             EffectiveRule rule = rules.resolve(tenant, consultDate);
             for (ValidationStage stage : ValidationStage.values()) {
@@ -151,7 +160,7 @@ public final class DisclosureService {
             Disclosure d = Disclosure.draft(id, agentId.value(), customerRef, group, consultDate, rule.globalRuleVersionId(),
                     rule.tenantRuleVersion().orElse(null), template.ref(), profile.issuerMode(),
                     loader.context(tenant, rule, template, group, consultDate));
-            store.insert(d, orgPath);
+            store.insert(d, orgPath, applicationNo);
             ObjectNode detail = JSON.createObjectNode()
                     .put("customerRef", customerRef.value())
                     .put("groupCode", group.value())
@@ -160,6 +169,7 @@ public final class DisclosureService {
                     .put("ruleBodyHash", rule.bodyHash())
                     .put("templateId", template.ref().templateId())
                     .put("templateVersion", template.ref().version());
+            applicationNo.ifPresent(a -> detail.put("applicationNoSha256", com.ga.platform.canonical.Sha256.of(a.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
             rule.tenantRuleVersion().ifPresentOrElse(v -> detail.put("tenantRuleVersionId", v.value()),
                     () -> detail.putNull("tenantRuleVersionId"));
             record(agent, AuditAction.DISCLOSURE_CREATE, id, detail);
@@ -304,18 +314,18 @@ public final class DisclosureService {
             Actor manager = attempt.granted(authz.require(caller, Action.EXCEPTION_APPROVE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             if (!l.disclosure().status().isMutable()) {
-                throw new CommandRejectedException("SEALED", RejectionCategory.CONFLICT, "exception approvals are recorded only before sealing");
+                throw new CommandRejectedException(CommandRejectedException.Code.SEALED, "exception approvals are recorded only before sealing");
             }
             boolean current = l.check().run(ValidationStage.SEAL, l.disclosure()).stream()
                     .anyMatch(r -> r.overridable() && r.ruleId().equals(ruleId) && r.subjectHash().orElseThrow().equals(subjectHash));
             if (!current) {
-                throw new CommandRejectedException("APPROVAL_SUBJECT_MISMATCH",
+                throw new CommandRejectedException(CommandRejectedException.Code.APPROVAL_SUBJECT_MISMATCH,
                         "no current overridable failure of " + ruleId + " with the given subject hash");
             }
             // 승인자는 룰의 예외 승인 역할을 identity_link에 가진다(6A — 역할은 토큰·CLI 인자가 아니라 연결에서, 절대 규칙 5)
             String approvalRole = l.rule().exceptionApprovalRole().name();
             if (!BusinessRoles.holds(agents, manager, approvalRole)) {
-                throw new CommandRejectedException("APPROVAL_ROLE_REQUIRED", "the approver does not hold the exception approval role");
+                throw new CommandRejectedException(CommandRejectedException.Code.APPROVAL_ROLE_REQUIRED, "the approver does not hold the exception approval role");
             }
             Disclosure d = l.disclosure();
             Review review = new Review(UUID.randomUUID(), id, ruleId, subjectHash, d.ruleVersionId(), d.tenantRuleVersionId().orElse(null),
@@ -368,7 +378,7 @@ public final class DisclosureService {
         return switch (input) {
             case ItemInput.Catalog c -> {
                 CatalogProduct p = catalog.getProduct(tenant, c.productKey(), l.disclosure().consultDate())
-                        .orElseThrow(() -> new CommandRejectedException("UNKNOWN_PRODUCT",
+                        .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_PRODUCT,
                                 "product " + c.productKey() + " is not on sale on " + l.disclosure().consultDate()));
                 for (TemplateField f : l.template().fields()) {
                     JsonNode v = p.defaults() == null ? null : p.defaults().get(f.code());
@@ -391,9 +401,9 @@ public final class DisclosureService {
                                      Map<String, FieldValue> into) {
         input.forEach((code, value) -> {
             TemplateField f = template.field(code)
-                    .orElseThrow(() -> new CommandRejectedException("UNKNOWN_FIELD", "template has no field " + code));
+                    .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_FIELD, "template has no field " + code));
             if (!editable.contains(f.bind())) {
-                throw new CommandRejectedException("FIELD_NOT_EDITABLE", "field " + code + " (" + f.bind() + ") is not entered by the agent");
+                throw new CommandRejectedException(CommandRejectedException.Code.FIELD_NOT_EDITABLE, "field " + code + " (" + f.bind() + ") is not entered by the agent");
             }
             into.put(code, new FieldValue(canonical(value), FieldValue.Origin.AGENT));
         });

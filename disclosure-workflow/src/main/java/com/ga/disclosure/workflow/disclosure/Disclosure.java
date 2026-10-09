@@ -317,6 +317,21 @@ public final class Disclosure implements ValidationSubject {
     }
 
     /**
+     * 초안 폐기(ABANDON, 6B): 봉인 전 상태 → ABANDONED 묘비. 표 검사만 한다 — 저장은 상태 UPDATE가 아니라 폐기 함수({@code ga_draft_abandon})가
+     * 자유 텍스트·청약번호를 지우며 한다(GD133: 그 밖의 경로로는 이 상태가 될 수 없다).
+     */
+    public TransitionOutcome abandon(Instant at) {
+        DisclosureCommand command = DisclosureCommand.ABANDON;
+        DisclosureStateTable.require(status, command);
+        Objects.requireNonNull(at, "at");
+        Disclosure candidate = copy();
+        candidate.status = DisclosureStateTable.target(status, command, DisclosureStatus.ABANDONED);
+        DisclosureStatus from = status;
+        adopt(candidate);
+        return new TransitionOutcome.Applied(command, from, status, null, List.of());
+    }
+
+    /**
      * 정정(SUPERSEDE): 봉인 이후 상태 → SUPERSEDED, 후속 버전 ID와 정정 사유를 한 번만 기록한다(V3 GD004, V8 GD100). 새 버전은
      * {@link #supersedingDraft}.
      */
@@ -532,7 +547,7 @@ public final class Disclosure implements ValidationSubject {
             if (graded != item.grade().isPresent()) {
                 throw new IllegalStateException("item " + item.itemNo() + " grade does not match the snapshot state");
             }
-            if (item.recommendation().isPresent() && status != DisclosureStatus.REASONED && !status.isSealedOrLater()) {
+            if (item.recommendation().isPresent() && status != DisclosureStatus.REASONED && status != DisclosureStatus.ABANDONED && !status.isSealedOrLater()) {
                 throw new IllegalStateException("recommendations exist only from REASONED on (found in " + status + ")");
             }
         }

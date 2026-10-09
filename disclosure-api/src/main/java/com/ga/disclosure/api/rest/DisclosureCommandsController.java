@@ -6,6 +6,7 @@ import com.ga.disclosure.api.dto.Download;
 import com.ga.disclosure.api.dto.ExceptionApprovalReceipt;
 import com.ga.disclosure.api.dto.ExceptionApprovalRequest;
 import com.ga.disclosure.api.dto.ItemsRequest;
+import com.ga.disclosure.api.dto.AbandonRequest;
 import com.ga.disclosure.api.dto.LifecycleReceipt;
 import com.ga.disclosure.api.dto.LifecycleRequest;
 import com.ga.disclosure.api.dto.RecommendationsRequest;
@@ -17,6 +18,7 @@ import com.ga.disclosure.api.mapper.DisclosureMapper;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
 import com.ga.disclosure.workflow.disclosure.DisclosureService;
+import com.ga.disclosure.workflow.disclosure.DraftAbandonService;
 import com.ga.disclosure.workflow.disclosure.LifecycleService;
 import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.disclosure.workflow.verify.ReceiptExporter;
@@ -32,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 
 /**
- * 확인서 쓰기(6A 계획 §4.1): 초안·항목·비교·산출·추천사유·검증 미리보기·봉인·무효·정정·재기준·예외 승인, 산출물·앵커 영수증 내보내기. 결과는 닫힌 영수증 200
+ * 확인서 쓰기(6A 계획 §4.1): 초안·항목·비교·산출·추천사유·검증 미리보기·봉인·무효·재기준·예외 승인(정정은 HTTP에 없다 — 6B 승인 §2), 산출물·앵커 영수증 내보내기. 결과는 닫힌 영수증 200
  * (생성 201), 업무 거부는 범주로 409·422. 인가는 유스케이스가 한다.
  */
 @RestController
@@ -44,9 +46,11 @@ public class DisclosureCommandsController {
     private final LifecycleService lifecycle;
     private final ArtifactService artifacts;
     private final ReceiptExporter receipts;
+    private final DraftAbandonService drafts;
 
     public DisclosureCommandsController(DisclosureService disclosures, SealService seals, LifecycleService lifecycle, ArtifactService artifacts,
-                                        ReceiptExporter receipts) {
+                                        ReceiptExporter receipts, DraftAbandonService drafts) {
+        this.drafts = drafts;
         this.disclosures = disclosures;
         this.seals = seals;
         this.lifecycle = lifecycle;
@@ -57,7 +61,8 @@ public class DisclosureCommandsController {
     @PostMapping
     public ResponseEntity<DisclosureReceipt> create(Caller caller, @RequestBody CreateDisclosureRequest request) {
         DisclosureReceipt receipt = CommandMapper.created(disclosures.createDraft(caller, CommandMapper.customerRef(request),
-                CommandMapper.groupCode(request), CommandMapper.consultDate(request), CommandMapper.templateType(request)));
+                CommandMapper.groupCode(request), CommandMapper.consultDate(request), CommandMapper.templateType(request),
+                CommandMapper.applicationNo(request)));
         return ResponseEntity.created(URI.create("/api/v1/disclosures/" + receipt.disclosureId())).body(receipt);
     }
 
@@ -97,9 +102,9 @@ public class DisclosureCommandsController {
         return CommandMapper.lifecycle(lifecycle.voidDisclosure(caller, DisclosureMapper.id(id), CommandMapper.reason(request)));
     }
 
-    @PostMapping("/{id}/supersede")
-    public LifecycleReceipt supersede(Caller caller, @PathVariable("id") String id, @RequestBody LifecycleRequest request) {
-        return CommandMapper.lifecycle(lifecycle.supersede(caller, DisclosureMapper.id(id), CommandMapper.reason(request)));
+    @PostMapping("/{id}/abandon")
+    public LifecycleReceipt abandon(Caller caller, @PathVariable("id") String id, @RequestBody AbandonRequest request) {
+        return CommandMapper.lifecycle(drafts.abandon(caller, DisclosureMapper.id(id), CommandMapper.abandonReason(request)));
     }
 
     @PostMapping("/{id}/rebase")

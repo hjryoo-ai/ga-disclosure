@@ -22,6 +22,15 @@ public interface LegalHoldStore {
 
     Optional<Hold> activeFor(CustomerRef customer);
 
+    /**
+     * 대상 확인서 행을 {@code FOR UPDATE}로 잠그고 이미 지워졌는지 본다 — 파기됨·폐기됨(ABANDONED)·문서 키 파기됨(6B 중간 회신 ④: 보류 설정과 폐기·파기를
+     * 직렬화한다. 잠금 순서 확인서 → customer_ref → 세션). 없는 확인서는 false(삽입이 외래키로 실패한다).
+     */
+    boolean lockErased(DisclosureId disclosure);
+
+    /** 대상 고객 행을 {@code FOR UPDATE}로 잠그고 이미 파기됐는지 본다. */
+    boolean lockErased(CustomerRef customer);
+
     /** 최근 설정 순(설정 시각 내림차순, 같은 시각은 ID 내림차순). {@code after}가 있으면 그 행 다음부터(키셋). */
     List<Hold> page(Optional<Position> after, int limit);
 

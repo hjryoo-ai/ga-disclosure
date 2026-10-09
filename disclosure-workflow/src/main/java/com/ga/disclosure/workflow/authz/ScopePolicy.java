@@ -23,7 +23,9 @@ import java.util.Optional;
 public final class ScopePolicy {
 
     public enum Scope {
-        SELF, OWN, ORG, TENANT, SESSION, ANY
+        SELF, OWN, ORG, TENANT, SESSION, ANY,
+        /** 계약 피드: 주체의 {@code feed_sources}에 있는 출처만(6B 중간 회신 ②). 본문을 읽기 전의 대상 없는 검사는 출처가 하나라도 있으면 통과 — 유스케이스가 출처로 다시 묻는다. */
+        SOURCE
     }
 
     private static final Map<Action, Map<Role, Scope>> MATRIX = build();
@@ -42,8 +44,8 @@ public final class ScopePolicy {
             grant(m, a, Role.AGENT, Scope.OWN);
         }
         grant(m, Action.VOID, Role.MANAGER, Scope.ORG, Role.AGENT, Scope.OWN);
-        // 정정은 업무 규칙이 예외 승인 역할(룰 exceptionApproval.role)을 요구한다 — 설계사 칸은 열어도 업무 거부뿐이라 두지 않는다
-        grant(m, Action.SUPERSEDE, Role.MANAGER, Scope.ORG);
+        // 정정은 사람 칸이 없다(운영자 CLI 대리 실행만): 업무 규칙이 예외 승인 역할(룰 exceptionApproval.role)을 요구해 설계사 칸은 업무 거부뿐이고,
+        // 관리자 칸은 6B 승인 §2가 거부했다 — 정정 버전의 agent_id는 서명할 설계사여야 하는데 관리자 정정·재배정은 설계되지 않았다(§14 #20)
         grant(m, Action.EXCEPTION_APPROVE, Role.MANAGER, Scope.ORG);
         grant(m, Action.MANAGER_CONFIRM, Role.MANAGER, Scope.ORG);
         grant(m, Action.PAPER_SCAN_REVIEW, Role.MANAGER, Scope.ORG);
@@ -57,6 +59,26 @@ public final class ScopePolicy {
                 Action.REPORT_VIEW}) {
             grant(m, a, Role.COMPLIANCE, Scope.TENANT);
         }
+        // 플래그 목록은 관리자·준법 전용 — 의심받는 설계사가 대리 서명 플래그를 보지 않는다(6A 수용심사 §2 ①)
+        grant(m, Action.FLAG_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
+        // 6B 준법 큐(계획 §7): 배정은 준법(테넌트)·관리자(조직 — 업무 규칙이 자기 담당 역할의 플래그로 다시 좁힌다), 수동 해소는 준법만,
+        // SLA 경과 표시는 배치
+        grant(m, Action.FLAG_ASSIGN, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
+        grant(m, Action.FLAG_RESOLVE, Role.COMPLIANCE, Scope.TENANT);
+        grant(m, Action.FLAG_SLA_SWEEP, Role.SCHEDULER, Scope.TENANT);
+        // 6B 계약 연결(계획 §4): 배치는 계약 피드 서비스 주체만, 미매칭 보고 행 정리는 배치
+        grant(m, Action.CONTRACT_LINK_IMPORT, Role.CONTRACT_FEED, Scope.SOURCE);
+        grant(m, Action.CONTRACT_LINK_UNMATCHED_PURGE, Role.SCHEDULER, Scope.TENANT);
+        // 6B 초안 폐기(지시문 §6): 명시 폐기는 작성 설계사(사유 코드 — 룰 draft.abandonReasons), 방치 초안 폐기는 배치(룰 draft.abandonAfterDays)
+        grant(m, Action.DRAFT_ABANDON, Role.AGENT, Scope.OWN);
+        grant(m, Action.ABANDON_DRAFTS, Role.SCHEDULER, Scope.TENANT);
+        // 6B 징구율(계획 §5): 스냅샷은 배치·준법(테넌트), 조회는 준법(테넌트 — 테넌트 전체 행 포함)·관리자(조직 아래 행만)
+        grant(m, Action.COLLECTION_RATE_SNAPSHOT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
+        grant(m, Action.COLLECTION_RATE_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.ORG);
+        // 6B 청약 게이트(계획 §6): 게이트 서비스 주체만(사람·피드·스케줄러는 404)
+        grant(m, Action.GATE_CHECK, Role.GATE_CLIENT, Scope.TENANT);
+        // 6B 보존 재계산(계획 §8): 준법만(스케줄러 없음 — 규제 변경 대응은 사람이 결정한다)
+        grant(m, Action.RETENTION_RECOMPUTE, Role.COMPLIANCE, Scope.TENANT);
         grant(m, Action.VERIFY_TENANT, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         grant(m, Action.JOB_READ, Role.COMPLIANCE, Scope.TENANT, Role.SCHEDULER, Scope.TENANT);
         // 파기 실행·dry-run은 사람 역할에 없다 — 준법은 보고서 열람만(REPORT_VIEW). 앵커는 플랫폼 배치라 CLI만(6A 승인 Q7)
@@ -64,8 +86,10 @@ public final class ScopePolicy {
                 Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE}) {
             grant(m, a, Role.SCHEDULER, Scope.TENANT);
         }
-        for (Action a : new Action[] {Action.ARTIFACT_GC, Action.ANCHOR_RUN, Action.CATALOG_IMPORT, Action.CUSTOMER_REGISTER,
-                Action.CUSTOMER_REKEY}) {
+        // 6B §9 고객 등록 API: 설계사(연결 있음)만 — 관리자·준법은 등록하지 않는다(계획 Q13). 카탈로그 검색은 사람 역할 셋
+        grant(m, Action.CUSTOMER_REGISTER, Role.AGENT, Scope.SELF);
+        grant(m, Action.CATALOG_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.TENANT, Role.AGENT, Scope.TENANT);
+        for (Action a : new Action[] {Action.ARTIFACT_GC, Action.ANCHOR_RUN, Action.CATALOG_IMPORT, Action.CUSTOMER_REKEY}) {
             m.computeIfAbsent(a, k -> new EnumMap<>(Role.class));
         }
         grant(m, Action.EVENT_FEED_READ, Role.FEED_CONSUMER, Scope.TENANT);
@@ -124,7 +148,7 @@ public final class ScopePolicy {
                 case TENANT, ANY -> Optional.of(new ListScope.WholeTenant());
                 case ORG -> principal.orgPath().map(ListScope.UnderOrg::new);
                 case OWN -> principal.agentId().map(ListScope.OwnedBy::new);
-                case SELF, SESSION -> Optional.empty();
+                case SELF, SESSION, SOURCE -> Optional.empty();
             };
             if (scope.isPresent()) {
                 return Optional.of(new RoleScope(role, scope.get()));
@@ -157,6 +181,8 @@ public final class ScopePolicy {
             case OWN -> facts instanceof TargetFacts.OfDisclosure d && p.agentId().map(d.agentId()::equals).orElse(false);
             case ORG -> facts instanceof TargetFacts.OfDisclosure d && p.orgPath().isPresent() && d.orgPath().isPresent()
                     && p.orgPath().get().contains(d.orgPath().get());
+            case SOURCE -> facts instanceof TargetFacts.OfFeedSource s ? p.feedSources().contains(s.source())
+                    : facts instanceof TargetFacts.Tenant && !p.feedSources().isEmpty();
         };
     }
 }

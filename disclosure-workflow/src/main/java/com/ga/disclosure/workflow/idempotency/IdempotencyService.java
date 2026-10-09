@@ -24,6 +24,8 @@ import java.util.regex.Pattern;
  *   <li>진행 중 행은 {@code claimed_at + 임차} 전이면 {@link Claim.InProgress}(409), 지났으면 인수 → {@link Claim.Proceed}(순번 + 1). 인수 뒤 유스케이스가
  *       다시 돌아도 업무 상태 가드가 이중 효과를 막는다.</li>
  * </ol>
+ * 유스케이스에 닿은 요청만 키를 묶는다(6A 수용심사 §2 ②): 저장하지 않는 응답(400·401·404·428·5xx) 뒤에는 {@link #release}가 그 청구를 지워 같은 키의 고친
+ * 요청이 새로 청구한다.
  */
 public final class IdempotencyService {
 
@@ -113,9 +115,17 @@ public final class IdempotencyService {
         return transactions.inTenant(caller.tenant(), () -> store.complete(caller.subject(), key, claimSeq, status, responseRef, responseHash));
     }
 
+    /** 해제: 저장하지 않는 응답 뒤 이 청구 순번의 진행 중 행을 지운다. 인수됐거나 이미 완료됐으면 {@code false}(그쪽 것이다). */
+    @NotAnEntry("write-path plumbing called only by the API idempotency interceptor after an unstored response; deletes the caller's own in-progress claim")
+    public boolean release(Caller caller, String key, int claimSeq) {
+        Objects.requireNonNull(caller, "caller");
+        requireKey(key);
+        return transactions.inTenant(caller.tenant(), () -> store.release(caller.subject(), key, claimSeq));
+    }
+
     /**
      * 저장하는 응답: 2xx·409·422. 5xx·401·404·428은 저장하지 않는다 — 404를 저장하면 키 재사용으로 "예전엔 없었다"를 알 수 있다(존재 누설). 저장하지 않은
-     * 키는 임차가 지나면 같은 요청이 인수한다.
+     * 응답의 청구는 해제한다({@link #release}).
      */
     public static boolean storable(int status) {
         return (status >= 200 && status < 300) || status == 409 || status == 422;

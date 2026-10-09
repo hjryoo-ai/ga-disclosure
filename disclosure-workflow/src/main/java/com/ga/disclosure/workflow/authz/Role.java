@@ -10,6 +10,10 @@ public enum Role {
     AGENT(Channel.API),
     SCHEDULER(Channel.INTERNAL),
     FEED_CONSUMER(Channel.INTERNAL),
+    /** 6B: 계약 피드(보험사·청약 시스템 연동 — 계약 연결 배치만). 서비스 단독(V14 CHECK). */
+    CONTRACT_FEED(Channel.INTERNAL),
+    /** 6B: 청약 게이트 조회 주체(답만 받는다). 서비스 단독(V14 CHECK). */
+    GATE_CLIENT(Channel.INTERNAL),
     OPERATOR(Channel.CLI),
     CUSTOMER(Channel.SIGN_TOKEN);
 

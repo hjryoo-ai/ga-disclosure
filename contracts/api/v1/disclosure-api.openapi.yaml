@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 1.0.0
+  version: 2.7.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -166,20 +166,20 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/LifecycleReceipt' }
         default: { $ref: '#/components/responses/Problem' }
-  /api/v1/disclosures/{disclosureId}/supersede:
+  /api/v1/disclosures/{disclosureId}/abandon:
     parameters:
       - $ref: '#/components/parameters/DisclosureId'
     post:
-      operationId: supersede
-      summary: 정정(새 버전, 관리자)
+      operationId: abandonDraft
+      summary: 초안 폐기(봉인 전, 고정 룰의 사유 코드 draft.abandonReasons — 텍스트 없음). 추천사유·항목 입력값·청약번호를 지운 묘비가 된다
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LifecycleRequest' }
-            example: { reasonCode: CONTENT_ERROR }
+            schema: { $ref: '#/components/schemas/AbandonRequest' }
+            example: { reasonCode: CUSTOMER_DECLINED }
       responses:
         '200': { $ref: '#/components/responses/LifecycleReceipt' }
         default: { $ref: '#/components/responses/Problem' }
@@ -316,6 +316,69 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/SignReceipt' }
         default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/flags:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: listDisclosureFlags
+      summary: 확인서 하나의 준법 플래그(관리자 조직 아래·준법 테넌트 — 설계사는 404). ID·유형·상태·열린 시각·대상만.
+      responses:
+        '200':
+          description: 플래그 전부(열림·닫힘, 열린 시각 순)
+          content: { application/json: { schema: { $ref: '#/components/schemas/FlagList' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/flags:
+    get:
+      operationId: listFlags
+      summary: 준법 플래그 목록(관리자 조직 아래 — 확인서 없는 플래그는 빠진다, 준법 테넌트 전체, 설계사는 404). 최근에 열린 순.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/After'
+        - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/FlagStatus' } }
+        - { name: type, in: query, required: false, schema: { $ref: '#/components/schemas/Code' } }
+        - { name: assignedRole, in: query, required: false, description: '(6B) 담당 역할(플래그가 열릴 때 룰에서 복사)', schema: { $ref: '#/components/schemas/FlagAssignedRole' } }
+        - { name: dueBefore, in: query, required: false, description: '(6B) 기한이 이 시각 이전(기한 없는 플래그는 빠진다)', schema: { $ref: '#/components/schemas/Instant' } }
+      responses:
+        '200':
+          description: 목록 한 쪽
+          content: { application/json: { schema: { $ref: '#/components/schemas/FlagPage' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/flags/{flagId}/assign:
+    parameters:
+      - { name: flagId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    post:
+      operationId: assignFlag
+      summary: (6B) 열린 플래그의 담당자 배정 — 준법(테넌트)·관리자(조직, 담당 역할이 MANAGER인 플래그만). 담당자는 그 담당 역할로 연결된 주체.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlagAssignRequest' }
+            example: { assignee: compliance-2 }
+      responses:
+        '200': { $ref: '#/components/responses/FlagReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/flags/{flagId}/resolve:
+    parameters:
+      - { name: flagId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    post:
+      operationId: resolveFlag
+      summary: >-
+        (6B) 수동 해소(준법) — 해소 코드는 해소 시점 룰의 그 유형 목록. CHAIN_BROKEN은 근거 verifyRunJobId(플래그 뒤에 시작해 MATCH로 끝난
+        VERIFY_TENANT 작업)가 필요하다. 재개 없음.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlagResolveRequest' }
+            example: { resolutionCode: VERIFIED_MATCH, evidence: { verifyRunJobId: 6b0c5a52-3f2e-4c1a-9f3b-2d1e0c9b8a7f } }
+      responses:
+        '200': { $ref: '#/components/responses/FlagReceipt' }
+        default: { $ref: '#/components/responses/Problem' }
   /api/v1/sign-sessions/face-to-face:
     post:
       operationId: confirmFaceToFace
@@ -391,6 +454,57 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/LegalHoldReceipt' }
         default: { $ref: '#/components/responses/Problem' }
+  /api/v1/customers:
+    post:
+      operationId: registerCustomer
+      summary: >-
+        (6B §9) 고객 등록(설계사만). 응답은 가명과 등록 영수증뿐이다 — 생성 여부를 싣지 않는다. 중복은 등록 키(주체 + Idempotency-Key)로만 본다:
+        이름·전화·생년월일을 비교하지 않으므로 같은 사람을 다른 키로 두 번 등록하면 가명이 둘이다. 같은 키는 멱등 재생이고, 멱등 기록이 만료된 뒤에도 같은
+        본문을 돌려준다(영수증은 결정론적 파생). 응답은 201(첫 등록·재생·만료 뒤 같은 키) · 400(형식 — 필드 이름만) · 429(주체별 분당 한도, 룰 데이터 —
+        멱등 키는 묶이지 않는다) · 422(같은 키·다른 본문 IDEMPOTENCY_KEY_REUSED)뿐이고, 어떤 응답도 다른 고객의 존재를 반영하지 않는다. 고객을 읽는 경로는
+        없다(검색·상세 GET 없음). 본문 상한 4 KiB.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerRegisterRequest' }
+            example: { name: 가상고객, phone: 010-0000-0000, birthDate: '1900-01-01' }
+      responses:
+        '201':
+          description: 등록 영수증(Location 없음 — 고객을 읽는 경로가 없다)
+          content: { application/json: { schema: { $ref: '#/components/schemas/CustomerReceipt' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/catalog/products:
+    get:
+      operationId: searchCatalogProducts
+      summary: (6B §9.8) 카탈로그 상품 검색(설계사·관리자·준법) — 기준일 오늘(KST)에 판매 중인 그 상품군의 상품, 상품 키 순. 개인정보 없음.
+      parameters:
+        - { name: group, in: query, required: true, schema: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{0,63}$' } }
+        - { name: q, in: query, required: false, description: 상품명 부분 일치(대소문자 무시), schema: { type: string, maxLength: 100 } }
+        - { name: insurer, in: query, required: false, schema: { type: string, pattern: '^[A-Z0-9][A-Z0-9-]{0,7}$' } }
+      responses:
+        '200':
+          description: 검색 결과(쪽 나눔 없음)
+          content: { application/json: { schema: { $ref: '#/components/schemas/CatalogProductList' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/collection-rates:
+    get:
+      operationId: listCollectionRates
+      summary: >-
+        (6B) 징구율 스냅샷 — 내부 지표, 규제 정의 없음(INTERNAL_METRIC_NO_REGULATORY_DEFINITION). 준법은 테넌트 전체(테넌트 행 orgPath "/" 포함), 관리자는
+        조직 아래 행만, 설계사는 404. 달마다 기본은 그 달 마지막 날(KST)에 시행 중이던 GLOBAL 룰 버전의 행, ruleVersionId로 다른 버전. 기간은 24개월까지.
+      parameters:
+        - { name: from, in: query, required: true, schema: { $ref: '#/components/schemas/YearMonth' } }
+        - { name: to, in: query, required: true, schema: { $ref: '#/components/schemas/YearMonth' } }
+        - { name: orgPath, in: query, required: false, description: 이 조직 경로의 행만(접두가 아니라 같은 경로), schema: { $ref: '#/components/schemas/RateOrgPath' } }
+        - { name: ruleVersionId, in: query, required: false, schema: { $ref: '#/components/schemas/RuleVersionId' } }
+      responses:
+        '200':
+          description: 달·조직 순(쪽 나눔 없음)
+          content: { application/json: { schema: { $ref: '#/components/schemas/CollectionRateList' } } }
+        default: { $ref: '#/components/responses/Problem' }
   /api/v1/jobs:
     get:
       operationId: listJobs
@@ -408,7 +522,7 @@ paths:
       - $ref: '#/components/parameters/JobKind'
     post:
       operationId: submitJob
-      summary: 작업 제출(준법은 VERIFY_TENANT). ANCHOR는 HTTP에 없다(404).
+      summary: 작업 제출(준법은 VERIFY_TENANT·(6B) COLLECTION_RATE_SNAPSHOT·RETENTION_RECOMPUTE — 기본 dry-run, 연장만). ANCHOR는 HTTP에 없다(404). COLLECTION_RATE_SNAPSHOT은 같은 (달, 룰 버전)이 있으면 작업을 만들지 않고 409 SNAPSHOT_EXISTS.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -497,6 +611,9 @@ components:
     LegalHoldReceipt:
       description: 적용됨
       content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldReceipt' } } }
+    FlagReceipt:
+      description: 적용됨
+      content: { application/json: { schema: { $ref: '#/components/schemas/FlagReceipt' } } }
     JobAccepted:
       description: 접수(비동기 실행) — `Location`이 작업 자원
       headers:
@@ -508,6 +625,7 @@ components:
     Date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
     Sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
     Code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+    RuleVersionId: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{0,63}$' }
     Cursor: { type: string, pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$', maxLength: 512 }
     DisclosureNo: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' }
     NullableString: { type: [string, 'null'] }
@@ -517,10 +635,11 @@ components:
         - { $ref: '#/components/schemas/Instant' }
     DisclosureStatus:
       type: string
-      enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED]
+      enum: [DRAFT, COMPARED, GRADED, REASONED, SEALED, PARTIALLY_SIGNED, COMPLETED, VOID, SUPERSEDED, EXPIRED, ABANDONED]
     JobKind:
       type: string
-      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE]
+      enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
+             COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE]
       description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
     Problem:
       type: object
@@ -531,7 +650,7 @@ components:
           type: string
           enum: [UNAUTHENTICATED, NOT_FOUND, METHOD_NOT_ALLOWED, MALFORMED_REQUEST, REJECTED, CONFLICT, CONCURRENT_WRITE, JOB_ALREADY_RUNNING,
                  REPORT_NOT_AVAILABLE, IDEMPOTENCY_KEY_REQUIRED, IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_IN_PROGRESS, IDEMPOTENCY_NOT_REPLAYABLE,
-                 INVALID_CURSOR, INTERNAL_ERROR]
+                 INVALID_CURSOR, RATE_LIMITED, INTERNAL_ERROR]
         message: { type: string, description: 코드별 고정 영문 문장(입력값·자원 값 없음) }
         details:
           oneOf:
@@ -561,7 +680,8 @@ components:
       required: [jobId, kind, status, channel, requestedBy, requestedAt, startedAt, finishedAt, errorCode, reportSha256]
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
-        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE] }
+        kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
+                                       COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }
@@ -580,10 +700,13 @@ components:
     JobParams:
       type: object
       additionalProperties: false
-      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE는 limit, VERIFY_TENANT는 없음.
+      description: 종류별 허용 키만(모르는 키는 400). EXPIRE·DESTROY·DESTROY_DRY_RUN은 asOf·limit, RECONCILE·NOTIFY·IDEMPOTENCY_PURGE·FLAG_SLA_SWEEP·CONTRACT_LINK_UNMATCHED_PURGE·ABANDON_DRAFTS는 limit(CONTRACT_LINK_IMPORT는 /internal/v1/contract-links 본문으로만), VERIFY_TENANT는 없음, COLLECTION_RATE_SNAPSHOT은 periodMonth(끝난 달, 없으면 KST 전월), RETENTION_RECOMPUTE는 ruleVersionId(필수 — 이 테넌트의 ACTIVE·APPROVED GLOBAL 버전, 아니면 작업 없이 422 RULE_VERSION_NOT_USABLE)·apply(기본 false = dry-run).
       properties:
         asOf: { $ref: '#/components/schemas/Instant' }
         limit: { type: integer, minimum: 1 }
+        periodMonth: { $ref: '#/components/schemas/YearMonth' }
+        ruleVersionId: { $ref: '#/components/schemas/RuleVersionId' }
+        apply: { type: boolean }
     DisclosureSummary:
       type: object
       additionalProperties: false
@@ -719,6 +842,7 @@ components:
         groupCode: { type: string, minLength: 1 }
         consultDate: { $ref: '#/components/schemas/Date' }
         templateType: { type: string, enum: [STANDARD, AUTO] }
+        applicationNo: { type: string, pattern: '^\S{1,64}$', description: '(6B) 선택 청약번호 — 계약 연결의 첫 매칭 키, 작성 뒤 변경 불가' }
     ItemsRequest:
       type: object
       additionalProperties: false
@@ -766,6 +890,12 @@ components:
       properties:
         reasonCode: { $ref: '#/components/schemas/Code' }
         reasonText: { type: string }
+    AbandonRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode]
+      properties:
+        reasonCode: { $ref: '#/components/schemas/Code' }
     ExceptionApprovalRequest:
       type: object
       additionalProperties: false
@@ -913,6 +1043,40 @@ components:
       required: [reasonCode]
       properties:
         reasonCode: { $ref: '#/components/schemas/Code' }
+    CustomerRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      description: 주민번호·주소·계좌 필드는 없다(모르는 필드는 400). 검증은 Phase 2 값객체 — 실패는 필드 이름만(값 없음).
+      properties:
+        name: { type: string, minLength: 1, maxLength: 400, description: 'NFC·앞뒤 공백 제거 뒤 1~100자, 제어문자 없음' }
+        phone: { type: string, maxLength: 40, description: '국내 휴대전화 01X + 7~8자리(하이픈·공백 허용)' }
+        birthDate: { type: string, pattern: '^(\d{4}-\d{2}-\d{2}|\d{8})$', description: 'yyyy-MM-dd 또는 yyyyMMdd, 1900-01-01 ~ 오늘(KST)' }
+    CustomerReceipt:
+      type: object
+      additionalProperties: false
+      required: [customerRef, receiptId]
+      properties:
+        customerRef: { type: string, pattern: '^CR-[0-9a-f]{32}$', description: 고객 가명 참조(개인정보 아님) }
+        receiptId: { $ref: '#/components/schemas/Uuid' }
+    CatalogProductList:
+      type: object
+      additionalProperties: false
+      required: [asOf, items]
+      properties:
+        asOf: { $ref: '#/components/schemas/Date' }
+        items: { type: array, items: { $ref: '#/components/schemas/CatalogProduct' } }
+    CatalogProduct:
+      type: object
+      additionalProperties: false
+      required: [productKey, name, insurerCode, groupCode, saleFrom, saleTo]
+      properties:
+        productKey: { type: string }
+        name: { type: string }
+        insurerCode: { type: string }
+        groupCode: { type: string }
+        saleFrom: { $ref: '#/components/schemas/Date' }
+        saleTo: { oneOf: [{ $ref: '#/components/schemas/Date' }, { type: 'null' }] }
     LegalHoldReceipt:
       type: object
       additionalProperties: false
@@ -936,6 +1100,91 @@ components:
         releasedBy: { $ref: '#/components/schemas/NullableString' }
         releasedAt: { $ref: '#/components/schemas/NullableInstant' }
         releaseReasonCode: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Code' } ] }
+    FlagStatus:
+      type: string
+      enum: [OPEN, RESOLVED]
+    FlagAssignedRole:
+      type: string
+      enum: [COMPLIANCE, MANAGER]
+    FlagAssignRequest:
+      type: object
+      additionalProperties: false
+      required: [assignee]
+      properties:
+        assignee: { type: string, minLength: 1, maxLength: 256 }
+    FlagResolveRequest:
+      type: object
+      additionalProperties: false
+      required: [resolutionCode]
+      properties:
+        resolutionCode: { $ref: '#/components/schemas/Code' }
+        evidence:
+          oneOf:
+            - { type: 'null' }
+            - type: object
+              additionalProperties: false
+              required: [verifyRunJobId]
+              properties:
+                verifyRunJobId: { type: string }
+    FlagReceipt:
+      type: object
+      additionalProperties: false
+      required: [flagId, type, status]
+      properties:
+        flagId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/Code' }
+        status: { $ref: '#/components/schemas/FlagStatus' }
+    Flag:
+      type: object
+      additionalProperties: false
+      required: [flagId, type, status, raisedAt, disclosureId, disclosureNo]
+      properties:
+        flagId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/Code' }
+        status: { $ref: '#/components/schemas/FlagStatus' }
+        raisedAt: { $ref: '#/components/schemas/Instant' }
+        disclosureId: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Uuid' } ] }
+        disclosureNo: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/DisclosureNo' } ] }
+    YearMonth: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+    RateOrgPath: { type: string, pattern: '^(/|(/[A-Za-z0-9_-]+)+)$' }
+    CollectionRateList:
+      type: object
+      additionalProperties: false
+      required: [definition, definitionText, items]
+      properties:
+        definition: { const: INTERNAL_METRIC_NO_REGULATORY_DEFINITION }
+        definitionText: { const: 내부 지표 — 규제 정의 없음 }
+        items: { type: array, items: { $ref: '#/components/schemas/CollectionRate' } }
+    CollectionRate:
+      type: object
+      additionalProperties: false
+      description: 스냅샷 한 행. rateBp는 만분율(numerator × 10000 / denominator 버림), 분모 0이면 null. inputsHash는 입력 확인서 번호 집합의 SHA-256(JCS).
+      required: [snapshotId, periodMonth, orgPath, formula, definition, ruleVersionId, denominator, numerator, rateBp, computedAt, inputsHash]
+      properties:
+        snapshotId: { $ref: '#/components/schemas/Uuid' }
+        periodMonth: { $ref: '#/components/schemas/YearMonth' }
+        orgPath: { $ref: '#/components/schemas/RateOrgPath' }
+        formula: { type: string, enum: [LINKED_COMPLETED_BY_CONTRACT_DATE, TARGET_INCLUDING_UNMATCHED] }
+        definition: { const: INTERNAL_METRIC_NO_REGULATORY_DEFINITION }
+        ruleVersionId: { $ref: '#/components/schemas/RuleVersionId' }
+        denominator: { type: integer, minimum: 0 }
+        numerator: { type: integer, minimum: 0 }
+        rateBp: { oneOf: [ { type: 'null' }, { type: integer, minimum: 0, maximum: 10000 } ] }
+        computedAt: { $ref: '#/components/schemas/Instant' }
+        inputsHash: { $ref: '#/components/schemas/Sha256' }
+    FlagList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Flag' } }
+    FlagPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Flag' } }
+        next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }
     LegalHoldPage:
       type: object
       additionalProperties: false

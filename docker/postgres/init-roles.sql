@@ -27,6 +27,12 @@ CREATE ROLE disclosure_destroy_definer NOLOGIN
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 GRANT disclosure_destroyer TO disclosure_app WITH INHERIT FALSE, SET TRUE;
 
+-- 초안 폐기(Phase 6B V14, 계획 Q10). 폐기 함수 ga_draft_abandon의 EXECUTE만 받는다 — 파기자 롤과 같은 방식(앱은 SET LOCAL ROLE만, 권한 비상속).
+-- 함수 소유자는 파기와 같은 정의자 롤이다. 기존 개발 볼륨에는 이 줄을 superuser로 한 번 실행한다(README "업그레이드").
+CREATE ROLE disclosure_abandoner NOLOGIN
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+GRANT disclosure_abandoner TO disclosure_app WITH INHERIT FALSE, SET TRUE;
+
 -- 작업 잠금(Phase 6A V12, 승인 Q8). 테넌트·작업 종류별 세션 advisory lock을 작업 동안 쥐는 전용 커넥션의 롤. 테이블·스키마 권한 0 —
 -- 실행하는 SQL은 pg_try_advisory_lock·pg_advisory_unlock·pg_locks 조회뿐이다(전부 pg_catalog, 잠금 공간은 롤과 무관한 DB 전체).
 CREATE ROLE disclosure_job_lock LOGIN PASSWORD 'job_lock_local_only'

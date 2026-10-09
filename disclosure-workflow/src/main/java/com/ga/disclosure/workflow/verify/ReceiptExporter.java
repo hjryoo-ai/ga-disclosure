@@ -50,8 +50,42 @@ public final class ReceiptExporter {
         record Exported(ReceiptExport export, byte[] bytes) implements Result {
         }
 
-        /** {@code PACKAGE_UNAVAILABLE:<사유>}·{@code NOT_SEALED}·{@code NOT_YET_COVERED}. */
-        record NotAvailable(String code) implements Result {
+        /** 영수증을 낼 수 없는 사유(닫힌 enum — 설계서 {@code rejection-categories}의 {@code AnchorReceipt} 행). */
+        record NotAvailable(Unavailable reason) implements Result {
+            public NotAvailable {
+                java.util.Objects.requireNonNull(reason, "reason");
+            }
+
+            /** 운영 출력의 코드: {@code PACKAGE_UNAVAILABLE:<사유>}·{@code NOT_SEALED}·{@code NOT_YET_COVERED}. HTTP 거부 코드는 {@code reason().name()}. */
+            public String code() {
+                return reason.code();
+            }
+        }
+    }
+
+    /** 영수증 미가용 — 모두 상태 충돌(문서·앵커가 바뀌어야 성립). 증거 패키지 열람 거부 사유마다 하나({@link #packageUnavailable}). */
+    public enum Unavailable implements com.ga.disclosure.workflow.RejectionCategory.Categorized {
+        NOT_SEALED,
+        NOT_YET_COVERED,
+        PACKAGE_UNAVAILABLE_NO_ARTIFACT,
+        PACKAGE_UNAVAILABLE_KEY_SHREDDED,
+        PACKAGE_UNAVAILABLE_OBJECT_MISSING,
+        PACKAGE_UNAVAILABLE_UNREADABLE,
+        PACKAGE_UNAVAILABLE_HASH_MISMATCH;
+
+        private static final String PACKAGE = "PACKAGE_UNAVAILABLE_";
+
+        public static Unavailable packageUnavailable(ArtifactService.View.Reason reason) {
+            return valueOf(PACKAGE + reason.name());
+        }
+
+        public String code() {
+            return name().startsWith(PACKAGE) ? "PACKAGE_UNAVAILABLE:" + name().substring(PACKAGE.length()) : name();
+        }
+
+        @Override
+        public com.ga.disclosure.workflow.RejectionCategory category() {
+            return com.ga.disclosure.workflow.RejectionCategory.CONFLICT;
         }
     }
 
@@ -84,7 +118,7 @@ public final class ReceiptExporter {
             case ArtifactService.View.Granted g -> manifest = Canonicalizer.parseStrict(new String(EvidencePackageReader.entries(g.plaintext())
                     .get("manifest.json"), StandardCharsets.UTF_8));
             case ArtifactService.View.Denied d -> {
-                return new Result.NotAvailable("PACKAGE_UNAVAILABLE:" + d.reason().name());
+                return new Result.NotAvailable(Unavailable.packageUnavailable(d.reason()));
             }
         }
         long chainSeq = manifest.get("hashes").get("chainSeq").asLong();
@@ -93,7 +127,7 @@ public final class ReceiptExporter {
         return transactions.inTenant(tenant, () -> {
             Optional<SealChainReader.ChainRow> row = chain.byDisclosure(id);
             if (row.isEmpty()) {
-                return new Result.NotAvailable("NOT_SEALED");
+                return new Result.NotAvailable(Unavailable.NOT_SEALED);
             }
             List<StoredAnchor> all = anchors.all();
             Optional<StoredAnchor> previous = ref.isNull() ? Optional.empty()
@@ -126,7 +160,7 @@ public final class ReceiptExporter {
                         detail));
                 return new Result.Exported(export, bytes);
             }
-            return new Result.NotAvailable("NOT_YET_COVERED");
+            return new Result.NotAvailable(Unavailable.NOT_YET_COVERED);
         });
     }
 

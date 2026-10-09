@@ -77,7 +77,7 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
     }
 
     @Override
-    public void insert(Disclosure d, OrgPath orgPath) {
+    public void insert(Disclosure d, OrgPath orgPath, Optional<String> applicationNo) {
         Map<String, Object> params = new HashMap<>();
         params.put("id", d.id().value());
         params.put("agentId", d.agentId());
@@ -93,13 +93,14 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
         params.put("version", d.lineage().version());
         params.put("supersedesId", d.lineage().supersedesIdOrNull() == null ? null : d.lineage().supersedesIdOrNull().value());
         params.put("orgPath", orgPath.value());
+        params.put("applicationNo", applicationNo.orElse(null));
         update("""
                 INSERT INTO disclosure (tenant_id, disclosure_id, agent_id, customer_ref, group_code, template_id, template_version,
                                         rule_version_id, tenant_rule_version_id, issuer_mode, status, consult_date, version, supersedes_id,
-                                        org_path)
+                                        org_path, application_no)
                 VALUES (:tenantId, :id, :agentId, :customerRef, :groupCode, :templateId, :templateVersion,
                         :ruleVersionId, :tenantRuleVersionId, :issuerMode, :status, :consultDate, :version, :supersedesId,
-                        :orgPath)
+                        :orgPath, :applicationNo)
                 """, params);
         writeChildren(d);
     }
@@ -560,5 +561,25 @@ public class DisclosureRepository extends TenantScopedRepository implements Disc
             }
         }
         return new Row(new DisclosureItem(itemNo, draft, grade, recs.get(itemNo)), engine);
+    }
+    // ------------------------------------------------------------------ 6B 계약 연결(ContractLinkRepository가 부른다 — 메타 컬럼만)
+
+    /** 확인서 현재값 = 활성 계약 연결(V14 GD136이 같은 값인지 다시 본다, V15가 커밋 때 연결 쪽에서도 본다). */
+    public void mirrorContractLink(DisclosureId disclosure, String policyNo, java.time.LocalDate contractDate) {
+        int n = update("""
+                UPDATE disclosure SET policy_no = :policyNo, contract_date = :contractDate
+                 WHERE tenant_id = :tenantId AND disclosure_id = :disclosureId
+                """, java.util.Map.of("disclosureId", disclosure.value(), "policyNo", policyNo, "contractDate", java.sql.Date.valueOf(contractDate)));
+        if (n != 1) {
+            throw new IllegalStateException("disclosure " + disclosure + " not found");
+        }
+    }
+
+    /** 보존기한 연장(더 늦을 때만·파기되지 않았을 때만 — GD094가 단축을 막는다). 바뀌었으면 true. 계약 연결·이월·보존 재계산이 함께 쓰는 유일한 쓰기. */
+    public boolean extendRetention(DisclosureId disclosure, java.time.LocalDate until) {
+        return update("""
+                UPDATE disclosure SET retention_until = :until
+                 WHERE tenant_id = :tenantId AND disclosure_id = :disclosureId AND retention_until < :until AND destroyed_at IS NULL
+                """, java.util.Map.of("disclosureId", disclosure.value(), "until", java.sql.Date.valueOf(until))) == 1;
     }
 }

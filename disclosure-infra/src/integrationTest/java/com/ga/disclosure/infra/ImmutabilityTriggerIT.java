@@ -81,8 +81,11 @@ class ImmutabilityTriggerIT {
         META.put("void_reason_text", "'상담 취소'");
         META.put("supersede_reason_code", "'CONTENT_ERROR'");
         META.put("supersede_reason_text", "'오기 정정'");
-        META.put("policy_no", "'POL-9'");
-        META.put("contract_date", "DATE '2026-10-01'");
+        // V14: 증권번호·계약일은 그 확인서의 활성 계약 연결 값으로만 바뀐다(GD136) — 값은 연결에서 읽는다(시드가 확인서마다 연결을 심는다)
+        META.put("policy_no", "(SELECT l.policy_no FROM contract_link l WHERE l.tenant_id = disclosure.tenant_id"
+                + " AND l.disclosure_id = disclosure.disclosure_id AND l.superseded_by IS NULL)");
+        META.put("contract_date", "(SELECT l.contract_date FROM contract_link l WHERE l.tenant_id = disclosure.tenant_id"
+                + " AND l.disclosure_id = disclosure.disclosure_id AND l.superseded_by IS NULL)");
         META.put("retention_until", "DATE '2031-10-01'");
         META.put("destroyed_at", "TIMESTAMPTZ '2036-10-02 00:00:00+09'");     // V9: 파기 함수만(정의자 롤 + 표식) — 그 밖은 GD113
         META.put("destroyed_by", "'someone'");
@@ -113,7 +116,8 @@ class ImmutabilityTriggerIT {
         });
         java.util.Set<String> classified = new java.util.HashSet<>(BODY.keySet());
         classified.addAll(META.keySet());
-        classified.addAll(java.util.List.of("tenant_id", "status", "org_path"));
+        classified.addAll(java.util.List.of("tenant_id", "status", "org_path",
+                "application_no", "abandoned_at"));   // V14: 작성 때만·폐기 함수만(GD132·GD133) — V14GuardIT
         assertThat(columns).contains("tenant_rule_version_id", "grading_policy_version_id", "ranking_policy_version_id", "tie_break",
                 "grade_basis", "snapshot_generated_at").allSatisfy(col -> assertThat(classified).contains(col));
     }
@@ -153,9 +157,20 @@ class ImmutabilityTriggerIT {
                 .flatMap(t -> Stream.of("INSERT", "UPDATE", "UPDATE_V6", "DELETE").map(op -> Arguments.of(s, t, op))));
     }
 
+    /** 봉인 이후 행은 계약 연결과 함께(메타 값의 출처), 봉인 전 행은 연결 없이 — V15 GD130: 연결은 봉인 이후 확인서에만 생긴다. */
     private static UUID seedDisclosure(String status) {
+        return seedDisclosure(status, !SeedData.MUTABLE_STATUSES.contains(status));
+    }
+
+    private static UUID seedDisclosure(String status, boolean withContractLink) {
         UUID[] id = new UUID[1];
-        DB.seed(T, c -> id[0] = SeedData.disclosure(c, T, status, SeedData.hash('a')));
+        DB.seed(T, c -> {
+            id[0] = SeedData.disclosure(c, T, status, SeedData.hash('a'));
+            if (withContractLink) {
+                // V14: policy_no·contract_date는 활성 계약 연결의 현재값(GD136) — 메타 값(META)은 이 연결에서 읽는다
+                SeedData.contractLink(c, T, id[0], "POL-" + id[0], "2026-10-01");
+            }
+        });
         return id[0];
     }
 
@@ -168,7 +183,7 @@ class ImmutabilityTriggerIT {
     @ParameterizedTest(name = "{0} × body {1}")
     @MethodSource("statusTimesBody")
     void bodyColumnUpdateAllowedOnlyWhileMutable(String status, String column) {
-        UUID id = seedDisclosure(status);
+        UUID id = seedDisclosure(status, false);       // 본문(식별 컬럼 포함) 변경 — 계약 연결이 그 ID를 참조하지 않게
         String sql = "UPDATE disclosure SET " + column + " = " + BODY.get(column) + " WHERE tenant_id = ? AND disclosure_id = ?";
         if (!SeedData.MUTABLE_STATUSES.contains(status)) {
             assertRejected(DB, T, "GD001", sql, T, id);
@@ -284,7 +299,7 @@ class ImmutabilityTriggerIT {
     @FieldSource("STATUSES")
     void bodyAndMetaTogetherRejectedAfterSealing(String status) {
         UUID id = seedDisclosure(status);
-        String sql = "UPDATE disclosure SET policy_no = 'POL-1', agent_id = 'AGENT-Y' WHERE tenant_id = ? AND disclosure_id = ?";
+        String sql = "UPDATE disclosure SET policy_no = " + META.get("policy_no") + ", agent_id = 'AGENT-Y' WHERE tenant_id = ? AND disclosure_id = ?";
         if (SeedData.MUTABLE_STATUSES.contains(status)) {
             assertAllowed(DB, T, sql, T, id);
         } else {
@@ -346,7 +361,7 @@ class ImmutabilityTriggerIT {
         assertRejected(DB, T, "GD004", set, T, id);                     // 시드 봉인 경로가 이미 썼다
         assertRejected(DB, T, "GD004",
                 "UPDATE disclosure SET superseded_by_id = NULL WHERE tenant_id = ? AND disclosure_id = ?", T, id);
-        assertAllowed(DB, T, "UPDATE disclosure SET superseded_by_id = superseded_by_id, policy_no = 'P' WHERE tenant_id = ? AND disclosure_id = ?", T, id);
+        assertAllowed(DB, T, "UPDATE disclosure SET superseded_by_id = superseded_by_id, policy_no = " + META.get("policy_no") + " WHERE tenant_id = ? AND disclosure_id = ?", T, id);
     }
 
     // ------------------------------------------------------------------ 비교 항목 / 추천사유

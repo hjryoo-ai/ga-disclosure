@@ -46,13 +46,25 @@ public class ErasureRepository extends TenantScopedRepository implements Erasure
         Map<String, Object> id = Map.of("id", disclosure.value());
         List<Erased> out = new ArrayList<>();
         query("""
-                SELECT void_reason_text, supersede_reason_text, policy_no
+                SELECT void_reason_text, supersede_reason_text, policy_no, application_no
                   FROM disclosure
                  WHERE tenant_id = :tenantId AND disclosure_id = :id
                 """, id, (rs, n) -> {
             text(out, "disclosure", "void_reason_text", disclosure.toString(), rs.getString("void_reason_text"));
             text(out, "disclosure", "supersede_reason_text", disclosure.toString(), rs.getString("supersede_reason_text"));
             text(out, "disclosure", "policy_no", disclosure.toString(), rs.getString("policy_no"));
+            text(out, "disclosure", "application_no", disclosure.toString(), rs.getString("application_no"));
+            return null;
+        });
+        // V14: 계약 연결 이력의 증권·청약 번호(대체된 행 포함)
+        query("""
+                SELECT link_id, policy_no, application_no
+                  FROM contract_link
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND (policy_no IS NOT NULL OR application_no IS NOT NULL)
+                 ORDER BY link_id
+                """, id, (rs, n) -> {
+            text(out, "contract_link", "policy_no", rs.getString("link_id"), rs.getString("policy_no"));
+            text(out, "contract_link", "application_no", rs.getString("link_id"), rs.getString("application_no"));
             return null;
         });
         query("""
@@ -114,6 +126,49 @@ public class ErasureRepository extends TenantScopedRepository implements Erasure
                  WHERE tenant_id = :tenantId AND disclosure_id = :id AND released_at IS NOT NULL AND reason_text IS NOT NULL
                  ORDER BY hold_id
                 """, id);
+        return out;
+    }
+
+    @Override
+    public List<Erased> abandonedDraft(DisclosureId disclosure) {
+        Map<String, Object> id = Map.of("id", disclosure.value());
+        List<Erased> out = new ArrayList<>();
+        query("""
+                SELECT application_no
+                  FROM disclosure
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id
+                """, id, (rs, n) -> {
+            text(out, "disclosure", "application_no", disclosure.toString(), rs.getString("application_no"));
+            return null;
+        });
+        query("""
+                SELECT item_no, reason_text
+                  FROM recommendation
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND reason_text IS NOT NULL
+                 ORDER BY item_no
+                """, id, (rs, n) -> {
+            text(out, "recommendation", "reason_text", disclosure + "/" + rs.getInt("item_no"), rs.getString("reason_text"));
+            return null;
+        });
+        query("""
+                SELECT review_id, reason
+                  FROM review
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND reason IS NOT NULL
+                 ORDER BY review_id
+                """, id, (rs, n) -> {
+            text(out, "review", "reason", rs.getString("review_id"), rs.getString("reason"));
+            return null;
+        });
+        // 항목 입력값은 NOT NULL이라 '{}'로 비운다(6B 계획 Q14) — 이미 '{}'인 행은 지울 값이 없다
+        query("""
+                SELECT item_no, field_values::text AS field_values
+                  FROM disclosure_item
+                 WHERE tenant_id = :tenantId AND disclosure_id = :id AND field_values <> '{}'::jsonb
+                 ORDER BY item_no
+                """, id, (rs, n) -> {
+            json(out, "disclosure_item", "field_values", disclosure + "/" + rs.getInt("item_no"), rs.getString("field_values"));
+            return null;
+        });
         return out;
     }
 

@@ -12,7 +12,19 @@ public enum JobKind {
     DESTROY_DRY_RUN,
     VERIFY_TENANT,
     NOTIFY,
-    IDEMPOTENCY_PURGE;
+    IDEMPOTENCY_PURGE,
+    /** 6B: 준법 플래그 SLA 경과 표시(스케줄은 Phase 8). */
+    FLAG_SLA_SWEEP,
+    /** 6B: 계약 연결 배치(입력은 요청 본문 — 작업 행에는 번호 없는 요약만). */
+    CONTRACT_LINK_IMPORT,
+    /** 6B: 룰 기간이 지난 미매칭 보고 행 삭제. */
+    CONTRACT_LINK_UNMATCHED_PURGE,
+    /** 6B: 룰 {@code draft.abandonAfterDays}보다 오래 바뀌지 않은 봉인 전 초안을 폐기(null이면 아무것도 하지 않는다). */
+    ABANDON_DRAFTS,
+    /** 6B: 끝난 달(기본 전월, KST)의 징구율 스냅샷(내부 지표 — 규제 정의 없음). 같은 (달, 룰 버전)은 거부. */
+    COLLECTION_RATE_SNAPSHOT,
+    /** 6B: 지정 GLOBAL 룰 버전의 보존기간으로 봉인 이후 확인서의 보존기한을 다시 계산한다 — 연장만, 기본 dry-run. */
+    RETENTION_RECOMPUTE;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

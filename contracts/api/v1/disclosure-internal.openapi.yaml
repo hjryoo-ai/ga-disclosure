@@ -1,68 +1,65 @@
 openapi: 3.1.0
 info:
-  title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·증권 연결)
-  version: 2.1.0
+  title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·계약 연결)
+  version: 4.0.0
   description: |
-    설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER)와 6B 게이트 — 사람 역할은 404(승인 Q15).
+    설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER·(6B) CONTRACT_FEED·GATE_CLIENT) — 사람 역할은 404(승인 Q15).
     클러스터 밖에 열지 않는다. 인증은 `/api`와 같은 JWT 체인(역할은 `identity_link`). 오류·멱등·커서 규약은 `disclosure-api.openapi.yaml`과 같다.
-    `x-ga-phase: 6B`인 경로는 계약만 있고 구현은 6B다. 본 시스템은 답만 하고, 청약 진행을 막는 것은 호출자다(D-8).
+    본 시스템은 답만 하고, 청약 진행을 막는 것은 호출자다(D-8). (4.0.0) 게이트는 `POST /internal/v1/gate` — 옛 GET stub을 없앴다(경로 제거라 메이저).
 servers:
   - url: https://disclosure.internal
 paths:
-  /internal/v1/disclosures/gate:
-    x-ga-phase: 6B
-    get:
-      operationId: getSubscriptionGate
-      summary: 청약 게이트 조회 — 대상 여부와 확인서 완료 상태
-      security:
-        - bearerJwt: []
-      parameters:
-        - { name: customerRef, in: query, required: true, schema: { type: string } }
-        - { name: productKey, in: query, required: true, schema: { type: string } }
-        - { name: asOf, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' } }
-      responses:
-        '200':
-          description: 게이트 판정
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GateResponse'
-              example:
-                required: true
-                status: PENDING
-                pendingRoles: [MANAGER]
-                gateSatisfied: false
-                disclosureNo: T1-2026-000481
-                completedAt: null
-                gateMode: BLOCK
-                ruleVersionId: DISC-2026-07
-  /internal/v1/disclosures/{no}/policy-link:
-    x-ga-phase: 6B
+  /internal/v1/gate:
     post:
-      operationId: linkPolicy
-      summary: 계약 체결 후 증권번호 연결(메타데이터 — 봉인 본문 불변과 무관)
+      operationId: checkSubscriptionGate
+      summary: >-
+        (4.0.0, 6B) 청약 게이트 — 게이트 서비스 주체(GATE_CLIENT)만, 그 밖은 없는 라우트와 같은 404. 식별자는 본문으로(액세스 로그·질의 문자열에 남지 않게).
+        후보는 계약 연결과 같은 규칙(무효·정정·폐기·파기된 확인서는 후보가 아니다 — 무효 확인서가 쥔 연결은 근거가 아니다), 판정은 Phase 4 GateFunction
+        그대로(고정 룰의 signerSet·gateRequiresManager). 요청마다 감사 1행(식별자는 해시), 응답에 개인정보 없음. 질의라 Idempotency-Key를 받지 않고
+        재생하지 않는다. 주체별 분당 한도(룰 gate.perMinutePerPrincipal) 초과는 429 RATE_LIMITED(감사 없음). 설정 ga.api.client-cert.subject-header가
+        있으면 그 헤더(인그레스가 넣은 mTLS 주체)가 토큰 주체와 같아야 한다(다르면 404). 옛 GET /internal/v1/disclosures/gate(미구현 stub)는 없앴다.
       security:
         - bearerJwt: []
-      parameters:
-        - { name: no, in: path, required: true, schema: { type: string, pattern: '^[A-Z0-9][A-Z0-9_]{0,31}-\d{4}-\d{6}$' } }
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [policyNo, contractDate]
-              properties:
-                policyNo: { type: string, minLength: 1 }
-                contractDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+            schema: { $ref: '#/components/schemas/GateRequest' }
+            example: { applicationNo: APP-2026-0001, customerRef: CR-0123456789abcdef0123456789abcdef }
       responses:
-        '204': { description: '연결됨(PolicyLinked 이벤트 발행)' }
-        '404':
-          description: 확인서 없음
-          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
-        '409':
-          description: 이미 다른 증권번호가 연결됨 또는 COMPLETED가 아님
-          content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '200':
+          description: 판정
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GateDecision' }
+              example: { decision: BLOCKED, reason: PENDING, disclosureNo: T1-2026-000481, pendingRoles: [MANAGER], ruleVersionId: DISC-2026-07 }
+        default: { $ref: '#/components/responses/Problem' }
+  /internal/v1/contract-links:
+    post:
+      operationId: importContractLinks
+      summary: >-
+        (6B) 계약 연결 배치(서비스 주체 CONTRACT_FEED) — 본문은 계약 contracts/contract-link/v1/contract-link-batch.schema.json. 인가 뒤 해석하며 스키마
+        위반은 400 MALFORMED_REQUEST(위치를 싣지 않는다). 통과하면 202 + 작업 CONTRACT_LINK_IMPORT(작업 행에는 번호 없는 요약만). 매칭·결과는 작업
+        보고서(준법 열람). 옛 `POST /internal/v1/disclosures/{no}/policy-link`는 없앴다(6B 계획 Q3 — 단건은 항목 1개짜리 배치).
+        (3.1.0) 배치의 source가 주체의 출처 목록(identity_link.feed_sources) 밖이면 없는 라우트와 같은 404. 같은 source·batchId로 이미 받은 배치와
+        내용(JCS 해시)이 다르면 작업 없이 422 REJECTED(code BATCH_REF_REUSED), 같으면 202(재생 — 보고서 replayed).
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: 'disclosure-api.openapi.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, description: 'contracts/contract-link/v1/contract-link-batch.schema.json' }
+            example: { schemaVersion: 1, source: INS_FEED_A, batchId: '2026-10-09.001', items: [ { policyNo: POL-0000000001, contractDate: '2026-09-30', insurerCode: INS-A } ] }
+      responses:
+        '202':
+          description: 접수(비동기 실행) — `Location`이 작업 자원
+          headers:
+            Location: { schema: { type: string } }
+          content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Job' } } }
+        default: { $ref: '#/components/responses/Problem' }
   /internal/v1/events:
     get:
       operationId: getEventFeed
@@ -153,7 +150,7 @@ paths:
       - $ref: 'disclosure-api.openapi.yaml#/components/parameters/JobKind'
     post:
       operationId: submitJobInternal
-      summary: 배치 작업 제출(스케줄러) — 같은 테넌트·같은 종류가 돌고 있으면 409 JOB_ALREADY_RUNNING. ANCHOR는 HTTP에 없다(404).
+      summary: 배치 작업 제출(스케줄러) — 같은 테넌트·같은 종류가 돌고 있으면 409 JOB_ALREADY_RUNNING. ANCHOR는 HTTP에 없다(404). (6B) COLLECTION_RATE_SNAPSHOT은 같은 (달, 룰 버전)이 있으면 작업을 만들지 않고 409 SNAPSHOT_EXISTS.
       security:
         - bearerJwt: []
       parameters:
@@ -208,21 +205,29 @@ components:
       description: 오류(`disclosure-api.openapi.yaml`의 Problem과 같다)
       content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Problem' } } }
   schemas:
-    GateResponse:
+    GateRequest:
       type: object
-      required: [required, status, pendingRoles, gateSatisfied, gateMode, ruleVersionId]
+      additionalProperties: false
+      required: [customerRef]
+      oneOf:
+        - { required: [applicationNo] }
+        - { required: [policyNo] }
       properties:
-        required: { type: boolean, description: '대상 계약 판정(subjectRule 데이터)' }
-        status: { type: string, enum: [COMPLETED, PENDING, NONE] }
-        pendingRoles:
-          type: array
-          items: { type: string, enum: [CUSTOMER, AGENT, MANAGER] }
-        gateSatisfied:
-          type: boolean
-          description: gateRequiresManager=true면 COMPLETED일 때만, false면 고객·설계사 서명 완료 시점부터 true(관리자 미완료는 LATE 플래그)
-        disclosureNo: { type: [string, 'null'] }
-        completedAt: { type: [string, 'null'], pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?Z$' }
-        gateMode: { type: string, enum: [BLOCK, WARN, OFF] }
-        ruleVersionId: { type: string }
+        applicationNo: { type: string, pattern: '^\S{1,64}$' }
+        policyNo: { type: string, pattern: '^\S{1,64}$' }
+        customerRef: { type: string, pattern: '^CR-[0-9a-f]{32}$' }
+    GateDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, reason, disclosureNo, pendingRoles, ruleVersionId]
+      description: >-
+        ALLOWED는 정확히 SATISFIED. 확인서 번호·룰 버전은 근거 확인서가 있을 때(SATISFIED·PENDING)만 — 고객 불일치·모호·근거 없음은 null. pendingRoles는
+        signerSet 순서(gateRequiresManager=false면 SATISFIED여도 MANAGER가 남을 수 있다 — 관리자 확인은 이후에도 완료돼야 한다).
+      properties:
+        decision: { type: string, enum: [ALLOWED, BLOCKED] }
+        reason: { type: string, enum: [SATISFIED, NO_DISCLOSURE, CUSTOMER_MISMATCH, AMBIGUOUS, PENDING] }
+        disclosureNo: { oneOf: [ { type: 'null' }, { $ref: 'disclosure-api.openapi.yaml#/components/schemas/DisclosureNo' } ] }
+        pendingRoles: { type: array, items: { type: string, enum: [CUSTOMER, AGENT, MANAGER] } }
+        ruleVersionId: { oneOf: [ { type: 'null' }, { $ref: 'disclosure-api.openapi.yaml#/components/schemas/RuleVersionId' } ] }
     Problem:
       $ref: 'disclosure-api.openapi.yaml#/components/schemas/Problem'

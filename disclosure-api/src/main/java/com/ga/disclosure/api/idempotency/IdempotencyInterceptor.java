@@ -2,9 +2,9 @@ package com.ga.disclosure.api.idempotency;
 
 import com.ga.disclosure.api.error.Problem;
 import com.ga.disclosure.api.security.IdempotencyCaptureFilter;
-import com.ga.disclosure.api.security.TenantBindingFilter;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.idempotency.IdempotencyService;
+import com.ga.disclosure.workflow.idempotency.RequestHashPort;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.canonical.Sha256;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,10 +34,12 @@ import java.util.TreeMap;
  * 무관하게 404다.
  * <ol>
  *   <li>키 없음 428 {@code IDEMPOTENCY_KEY_REQUIRED}, 형식 오류 400. 본문이 JSON이 아니면 400(청구 전).</li>
- *   <li>요청 해시 = SHA-256(JCS{@code {method, routeTemplate, pathVariables, body}}) — 원문은 저장하지 않는다.</li>
+ *   <li>요청 해시 = HMAC-SHA256(서버 키, JCS{@code {method, routeTemplate, pathVariables, body}}) — 원문은 저장하지 않는다. 키 없는 SHA-256은 정의역이 작은
+ *       본문(고객 등록)을 사전 대입으로 되돌린다(6A 결함, 6B 계획 §A-2).</li>
  *   <li>청구(별도 트랜잭션): 진행 → 컨트롤러, 재생 → 저장 튜플로 바이트를 다시 만들어 응답 해시와 대조한 뒤 보낸다(다르면 500, 다른 본문을 내지 않는다),
  *       다른 요청 422 {@code IDEMPOTENCY_KEY_REUSED}, 진행 중 409 {@code IDEMPOTENCY_IN_PROGRESS}.</li>
- *   <li>완료(별도 트랜잭션): 2xx·409·422만 — 영수증 튜플 {@code {body, location?}}와 응답 바이트 해시. 404·5xx는 저장하지 않는다.</li>
+ *   <li>완료(별도 트랜잭션): 2xx·409·422만 — 영수증 튜플 {@code {body, location?}}와 응답 바이트 해시. 그 밖(400·401·404·5xx)은 저장하지 않고 청구를
+ *       해제한다 — 유스케이스에 닿은 요청만 키를 묶는다(6A 수용심사 §2 ②). 같은 키로 고친 요청은 새로 청구한다.</li>
  * </ol>
  * 재생 응답에는 {@code Idempotency-Replayed: true}를 붙인다(본문 바이트는 처음과 같다). 2xx 응답이 {@code Cache-Control: no-store}(일회용 자격 — 현장
  * 기기 토큰)이면 저장하지 않고 409 {@code IDEMPOTENCY_NOT_REPLAYABLE}을 완료로 남긴다 — 같은 키의 재요청은 그 409이고 효과는 한 번이다.
@@ -50,10 +52,18 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final IdempotencyService service;
+    private final RequestHashPort requestHashes;
 
-    public IdempotencyInterceptor(IdempotencyService service) {
+    public IdempotencyInterceptor(IdempotencyService service, RequestHashPort requestHashes) {
         this.service = Objects.requireNonNull(service, "service");
+        this.requestHashes = Objects.requireNonNull(requestHashes, "requestHashes");
     }
+
+    /**
+     * 멱등 키를 받지 않는 POST 라우트(닫힌 목록): 상태를 바꾸지 않는 질의라 응답을 저장·재생하면 안 되는 것만 — 청약 게이트(6B 계획 §6, 저장된 옛 판정이
+     * 재생되면 진행 중인 서명이 끝난 뒤에도 BLOCKED가, 무효된 뒤에도 ALLOWED가 나간다). 판정 감사는 요청마다 유스케이스가 남긴다.
+     */
+    public static final java.util.Set<String> EXEMPT_ROUTES = java.util.Set.of("/internal/v1/gate");
 
     private record Pending(Caller caller, String key, int claimSeq) {
     }
@@ -61,7 +71,8 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws IOException {
         if (!(handler instanceof HandlerMethod) || !"POST".equals(request.getMethod())
-                || !(request.getAttribute(TenantBindingFilter.CALLER) instanceof Caller caller)) {
+                || !(com.ga.disclosure.api.security.BoundPrincipal.caller(request).orElse(null) instanceof Caller caller)
+                || EXEMPT_ROUTES.contains((String) request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE))) {
             return true;
         }
         if (!(request.getAttribute(IdempotencyCaptureFilter.KEY_ATTRIBUTE) instanceof String key)) {
@@ -83,7 +94,7 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
         ObjectNode variables = input.putObject("pathVariables");
         new TreeMap<>(pathVariables(request)).forEach(variables::put);
         input.set("body", bodyNode);
-        String requestHash = Sha256.of(Canonicalizer.canonicalize(input));
+        String requestHash = requestHashes.hash(Canonicalizer.canonicalize(input));
         return switch (service.claim(caller, key, requestHash)) {
             case IdempotencyService.Claim.Proceed p -> {
                 request.setAttribute(PENDING, new Pending(caller, key, p.claimSeq()));
@@ -105,7 +116,16 @@ public final class IdempotencyInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
-        if (!(request.getAttribute(PENDING) instanceof Pending pending) || !IdempotencyService.storable(response.getStatus())) {
+        if (!(request.getAttribute(PENDING) instanceof Pending pending)) {
+            return;
+        }
+        if (!IdempotencyService.storable(response.getStatus())) {
+            try {
+                service.release(pending.caller(), pending.key(), pending.claimSeq());
+            } catch (RuntimeException e) {
+                // 해제 실패는 응답을 바꾸지 않는다 — 행은 임차가 지나면 같은 요청이 인수하고, 만료 뒤 정리된다
+                LOG.log(System.Logger.Level.ERROR, "IDEMPOTENCY_RELEASE_FAILED " + e.getClass().getSimpleName());
+            }
             return;
         }
         String cacheControl = response.getHeader(HttpHeaders.CACHE_CONTROL);

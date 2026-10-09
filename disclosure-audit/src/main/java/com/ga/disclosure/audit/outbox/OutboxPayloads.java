@@ -93,9 +93,22 @@ public final class OutboxPayloads {
         return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("destroyedAt", destroyedAt.toString());
     }
 
-    public static JsonNode policyLinked(UUID disclosureId, String disclosureNo, String policyNo, LocalDate contractDate) {
-        return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("policyNo", policyNo)
-                .put("contractDate", contractDate.toString());
+    /** 초안 폐기(6B): 식별자·시각만 — 번호는 없고(봉인 전) 지운 값의 해시는 감사에만 남는다. */
+    public static JsonNode disclosureAbandoned(UUID disclosureId, Instant abandonedAt) {
+        return JSON.objectNode().put("disclosureId", disclosureId.toString()).put("abandonedAt", abandonedAt.toString());
+    }
+
+    /** PolicyLinked v2(6B): 증권·청약 번호를 싣지 않는다 — append-only 아웃박스에 남으면 파기할 수 없다. */
+    public static JsonNode policyLinked(UUID disclosureId, String disclosureNo, UUID linkId, LocalDate contractDate, String insurerCode,
+                                        UUID supersededLinkIdOrNull) {
+        ObjectNode p = JSON.objectNode().put("disclosureId", disclosureId.toString()).put("disclosureNo", disclosureNo).put("linkId", linkId.toString())
+                .put("contractDate", contractDate.toString()).put("insurerCode", insurerCode).put("corrected", supersededLinkIdOrNull != null);
+        if (supersededLinkIdOrNull == null) {
+            p.putNull("supersededLinkId");
+        } else {
+            p.put("supersededLinkId", supersededLinkIdOrNull.toString());
+        }
+        return p;
     }
 
     public static JsonNode complianceFlagRaised(UUID flagId, String flagType, String severity, UUID disclosureIdOrNull, String policyNoOrNull,

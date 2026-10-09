@@ -29,7 +29,8 @@ public final class ApiTestSupport {
     public static final Path DEMO = ROOT.resolve("disclosure-demo/src/main/resources");
     /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
     public static final Path CURSOR_KEY = tempPath("ga-api-cursor", "cursor.key");
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    public static final Path REQUEST_HASH_KEY = tempPath("ga-api-request-hash", "request-hash.key");
+    public static final Path RECEIPT_KEY = tempPath("ga-api-customer-receipt", "customer-receipt.key");
 
     private ApiTestSupport() {
     }
@@ -73,6 +74,8 @@ public final class ApiTestSupport {
         p.put("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
         p.put("ga.crypto.local-kek-file", KEK::toString);
         p.put("ga.api.cursor-key-file", CURSOR_KEY::toString);
+        p.put("ga.api.request-hash-key-file", REQUEST_HASH_KEY::toString);
+        p.put("ga.api.receipt-key-file", RECEIPT_KEY::toString);
         p.put("ga.public-sign.min-response-millis", () -> "30");
         p.put("ga.engine.mode", () -> "stub");
         p.put("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());
@@ -176,7 +179,12 @@ public final class ApiTestSupport {
             b.method(method, HttpRequest.BodyPublishers.noBody());
         }
         try {
-            HttpResponse<byte[]> r = HTTP.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+            // 요청마다 새 클라이언트(닫는다): 공유 클라이언트의 연결 풀은 host:port로 묶여, 앞 시험 클래스의 컨텍스트가 닫힌 뒤 같은 임의 포트를 받은
+            // 새 서버에 죽은 연결을 내줄 수 있었다(전체 실행에서만 "header parser received no bytes") — 서버보다 오래 사는 연결을 두지 않는다
+            HttpResponse<byte[]> r;
+            try (HttpClient http = HttpClient.newHttpClient()) {
+                r = http.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+            }
             Response response = new Response(r.statusCode(), headers(r.headers()), r.body());
             // G11: 모든 IT 응답이 계약 스키마를 통과한다(계약에 없는 상태·미디어 타입도 위반)
             java.util.List<String> violations = ApiContracts.get().violations(method, path, response.status(), response.headers().get("content-type"),

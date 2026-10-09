@@ -65,7 +65,7 @@ class AuthzMatrixTest {
 
     @Test
     void aChangedCellIsDetected() throws IOException {
-        String text = Files.readString(DESIGN, StandardCharsets.UTF_8).replace("\nSUPERSEDE,-,ORG,-,", "\nSUPERSEDE,-,ORG,OWN,");
+        String text = Files.readString(DESIGN, StandardCharsets.UTF_8).replace("\nSUPERSEDE,-,-,-,", "\nSUPERSEDE,-,ORG,-,");   // 6B 승인 §2가 지운 칸을 되살리면 잡힌다
         assertThat(parse(text)).isNotEqualTo(ScopePolicy.matrix());
         assertThatThrownBy(() -> parse("```authz-matrix\naction,AGENT\n```")).isInstanceOf(IllegalStateException.class);
     }

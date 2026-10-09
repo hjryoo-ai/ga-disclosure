@@ -40,7 +40,8 @@ final class Governance {
     final RuleVersionRepository rules = new RuleVersionRepository(gateway);
     final FormTemplateRepository templates = new FormTemplateRepository(gateway);
     final AuditLogRepository audit = new AuditLogRepository(gateway);
-    final ComplianceFlagRepository flags = new ComplianceFlagRepository(gateway, new com.ga.disclosure.infra.outbox.OutboxRepository(gateway));
+    final ComplianceFlagRepository flags = new ComplianceFlagRepository(gateway, new com.ga.disclosure.infra.outbox.OutboxRepository(gateway),
+            new com.ga.disclosure.workflow.flag.FlagPolicyResolver(new com.ga.disclosure.rules.resolve.RuleResolver(new com.ga.disclosure.infra.persistence.RuleVersionRepository(gateway))));
     final TenantTransactionTemplate tx = new TenantTransactionTemplate(new TenantSessionBinder(db.appDataSource()));
     final Clock clock;
     final RuleDistributionService distribution;

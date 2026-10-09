@@ -1,0 +1,20 @@
+{
+  "eventId": "00000011-0000-4000-8000-000000000011",
+  "seq": 1011,
+  "type": "PolicyLinked",
+  "version": 2,
+  "occurredAt": "2026-10-09T10:11:00+09:00",
+  "aggregate": {
+    "kind": "DISCLOSURE",
+    "id": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192"
+  },
+  "payload": {
+    "disclosureId": "3f1c2b9e-8a4d-4c1e-9b7a-2d5e6f708192",
+    "disclosureNo": "T1-2026-000481",
+    "linkId": "7a2e1f30-5b6c-4d7e-8f90-a1b2c3d4e5f6",
+    "contractDate": "2026-09-30",
+    "insurerCode": "INS-A",
+    "corrected": false,
+    "supersededLinkId": null
+  }
+}

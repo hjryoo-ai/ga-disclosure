@@ -114,6 +114,6 @@ public final class EventFeed {
     }
 
     private static CommandRejectedException reject(Rejection r) {
-        return new CommandRejectedException(r.name(), r.category(), "event feed request rejected: " + r.name());
+        return new CommandRejectedException(r, "event feed request rejected: " + r.name());
     }
 }

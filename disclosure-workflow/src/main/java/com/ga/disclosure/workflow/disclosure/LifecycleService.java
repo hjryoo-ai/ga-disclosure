@@ -81,7 +81,9 @@ public final class LifecycleService {
         /** 그 사유 코드는 텍스트가 필요하다({@code requiresText}). */
         REASON_TEXT_REQUIRED(RejectionCategory.INVALID),
         /** 사유 텍스트가 룰 상한({@code lifecycleReasonTextMaxLength})을 넘는다. */
-        REASON_TEXT_TOO_LONG(RejectionCategory.INVALID);
+        REASON_TEXT_TOO_LONG(RejectionCategory.INVALID),
+        /** 법적 보류(확인서 또는 그 고객)가 걸린 초안은 폐기하지 않는다(6B — 파기 전제와 같은 조건, DB V17 GD137). */
+        UNDER_LEGAL_HOLD(RejectionCategory.CONFLICT);
 
         private final RejectionCategory category;
 
@@ -196,7 +198,7 @@ public final class LifecycleService {
             TemplateResolution template = templates.resolve(tenant, l.template().templateType(), original.consultDate());
             // 새 버전은 새 작성 행위다: 조직 스냅샷은 이전 버전에서 복사하지 않고 행위자의 현재 identity_link에서 다시 읽는다(6A 승인 Q1)
             OrgPath orgPath = agents.find(actor.subject()).flatMap(AgentDirectory.LinkedIdentity::orgPath)
-                    .orElseThrow(() -> new CommandRejectedException("ACTOR_ORG_UNKNOWN", "the actor has no organisation in this tenant"));
+                    .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.ACTOR_ORG_UNKNOWN, "the actor has no organisation in this tenant"));
             DisclosureId next = DisclosureId.of(UUID.randomUUID());
             Disclosure corrected = Disclosure.supersedingDraft(next, original, rule.globalRuleVersionId(), rule.tenantRuleVersion().orElse(null),
                     template.ref(), loader.context(tenant, rule, template, original.groupCode(), original.consultDate()));

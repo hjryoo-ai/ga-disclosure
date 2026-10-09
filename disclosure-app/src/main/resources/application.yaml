@@ -1,6 +1,10 @@
 spring:
   application:
     name: ga-disclosure
+  # 요청 본문의 모르는 필드는 400(6B §9 승인 R1): 계약이 additionalProperties: false를 약속한다 — 조용히 버리지 않는다(스프링 부트 기본은 무시).
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   # 애플리케이션 데이터소스: disclosure_app (NOBYPASSRLS, DML만). 테넌트는 트랜잭션마다 TenantSessionBinder가 설정한다.
   datasource:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}

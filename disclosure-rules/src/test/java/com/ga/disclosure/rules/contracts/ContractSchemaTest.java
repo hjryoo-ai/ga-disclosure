@@ -41,7 +41,8 @@ class ContractSchemaTest {
 
     static final List<String> EVENT_TYPES = List.of(
             "DisclosureCreated", "DisclosureSealed", "SignatureCaptured", "DisclosureCompleted",
-            "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised", "DisclosureDestroyed");
+            "DisclosureVoided", "DisclosureSuperseded", "PolicyLinked", "ComplianceFlagRaised", "DisclosureDestroyed",
+            "DisclosureAbandoned");
 
     private static SchemaRegistry registry;
 
@@ -106,6 +107,53 @@ class ContractSchemaTest {
         assertThat(sample.path("type").asString()).isEqualTo(type);
         assertThat(schema("events/v1/envelope.schema.json").validate(sample)).isEmpty();
         assertThat(schema("events/v1/payloads/" + type + ".schema.json").validate(sample.path("payload"))).isEmpty();
+    }
+
+    /** 6B: PolicyLinked v2는 증권·청약 번호를 싣지 않는다(append-only 아웃박스 — 파기 불가), envelope이 version으로 v1·v2를 고른다. */
+    @Test
+    void policyLinkedV2CarriesNoPolicyNumber() {
+        ObjectNode v2 = (ObjectNode) read("events/v1/samples/PolicyLinked.v2.json");
+        assertThat(schema("events/v1/envelope.schema.json").validate(v2)).isEmpty();
+        assertThat(schema("events/v1/payloads/PolicyLinked.v2.schema.json").validate(v2.path("payload"))).isEmpty();
+        for (String number : List.of("policyNo", "applicationNo")) {
+            ObjectNode leaking = v2.deepCopy();
+            ((ObjectNode) leaking.get("payload")).put(number, "POL-0000000001");
+            assertThat(schema("events/v1/envelope.schema.json").validate(leaking)).as(number).isNotEmpty();
+        }
+        for (String field : required(read("events/v1/payloads/PolicyLinked.v2.schema.json"))) {
+            ObjectNode missing = v2.deepCopy();
+            ((ObjectNode) missing.get("payload")).remove(field);
+            assertThat(schema("events/v1/envelope.schema.json").validate(missing)).as(field).isNotEmpty();
+        }
+        ObjectNode v1Shape = (ObjectNode) read("events/v1/samples/PolicyLinked.json");
+        v1Shape.put("version", 2);
+        assertThat(schema("events/v1/envelope.schema.json").validate(v1Shape)).as("a v1 payload is not a v2 event").isNotEmpty();
+    }
+
+    /** 6B 계약 연결 배치(인바운드): 샘플 통과, 필수 필드·모르는 필드·고객 개인정보·형식 위반은 거부(값은 pattern만, 실제 피드 형식은 어댑터). */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"missing:schemaVersion", "missing:source", "missing:batchId", "missing:items", "item-missing:policyNo",
+            "item-missing:contractDate", "item-missing:insurerCode", "extra:customerName", "extra:phone", "insurer-underscore", "policy-space",
+            "date-shape", "empty-items", "version-2"})
+    void contractLinkBatchIsClosed(String change) {
+        String path = "contract-link/v1/contract-link-batch.schema.json";
+        ObjectNode ok = (ObjectNode) read("contract-link/v1/samples/contract-link-batch.json");
+        assertThat(schema(path).validate(ok)).isEmpty();
+        ObjectNode batch = ok.deepCopy();
+        ObjectNode item = (ObjectNode) batch.at("/items/0");
+        String[] c = change.split(":");
+        switch (c[0]) {
+            case "missing" -> batch.remove(c[1]);
+            case "item-missing" -> item.remove(c[1]);
+            case "extra" -> item.put(c[1], "가상");
+            case "insurer-underscore" -> item.put("insurerCode", "INS_A");
+            case "policy-space" -> item.put("policyNo", "POL 1");
+            case "date-shape" -> item.put("contractDate", "2026/09/30");
+            case "empty-items" -> batch.putArray("items");
+            case "version-2" -> batch.put("schemaVersion", 2);
+            default -> throw new IllegalArgumentException(change);
+        }
+        assertThat(schema(path).validate(batch)).isNotEmpty();
     }
 
     static Stream<Arguments> eventRequiredFieldRemovals() {
@@ -372,8 +420,17 @@ class ContractSchemaTest {
         assertThat(rule.path("validations")).hasSize(12);
         assertThat(rule.path("reasonCodes")).hasSize(5);
         assertThat(rule.path("tenantOverridable")).extracting(JsonNode::asString).containsExactly(
-                "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "kpi",
-                "retainUnlinked", "masking", "gateRequiresManager", "sessionTtlMinutes", "agentSignMethod", "retention", "customerRef");
+                "signDeadlineDays", "remoteLinkTtlHours", "channels", "identityCheck", "proxySignatureDetection", "complianceQueue",
+                "retainUnlinked", "masking", "gateRequiresManager", "sessionTtlMinutes", "agentSignMethod", "retention", "customerRef",
+                "draft", "contractLink", "customers");
+        // Phase 6B(6B 계획 §5·§7, 승인 §3): 옛 자유 문자열 kpi는 없다 — 징구율은 닫힌 산식 ID(내부 지표), 준법 큐는 유형별 정책
+        assertThat(rule.has("kpi")).isFalse();
+        assertThat(rule.at("/collectionRate/formula").asString()).isEqualTo("LINKED_COMPLETED_BY_CONTRACT_DATE");
+        assertThat(rule.at("/complianceQueue/types").propertyNames()).hasSize(11);
+        assertThat(rule.at("/draft/abandonAfterDays").isNull()).isTrue();
+        assertThat(rule.at("/contractLink/unmatchedRetentionDays").isNull()).isTrue();
+        assertThat(rule.at("/gate/perMinutePerPrincipal").asInt()).isEqualTo(600);
+        assertThat(rule.at("/customers/registerPerMinute").asInt()).isEqualTo(30);
         // Phase 5(5 계획 승인 Q5·Q7·Q10): 앵커 깊이는 GLOBAL(옛 테넌트 키 anchor 제거), 보존기간 = 년 + 일, 파기·검증 절차 파라미터
         assertThat(rule.has("anchor")).isFalse();
         assertThat(rule.at("/anchoring/treeDepth").asInt()).isEqualTo(16);
@@ -444,6 +501,39 @@ class ContractSchemaTest {
         assertThat(schema("rules/v1/rule-version.schema.json").validate(oneDay)).as("0 years + 1 day is the shortest period").isEmpty();
     }
 
+    /** Phase 6B: 준법 큐 유형은 닫힌 11개(빠짐·추가 모두 위반), 징구율 산식·게이트는 GLOBAL 전용, "없음"은 null로만. */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"type-missing", "type-extra", "role-agent", "sla-zero", "evidence-missing", "formula-free-text",
+            "overridable:collectionRate", "overridable:gate", "abandon-zero", "abandon-reasons-empty", "unmatched-string", "gate-null", "legacy-kpi",
+            "customers-zero", "customers-missing", "customers-extra"})
+    void complianceQueueAndCollectionRateAreClosed(String change) {
+        ObjectNode body = (ObjectNode) read(DISC_2026_07).get("body");
+        ObjectNode types = (ObjectNode) body.at("/complianceQueue/types");
+        switch (change) {
+            case "type-missing" -> types.remove("NOTIFY_FAILED");
+            case "type-extra" -> types.set("MISSING", types.get("SIGN_EXPIRED").deepCopy());
+            case "role-agent" -> ((ObjectNode) types.get("SIGN_EXPIRED")).put("assignedRole", "AGENT");
+            case "sla-zero" -> ((ObjectNode) types.get("SIGN_EXPIRED")).put("slaHours", 0);
+            case "evidence-missing" -> ((ObjectNode) types.get("CHAIN_BROKEN")).remove("requiresEvidence");
+            case "formula-free-text" -> ((ObjectNode) body.get("collectionRate")).put("formula", "COMPLETED_LINKED / SUBJECT");
+            case "abandon-zero" -> ((ObjectNode) body.get("draft")).put("abandonAfterDays", 0);
+            case "abandon-reasons-empty" -> ((ObjectNode) body.get("draft")).set("abandonReasons", YAML.readTree("[]"));
+            case "unmatched-string" -> ((ObjectNode) body.get("contractLink")).put("unmatchedRetentionDays", "90");
+            case "gate-null" -> ((ObjectNode) body.get("gate")).putNull("perMinutePerPrincipal");
+            case "customers-zero" -> ((ObjectNode) body.get("customers")).put("registerPerMinute", 0);
+            case "customers-missing" -> body.remove("customers");
+            case "customers-extra" -> ((ObjectNode) body.get("customers")).put("dedupeBy", "name");
+            case "legacy-kpi" -> body.set("kpi", YAML.readTree("{\"collectionRate\": \"COMPLETED_LINKED / SUBJECT\"}"));
+            default -> ((ArrayNode) body.get("tenantOverridable")).add(change.substring("overridable:".length()));
+        }
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(body)).isNotEmpty();
+        ObjectNode set = (ObjectNode) read(DISC_2026_07).get("body");
+        ((ObjectNode) set.at("/complianceQueue/types/SIGN_EXPIRED")).put("slaHours", 48);
+        ((ObjectNode) set.get("draft")).put("abandonAfterDays", 30);
+        ((ObjectNode) set.get("collectionRate")).put("formula", "TARGET_INCLUDING_UNMATCHED");
+        assertThat(schema("rules/v1/rule-version.schema.json").validate(set)).as("numbers and plan B are valid").isEmpty();
+    }
+
     @Test
     void templateFieldMissingRequiredAttributeFails() {
         JsonNode schemaNode = read("rules/v1/form-template.schema.json").path("$defs").path("field");
@@ -482,8 +572,13 @@ class ContractSchemaTest {
         assertThat(engine.path("paths").has("/internal/v1/disclosure/commission-grades")).isTrue();
         assertThat(engine.at("/paths/~1internal~1v1~1disclosure~1commission-grades~1{snapshotId}/get/operationId").asString())
                 .isEqualTo("getCommissionGradesSnapshot");
-        assertThat(internal.path("paths").has("/internal/v1/disclosures/gate")).isTrue();
-        assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isTrue();
+        // 6B(승인 §4): 게이트는 POST 본문 — 식별자가 질의 문자열·액세스 로그에 남는 GET stub은 없앴다
+        assertThat(internal.path("paths").has("/internal/v1/disclosures/gate")).isFalse();
+        assertThat(internal.at("/paths/~1internal~1v1~1gate/post/operationId").asString()).isEqualTo("checkSubscriptionGate");
+        assertThat(internal.at("/paths/~1internal~1v1~1gate/post/parameters").isMissingNode()).as("no Idempotency-Key on the gate").isTrue();
+        // 6B(계획 Q3): 번호로 직접 붙이는 경로는 없앴다 — 계약 연결은 배치 하나의 입구
+        assertThat(internal.path("paths").has("/internal/v1/disclosures/{no}/policy-link")).isFalse();
+        assertThat(internal.at("/paths/~1internal~1v1~1contract-links/post/operationId").asString()).isEqualTo("importContractLinks");
         assertThat(internal.path("paths").has("/internal/v1/events")).isTrue();
 
         // 1.1.0: 토큰·테넌트 불일치·스냅샷 미발급 명시 오류(Phase E3 계획 Q3)
@@ -495,7 +590,10 @@ class ContractSchemaTest {
         JsonNode ok = engine.at("/components/schemas/GradeResultOk/properties");
         assertThat(ok.has("gradeOrdinal")).isTrue();
         assertThat(ok.path("ratioToAvg").path("type").asString()).as("ratioToAvg는 불투명 문자열").isEqualTo("string");
-        assertThat(internal.at("/components/schemas/GateResponse/required")).extracting(JsonNode::asString)
-                .contains("pendingRoles", "gateSatisfied");
+        assertThat(internal.at("/components/schemas/GateResponse").isMissingNode()).isTrue();
+        assertThat(internal.at("/components/schemas/GateDecision/required")).extracting(JsonNode::asString)
+                .containsExactlyInAnyOrder("decision", "reason", "disclosureNo", "pendingRoles", "ruleVersionId");
+        // 응답에 개인정보 없음 — 고객 가명조차 되돌려주지 않는다
+        assertThat(internal.at("/components/schemas/GateDecision/properties").propertyNames()).doesNotContain("customerRef", "applicationNo", "policyNo");
     }
 }

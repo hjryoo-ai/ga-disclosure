@@ -24,9 +24,12 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * G13(5 계획 §5.6, 승인 Q4): 설계서 §9 {@code pii-columns} 블록이 정본이고 세 파기 함수·DB 카탈로그가 따라간다.
+ * G13(5 계획 §5.6, 승인 Q4): 설계서 §9 {@code pii-columns} 블록이 정본이고 세 파기 함수·폐기 함수(6B G7 — 네 번째)·DB 카탈로그가 따라간다.
  * <ul>
- *   <li>함수 → 블록: {@code pg_proc} 소스의 {@code UPDATE t SET c = NULL} 전부가 같은 함수 이름으로 블록에 있다. 블록 → 함수: 그 반대.</li>
+ *   <li>함수 → 블록: {@code pg_proc} 소스의 {@code UPDATE t SET c = NULL}(JSONB는 {@code = '{}'::jsonb}) 전부가 같은 함수 이름으로 블록에 있다. 블록 → 함수:
+ *       그 반대.</li>
+ *   <li>{@code PURGED} 행(6B — 보고 행을 룰 기간 뒤 행째 지우는 표)은 감사 표현이 없고, 그 표는 {@link #PURGE_TABLES}와 양방향으로 같으며, 앱 롤이 DELETE
+ *       권한을 갖고 DELETE를 막는 트리거가 없다.</li>
  *   <li>카탈로그 → 블록: BYTEA 컬럼, {@code *_enc}·{@code wrapped_*} 이름, 암호문 형식 CHECK가 걸린 컬럼은 블록 또는 {@link #NON_PII}에 있다.
  *       {@code customer_ref} 가명 컬럼과 감사·아웃박스 JSON의 {@code customerRef} 키는 블록의 PSEUDONYM 행이다.</li>
  *   <li>블록의 모든 행은 실재 컬럼이고, {@link #NON_PII}에 폐기 항목이 남으면 실패한다.</li>
@@ -38,11 +41,14 @@ class PiiColumnTableTest {
     /** 개인정보가 아닌 BYTEA·키 이름 컬럼(닫힌 {@code table.column} 열거). */
     static final Set<String> NON_PII = Set.of("anchor_receipt.tsa_token");
 
-    static final Set<String> FUNCTIONS = Set.of("ga_document_key_shred", "ga_disclosure_destroy", "ga_customer_ref_destroy");
+    /** 개인정보 컬럼을 행째 지워 파기하는 표 → 그 정리 작업(닫힌 열거, 6B). 블록의 {@code PURGED} 행과 양방향으로 같다. */
+    static final Map<String, String> PURGE_TABLES = Map.of("contract_link_unmatched", "CONTRACT_LINK_UNMATCHED_PURGE");
+
+    static final Set<String> FUNCTIONS = Set.of("ga_document_key_shred", "ga_disclosure_destroy", "ga_customer_ref_destroy", "ga_draft_abandon");
     static final Set<String> KINDS = Set.of("ENCRYPTED", "EXTERNAL_ID", "KEY", "FREE_TEXT", "DEVICE", "NETWORK", "BEHAVIOR", "PSEUDONYM");
     static final Set<String> REPRS = Set.of("sha256-stored", "sha256-utf8", "sha256-jcs", "presence", "presence-family", "-");
     private static final Pattern UPDATE = Pattern.compile("UPDATE\\s+(\\w+)\\s+SET\\s+(.+?)\\s+WHERE", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    private static final Pattern NULLED = Pattern.compile("(\\w+)\\s*=\\s*NULL\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NULLED = Pattern.compile("(\\w+)\\s*=\\s*(?:NULL\\b|'\\{\\}'::jsonb)", Pattern.CASE_INSENSITIVE);
 
     record Row(String table, String column, String kind, Set<String> erasedBy, String repr, String keeps) {
         String key() {
@@ -52,11 +58,15 @@ class PiiColumnTableTest {
         boolean retained() {
             return erasedBy.equals(Set.of("RETAINED"));
         }
+
+        boolean purged() {
+            return erasedBy.equals(Set.of("PURGED"));
+        }
     }
 
     /** DB에서 읽은 것(블록과 무관). */
     record Catalog(Set<String> columns, Map<String, Set<String>> nulledByFunction, Set<String> encrypted, Set<String> pseudonymColumns,
-                   Set<String> pseudonymJsonKeys) {
+                   Set<String> pseudonymJsonKeys, Set<String> appDeletableTables) {
     }
 
     private static WorkflowSetup w;
@@ -105,8 +115,8 @@ class PiiColumnTableTest {
             assertThat(KINDS).as(r.key()).contains(r.kind());
             assertThat(REPRS).as(r.key()).contains(r.repr());
             assertThat(r.keeps()).as(r.key()).isNotBlank();
-            if (r.retained()) {
-                assertThat(r.repr()).as(r.key() + " 남기는 행은 감사 표현이 없다").isEqualTo("-");
+            if (r.retained() || r.purged()) {
+                assertThat(r.repr()).as(r.key() + " 남기는 행·행째 지우는 행은 감사 표현이 없다").isEqualTo("-");
             } else {
                 assertThat(FUNCTIONS).as(r.key()).containsAll(r.erasedBy());
                 assertThat(r.repr()).as(r.key()).isNotEqualTo("-");
@@ -117,7 +127,7 @@ class PiiColumnTableTest {
     @Test
     void theBlockAndTheDatabaseAgreeBothWays() {
         assertThat(violations(block(), catalog)).isEmpty();
-        assertThat(catalog.nulledByFunction().keySet()).as("세 함수 모두 소스를 읽었다").isEqualTo(FUNCTIONS);
+        assertThat(catalog.nulledByFunction().keySet()).as("네 함수 모두 소스를 읽었다").isEqualTo(FUNCTIONS);
         assertThat(catalog.encrypted()).as("카탈로그 탐지가 무언가를 찾는다")
                 .contains("customer_ref.name_enc", "document_key.wrapped_dek", "customer_data_key.wrapped_key", "anchor_receipt.tsa_token");
         assertThat(catalog.pseudonymJsonKeys()).contains("audit_log.detail.customerRef", "outbox_event.payload.customerRef");
@@ -141,7 +151,7 @@ class PiiColumnTableTest {
         Map<String, Set<String>> extra = new LinkedHashMap<>(catalog.nulledByFunction());
         extra.put("ga_disclosure_destroy", union(extra.get("ga_disclosure_destroy"), Set.of("signature.channel")));
         assertThat(violations(block(), new Catalog(catalog.columns(), extra, catalog.encrypted(), catalog.pseudonymColumns(),
-                catalog.pseudonymJsonKeys()))).anySatisfy(v -> assertThat(v).contains("signature.channel"));
+                catalog.pseudonymJsonKeys(), catalog.appDeletableTables()))).anySatisfy(v -> assertThat(v).contains("signature.channel"));
     }
 
     static List<String> violations(List<Row> rows, Catalog c) {
@@ -192,13 +202,24 @@ class PiiColumnTableTest {
                 out.add("JSON key " + k + " is not a PSEUDONYM row");
             }
         }
+        Set<String> purgedTables = new TreeSet<>();
+        rows.stream().filter(Row::purged).forEach(r -> purgedTables.add(r.table()));
+        if (!purgedTables.equals(new TreeSet<>(PURGE_TABLES.keySet()))) {
+            out.add("PURGED rows " + purgedTables + " differ from the purge tables " + new TreeSet<>(PURGE_TABLES.keySet()));
+        }
+        for (String t : PURGE_TABLES.keySet()) {
+            if (!c.appDeletableTables().contains(t)) {
+                out.add("purge table " + t + " cannot be deleted from by the app role");
+            }
+        }
         for (Row r : rows) {
             String column = r.column().contains(".") ? r.table() + "." + r.column().substring(0, r.column().indexOf('.')) : r.key();
             if (!c.columns().contains(column)) {
                 out.add("block row " + r.key() + " names no column");
             }
             boolean bound = c.encrypted().contains(r.key()) || c.pseudonymColumns().contains(r.key()) || c.pseudonymJsonKeys().contains(r.key())
-                    || c.nulledByFunction().values().stream().anyMatch(s -> s.contains(r.key()));
+                    || c.nulledByFunction().values().stream().anyMatch(s -> s.contains(r.key()))
+                    || (r.purged() && c.appDeletableTables().contains(r.table()));
             if (!bound) {
                 out.add("block row " + r.key() + " is bound to nothing in the database");
             }
@@ -267,7 +288,12 @@ class PiiColumnTableTest {
                     }
                 }
             }
-            return new Catalog(columns, nulled, encrypted, pseudonymColumns, jsonKeys);
+            Set<String> deletable = strings(c, """
+                    SELECT c.relname FROM pg_class c
+                     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND has_table_privilege('disclosure_app', c.oid, 'DELETE')
+                       AND NOT EXISTS (SELECT 1 FROM pg_trigger g WHERE g.tgrelid = c.oid AND NOT g.tgisinternal AND (g.tgtype & 8) <> 0)
+                    """);
+            return new Catalog(columns, nulled, encrypted, pseudonymColumns, jsonKeys, deletable);
         } catch (SQLException e) {
             throw new IllegalStateException(e);
         }

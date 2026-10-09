@@ -17,7 +17,12 @@ public interface DisclosureStore {
      * 새 확인서(초안·정정 새 버전). {@code orgPath}는 작성 행위의 조직 스냅샷이다 — 작성 행위자의 <b>현재</b> {@code identity_link.org_path}
      * (V12 GD124: INSERT 필수·이후 불변, 6A 승인 Q1 — 정정 새 버전도 이전 버전 값을 복사하지 않고 다시 읽는다).
      */
-    void insert(Disclosure disclosure, OrgPath orgPath);
+    default void insert(Disclosure disclosure, OrgPath orgPath) {
+        insert(disclosure, orgPath, java.util.Optional.empty());
+    }
+
+    /** (6B) 청약번호를 함께 — 작성 때만 쓸 수 있다(V14 GD132), 계약 연결의 첫 매칭 키. */
+    void insert(Disclosure disclosure, OrgPath orgPath, java.util.Optional<String> applicationNo);
 
     /** 행 잠금({@code FOR UPDATE})으로 읽는다. 명령은 전부 이 경로로 읽고 같은 트랜잭션에서 {@link #save}한다. */
     Optional<DisclosureRecord> loadForUpdate(DisclosureId id);
