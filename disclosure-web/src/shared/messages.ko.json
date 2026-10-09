@@ -1,5 +1,18 @@
 {
-  "staff": { "app": { "title": "비교설명 확인서" } },
-  "sign": { "app": { "title": "확인서 서명" } },
-  "problem": {}
+  "staff": {
+    "app": {
+      "title": "비교설명 확인서"
+    }
+  },
+  "sign": {
+    "app": {
+      "title": "확인서 서명"
+    }
+  },
+  "problem": {},
+  "oidcCallback": {
+    "title": "로그인",
+    "closing": "로그인을 마쳤습니다. 이 창은 곧 닫힙니다.",
+    "noOpener": "로그인 화면에서 연 창이 아닙니다. 이 창을 닫고 직원 화면에서 다시 로그인하세요."
+  }
 }

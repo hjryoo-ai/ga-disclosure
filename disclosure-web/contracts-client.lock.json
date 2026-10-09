@@ -14,6 +14,13 @@
       "contractSha256": "cd097046267baf109a678149b1fb7c25738bb93fa3b28ff7d64b1ea1d847bcee",
       "output": "src/gen/disclosure-public.ts",
       "outputSha256": "5ba455a5f9c27677e7836673ba007419703118ac6da0a432053adbd371c1736b"
+    },
+    {
+      "name": "demo-oidc",
+      "contract": "contracts/api/v1/demo-oidc.openapi.yaml",
+      "contractSha256": "0b54dec789b198373b92f1327deef95fcd212e365293e45d34e15badf1c1b10b",
+      "output": "src/gen/demo-oidc.ts",
+      "outputSha256": "39eebb1d147961344f07905b2ab52bb9c9ff504d5ee4809f76b444d7d681ef8f"
     }
   ]
 }

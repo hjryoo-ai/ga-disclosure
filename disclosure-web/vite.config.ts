@@ -52,6 +52,7 @@ export default defineConfig({
       input: {
         staff: resolve(web, 'src/staff/index.html'),
         sign: resolve(web, 'src/sign/index.html'),
+        callback: resolve(web, 'src/oidc-callback/index.html'),
       },
     },
   },

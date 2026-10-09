@@ -26,7 +26,7 @@ async function walk(dir) {
 
 const files = await walk(dist);
 const rel = (f) => relative(dist, f);
-for (const html of ['staff/index.html', 'sign/index.html']) {
+for (const html of ['staff/index.html', 'sign/index.html', 'oidc-callback/index.html']) {
   if (!files.some((f) => rel(f) === html)) failures.push(`missing ${html}`);
 }
 for (const f of files) {

@@ -26,6 +26,8 @@ dependencies {
     implementation(project(":disclosure-compliance"))
     implementation(project(":disclosure-workflow"))
     implementation(project(":platform-spring"))
+    // Phase 7: 화면 산출물(classpath:/ga-web/) — 데모 프로파일에서만 서빙한다(DemoWebController). 운영 분리는 Phase 8
+    runtimeOnly(project(":disclosure-web"))
     runtimeOnly(libs.flyway.postgresql)
     runtimeOnly(libs.postgresql)
 }

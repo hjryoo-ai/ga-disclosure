@@ -63,7 +63,7 @@ export default tseslint.config(
   },
   {
     // 고객 서명 번들: 프레임워크·라우터·상태 관리·인증 라이브러리 0, 직원 화면 코드 0(계획 ⑤).
-    files: ['src/sign/**/*.ts', 'src/shared/**/*.ts'],
+    files: ['src/sign/**/*.ts', 'src/oidc-callback/**/*.ts', 'src/shared/**/*.ts'],
     rules: {
       'no-restricted-imports': ['error', {
         paths: [clientOnly],

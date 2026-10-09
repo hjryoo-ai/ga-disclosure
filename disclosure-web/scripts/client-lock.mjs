@@ -17,6 +17,7 @@ const LOCK = resolve(web, 'contracts-client.lock.json');
 const CLIENTS = [
   { name: 'disclosure-api', contract: 'contracts/api/v1/disclosure-api.openapi.yaml' },
   { name: 'disclosure-public', contract: 'contracts/api/v1/disclosure-public.openapi.yaml' },
+  { name: 'demo-oidc', contract: 'contracts/api/v1/demo-oidc.openapi.yaml' },
 ];
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
