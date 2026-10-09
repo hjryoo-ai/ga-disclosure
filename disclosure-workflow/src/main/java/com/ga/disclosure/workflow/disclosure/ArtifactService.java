@@ -58,7 +58,8 @@ public final class ArtifactService {
         record Denied(Reason reason) implements View {
         }
 
-        enum Reason {
+        /** 열람 거부 사유 — 모두 상태 충돌(설계서 {@code rejection-categories}의 {@code ArtifactView} 행). */
+        enum Reason implements com.ga.disclosure.workflow.RejectionCategory.Categorized {
             /** 그 종류의 산출물이 없다(봉인 전 등). */
             NO_ARTIFACT,
             /** 문서 키가 파기됐다(crypto-shredding — 어떤 사본도 읽을 수 없다). */
@@ -68,7 +69,12 @@ public final class ArtifactService {
             /** 기록된 문서 키·맥락으로 풀리지 않는다(변조·다른 객체·옮긴 바이트). */
             UNREADABLE,
             /** 복호화했지만 평문 해시가 기록과 다르다(키·암호문은 맞는데 내용이 다르다 — 기록 손상). */
-            HASH_MISMATCH
+            HASH_MISMATCH;
+
+            @Override
+            public com.ga.disclosure.workflow.RejectionCategory category() {
+                return com.ga.disclosure.workflow.RejectionCategory.CONFLICT;
+            }
         }
     }
 

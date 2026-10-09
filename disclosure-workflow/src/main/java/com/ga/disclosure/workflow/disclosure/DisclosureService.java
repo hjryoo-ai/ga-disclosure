@@ -141,14 +141,14 @@ public final class DisclosureService {
         return runner.inTransaction(caller, "CREATE_DRAFT", null, attempt -> {
             Actor agent = attempt.granted(authz.require(caller, Action.DISCLOSURE_CREATE, Target.none()));
             AgentDirectory.LinkedIdentity link = agents.find(agent.subject()).filter(l -> l.hasRole("AGENT"))
-                    .orElseThrow(() -> new CommandRejectedException("AGENT_NOT_LINKED", "the actor is not linked to an agent in this tenant"));
+                    .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.AGENT_NOT_LINKED, "the actor is not linked to an agent in this tenant"));
             AgentId agentId = link.agentId().orElseThrow();      // AGENT ⇒ agent_id·조직 경로(V12 CHECK)
             OrgPath orgPath = link.orgPath().orElseThrow();
             if (!customers.exists(customerRef)) {
-                throw new CommandRejectedException("UNKNOWN_CUSTOMER", "no customer " + customerRef);
+                throw new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_CUSTOMER, "no customer " + customerRef);
             }
             if (catalog.listGroups(tenant, consultDate).stream().noneMatch(g -> g.code().equals(group))) {
-                throw new CommandRejectedException("UNKNOWN_GROUP", "product group " + group + " is not in the catalog on " + consultDate);
+                throw new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_GROUP, "product group " + group + " is not in the catalog on " + consultDate);
             }
             EffectiveRule rule = rules.resolve(tenant, consultDate);
             for (ValidationStage stage : ValidationStage.values()) {
@@ -314,18 +314,18 @@ public final class DisclosureService {
             Actor manager = attempt.granted(authz.require(caller, Action.EXCEPTION_APPROVE, Target.disclosure(id)));
             Loaded l = load(tenant, id);
             if (!l.disclosure().status().isMutable()) {
-                throw new CommandRejectedException("SEALED", RejectionCategory.CONFLICT, "exception approvals are recorded only before sealing");
+                throw new CommandRejectedException(CommandRejectedException.Code.SEALED, "exception approvals are recorded only before sealing");
             }
             boolean current = l.check().run(ValidationStage.SEAL, l.disclosure()).stream()
                     .anyMatch(r -> r.overridable() && r.ruleId().equals(ruleId) && r.subjectHash().orElseThrow().equals(subjectHash));
             if (!current) {
-                throw new CommandRejectedException("APPROVAL_SUBJECT_MISMATCH",
+                throw new CommandRejectedException(CommandRejectedException.Code.APPROVAL_SUBJECT_MISMATCH,
                         "no current overridable failure of " + ruleId + " with the given subject hash");
             }
             // 승인자는 룰의 예외 승인 역할을 identity_link에 가진다(6A — 역할은 토큰·CLI 인자가 아니라 연결에서, 절대 규칙 5)
             String approvalRole = l.rule().exceptionApprovalRole().name();
             if (!BusinessRoles.holds(agents, manager, approvalRole)) {
-                throw new CommandRejectedException("APPROVAL_ROLE_REQUIRED", "the approver does not hold the exception approval role");
+                throw new CommandRejectedException(CommandRejectedException.Code.APPROVAL_ROLE_REQUIRED, "the approver does not hold the exception approval role");
             }
             Disclosure d = l.disclosure();
             Review review = new Review(UUID.randomUUID(), id, ruleId, subjectHash, d.ruleVersionId(), d.tenantRuleVersionId().orElse(null),
@@ -378,7 +378,7 @@ public final class DisclosureService {
         return switch (input) {
             case ItemInput.Catalog c -> {
                 CatalogProduct p = catalog.getProduct(tenant, c.productKey(), l.disclosure().consultDate())
-                        .orElseThrow(() -> new CommandRejectedException("UNKNOWN_PRODUCT",
+                        .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_PRODUCT,
                                 "product " + c.productKey() + " is not on sale on " + l.disclosure().consultDate()));
                 for (TemplateField f : l.template().fields()) {
                     JsonNode v = p.defaults() == null ? null : p.defaults().get(f.code());
@@ -401,9 +401,9 @@ public final class DisclosureService {
                                      Map<String, FieldValue> into) {
         input.forEach((code, value) -> {
             TemplateField f = template.field(code)
-                    .orElseThrow(() -> new CommandRejectedException("UNKNOWN_FIELD", "template has no field " + code));
+                    .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.UNKNOWN_FIELD, "template has no field " + code));
             if (!editable.contains(f.bind())) {
-                throw new CommandRejectedException("FIELD_NOT_EDITABLE", "field " + code + " (" + f.bind() + ") is not entered by the agent");
+                throw new CommandRejectedException(CommandRejectedException.Code.FIELD_NOT_EDITABLE, "field " + code + " (" + f.bind() + ") is not entered by the agent");
             }
             into.put(code, new FieldValue(canonical(value), FieldValue.Origin.AGENT));
         });

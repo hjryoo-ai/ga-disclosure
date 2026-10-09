@@ -68,7 +68,7 @@ class ReceiptExportIT {
     void aCompletedPackageAndItsReceiptProveExistenceBeforeTheTsaTime() {
         assertThat(anchor("2026-09-22").created()).hasSize(1);                     // 봉인 전 앵커 = 매니페스트가 가리킬 직전 앵커
         DisclosureId id = completed();
-        assertThat(exporter.export(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id)).isEqualTo(new ReceiptExporter.Result.NotAvailable("NOT_YET_COVERED"));
+        assertThat(exporter.export(Callers.of(x.w.tenant, SealSetup.COMPLIANCE), id)).isEqualTo(new ReceiptExporter.Result.NotAvailable(ReceiptExporter.Unavailable.NOT_YET_COVERED));
 
         AnchorJob.Report covering = anchor("2026-09-23");
         assertThat(covering.receipts()).isEqualTo(1);

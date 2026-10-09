@@ -139,7 +139,7 @@ public final class ContractLinkService {
     }
 
     /** 같은 출처·배치 ID로 다른 내용이 왔다(6B 중간 회신 ① — 멱등 키 재사용과 같은 논리, 배치 전체 거부). */
-    public static final String BATCH_REF_REUSED = "BATCH_REF_REUSED";
+    public static final String BATCH_REF_REUSED = com.ga.disclosure.workflow.disclosure.CommandRejectedException.Code.BATCH_REF_REUSED.name();
 
     /**
      * 제출 전 검사(HTTP — 작업을 만들기 전에, 본문 해석 뒤): 출처 인가(주체의 {@code feed_sources} 밖이면 없는 라우트와 같은 404)와 원장 대조(같은 참조에
@@ -213,7 +213,7 @@ public final class ContractLinkService {
     }
 
     private static com.ga.disclosure.workflow.disclosure.CommandRejectedException reuseRejection() {
-        return new com.ga.disclosure.workflow.disclosure.CommandRejectedException(BATCH_REF_REUSED, com.ga.disclosure.workflow.RejectionCategory.INVALID,
+        return new com.ga.disclosure.workflow.disclosure.CommandRejectedException(com.ga.disclosure.workflow.disclosure.CommandRejectedException.Code.BATCH_REF_REUSED,
                 "the batch reference was already used for different content");
     }
 

@@ -98,13 +98,13 @@ public final class LegalHoldService {
             });
             EffectiveRule rule = rules.resolve(tenant, LocalDate.ofInstant(now, SEOUL));
             LifecycleReasonRule reason = rule.legalHoldReasons().stream().filter(r -> r.code().equals(reasonCode)).findFirst()
-                    .orElseThrow(() -> new LegalHoldRejectedException("UNKNOWN_REASON"));
+                    .orElseThrow(() -> new LegalHoldRejectedException(LegalHoldRejectedException.Code.UNKNOWN_REASON));
             String text = reasonTextOrNull == null || reasonTextOrNull.isBlank() ? null : reasonTextOrNull;
             if (reason.requiresText() && text == null) {
-                throw new LegalHoldRejectedException("TEXT_REQUIRED");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.TEXT_REQUIRED);
             }
             if (text != null && text.codePointCount(0, text.length()) > rule.legalHoldReasonTextMaxLength()) {
-                throw new LegalHoldRejectedException("TEXT_TOO_LONG");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.TEXT_TOO_LONG);
             }
             // 대상 행을 잠근 뒤 판정한다 — 폐기·파기가 먼저 잠갔으면 기다렸다가 지워진 대상을 만난다(묘비에 보류는 의미가 없다, 6B 중간 회신 ④)
             boolean erased = switch (target) {
@@ -112,14 +112,14 @@ public final class LegalHoldService {
                 case Target.Customer c -> holds.lockErased(c.ref());
             };
             if (erased) {
-                throw new LegalHoldRejectedException("TARGET_ALREADY_DESTROYED");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.TARGET_ALREADY_DESTROYED);
             }
             boolean already = switch (target) {
                 case Target.Disclosure d -> holds.activeFor(d.id()).isPresent();
                 case Target.Customer c -> holds.activeFor(c.ref()).isPresent();
             };
             if (already) {
-                throw new LegalHoldRejectedException("ALREADY_HELD");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.ALREADY_HELD);
             }
             holds.insert(new LegalHoldStore.Hold(holdId, target instanceof Target.Disclosure d ? d.id() : null,
                     target instanceof Target.Customer c ? c.ref() : null, reasonCode, text, actor.subject(), now, null, null, null));
@@ -138,16 +138,16 @@ public final class LegalHoldService {
         Instant now = clock.instant();
         Set<String> keys = transactions.inTenant(tenant, () -> {
             Actor actor = authz.require(caller, Action.LEGAL_HOLD_RELEASE, new com.ga.disclosure.workflow.authz.Target.Hold(holdId));
-            LegalHoldStore.Hold hold = holds.find(holdId).orElseThrow(() -> new LegalHoldRejectedException("NOT_FOUND"));
+            LegalHoldStore.Hold hold = holds.find(holdId).orElseThrow(() -> new LegalHoldRejectedException(LegalHoldRejectedException.Code.NOT_FOUND));
             EffectiveRule rule = rules.resolve(tenant, LocalDate.ofInstant(now, SEOUL));
             if (rule.legalHoldReleaseReasons().stream().noneMatch(r -> r.code().equals(releaseReasonCode))) {
-                throw new LegalHoldRejectedException("BAD_RELEASE_REASON");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.BAD_RELEASE_REASON);
             }
             if (hold.placedBy().equals(actor.subject())) {
-                throw new LegalHoldRejectedException("FOUR_EYES_REQUIRED");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.FOUR_EYES_REQUIRED);
             }
             if (!holds.release(holdId, actor.subject(), now, releaseReasonCode)) {
-                throw new LegalHoldRejectedException("ALREADY_RELEASED");
+                throw new LegalHoldRejectedException(LegalHoldRejectedException.Code.ALREADY_RELEASED);
             }
             Target target = hold.disclosureOrNull() != null ? new Target.Disclosure(hold.disclosureOrNull()) : new Target.Customer(hold.customerOrNull());
             audit.append(new AuditEntry(now, actor.subject(), actor.role(), AuditAction.LEGAL_HOLD_RELEASED, targetKind(target), targetId(target),

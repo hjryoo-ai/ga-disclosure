@@ -51,7 +51,7 @@ import java.util.function.Supplier;
  */
 public final class CollectionRateService {
 
-    public static final String SNAPSHOT_EXISTS = "SNAPSHOT_EXISTS";
+    public static final String SNAPSHOT_EXISTS = CommandRejectedException.Code.SNAPSHOT_EXISTS.name();
     /** 한 번에 조회하는 달 수 상한. */
     public static final int MAX_MONTHS = 24;
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
@@ -221,7 +221,7 @@ public final class CollectionRateService {
     }
 
     private static CommandRejectedException exists() {
-        return new CommandRejectedException(SNAPSHOT_EXISTS, RejectionCategory.CONFLICT,
+        return new CommandRejectedException(CommandRejectedException.Code.SNAPSHOT_EXISTS,
                 "a collection-rate snapshot for this month and rule version already exists; recompute under a new rule version");
     }
 }

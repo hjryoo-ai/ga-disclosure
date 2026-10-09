@@ -248,6 +248,54 @@ class CollectionRateIT {
         }
     }
 
+    /**
+     * 7단계 회신 ①: "정정된 연결은 한 번"은 <b>계산 시점 기준</b>이다. 8월 스냅샷이 저장된 뒤 계약일이 9월로 정정되면 8월 스냅샷은 불변이라 그 연결을
+     * 계속 담고 9월 스냅샷도 담는다 — 두 스냅샷의 {@code inputs_hash}는 각자의 입력 번호 집합에서 다시 만들어져 구분된다.
+     */
+    @Test
+    void aCorrectionAfterASnapshotLeavesTheOldMonthIntactAndTheNewMonthIncludesTheLink() {
+        try (WorkflowSetup w = new WorkflowSetup()) {
+            String t = w.tenant.value();
+            UUID moved = disclosure(w, "COMPLETED", "/HQ/B1", "2026-07-01 10:00:00+09");
+            UUID old = link(w, moved, "POL-MV", "2026-08-20");
+            UUID stays = disclosure(w, "COMPLETED", "/HQ/B1", "2026-07-01 10:00:00+09");
+            link(w, stays, "POL-ST", "2026-08-10");
+            CollectionRateService rates = service(w, RUN);
+            Caller operator = Callers.cli(w.tenant, OPERATOR);
+            Caller compliance = Callers.of(w.tenant, SealSetup.COMPLIANCE);
+            YearMonth aug = YearMonth.of(2026, 8);
+            rates.snapshot(operator, aug, UUID.randomUUID());
+            List<Row> august = rates.read(compliance, aug, aug, Optional.empty(), Optional.empty());
+            assertThat(august.getFirst().denominator()).isEqualTo(2);
+
+            // 계약일 정정 8/20 → 9/5(같은 확인서의 다음 행, 옛 행은 superseded_by로 닫힌다)
+            w.db.asAppCommitting(t, c -> {
+                UUID next = UUID.randomUUID();
+                SeedData.exec(c, "UPDATE contract_link SET superseded_by = ?, superseded_at = now() WHERE tenant_id = ? AND link_id = ?", next, t, old);
+                SeedData.exec(c, """
+                        INSERT INTO contract_link (tenant_id, link_id, disclosure_id, policy_no, contract_date, insurer_code, source, source_ref, received_at, linked_by)
+                        VALUES (?, ?, ?, 'POL-MV', DATE '2026-09-05', 'INS-A', 'SEED', ?, now(), 'seed')
+                        """, t, next, moved, next.toString());
+                SeedData.exec(c, "UPDATE disclosure SET contract_date = DATE '2026-09-05' WHERE tenant_id = ? AND disclosure_id = ?", t, moved);
+                return null;
+            });
+            rates.snapshot(operator, SEPT, UUID.randomUUID());
+
+            // 8월 스냅샷은 그대로(정정된 연결을 계속 담는다), 9월 스냅샷도 그 연결을 담는다
+            assertThat(rates.read(compliance, aug, aug, Optional.empty(), Optional.empty())).isEqualTo(august);
+            List<Row> september = rates.read(compliance, SEPT, SEPT, Optional.empty(), Optional.empty());
+            assertThat(september.getFirst().denominator()).isEqualTo(1);
+            String m = no(w, moved);
+            String st = no(w, stays);
+            assertThat(august.getFirst().inputsHash()).isEqualTo(inputsHash(List.of(m, st), List.of(m, st), Optional.empty()))
+                    // 지금 8월을 다시 센다면 입력은 {stays}뿐이다 — 저장된 해시와 다르므로 저장 시점의 입력이었음을 구분할 수 있다
+                    .isNotEqualTo(inputsHash(List.of(st), List.of(st), Optional.empty()));
+            assertThat(september.getFirst().inputsHash()).isEqualTo(inputsHash(List.of(m), List.of(m), Optional.empty()));
+            // 같은 룰 버전으로 8월을 고쳐 쓸 수는 없다
+            assertThatThrownBy(() -> rates.snapshot(operator, aug, UUID.randomUUID())).isInstanceOf(CommandRejectedException.class);
+        }
+    }
+
     @Test
     void readsAreScopedManagersSeeOnlyTheirOrgRowsAndAgentsNothing() {
         try (WorkflowSetup w = new WorkflowSetup()) {

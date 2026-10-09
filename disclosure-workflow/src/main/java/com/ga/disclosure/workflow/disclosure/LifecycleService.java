@@ -198,7 +198,7 @@ public final class LifecycleService {
             TemplateResolution template = templates.resolve(tenant, l.template().templateType(), original.consultDate());
             // 새 버전은 새 작성 행위다: 조직 스냅샷은 이전 버전에서 복사하지 않고 행위자의 현재 identity_link에서 다시 읽는다(6A 승인 Q1)
             OrgPath orgPath = agents.find(actor.subject()).flatMap(AgentDirectory.LinkedIdentity::orgPath)
-                    .orElseThrow(() -> new CommandRejectedException("ACTOR_ORG_UNKNOWN", "the actor has no organisation in this tenant"));
+                    .orElseThrow(() -> new CommandRejectedException(CommandRejectedException.Code.ACTOR_ORG_UNKNOWN, "the actor has no organisation in this tenant"));
             DisclosureId next = DisclosureId.of(UUID.randomUUID());
             Disclosure corrected = Disclosure.supersedingDraft(next, original, rule.globalRuleVersionId(), rule.tenantRuleVersion().orElse(null),
                     template.ref(), loader.context(tenant, rule, template, original.groupCode(), original.consultDate()));

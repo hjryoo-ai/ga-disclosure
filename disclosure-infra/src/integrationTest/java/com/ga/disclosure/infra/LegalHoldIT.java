@@ -96,7 +96,7 @@ class LegalHoldIT {
         AbandonDraftIT.service(r.x.w, r.x.w.clock).abandon(Callers.of(r.x.w.tenant, WorkflowSetup.AGENT), draft, "DUPLICATE");
         assertThat(rejection(() -> holds.place(Callers.of(r.x.w.tenant, RetentionSetup.OPERATOR), new Target.Disclosure(draft), "LITIGATION", null)))
                 .isEqualTo("TARGET_ALREADY_DESTROYED");
-        assertThat(new LegalHoldRejectedException("TARGET_ALREADY_DESTROYED").category()).isEqualTo(com.ga.disclosure.workflow.RejectionCategory.CONFLICT);
+        assertThat(new LegalHoldRejectedException(LegalHoldRejectedException.Code.TARGET_ALREADY_DESTROYED).category()).isEqualTo(com.ga.disclosure.workflow.RejectionCategory.CONFLICT);
 
         assertThat(r.count("SELECT count(*) FROM legal_hold WHERE tenant_id = ?", r.x.w.tenant.value())).isZero();
         assertThat(audits(AuditAction.LEGAL_HOLD_PLACED, destroyed.toString()) + audits(AuditAction.LEGAL_HOLD_PLACED, draft.toString())).isZero();

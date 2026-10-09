@@ -206,7 +206,7 @@ public final class CommandMapper {
                 case EVIDENCE_ZIP -> "application/zip";
             });
             case ArtifactService.View.Denied d ->
-                    throw new RejectedOutcomeException(RejectionCategory.CONFLICT, List.of(new Problem.Rejection(d.reason().name(), null)));
+                    throw new RejectedOutcomeException(d.reason().category(), List.of(new Problem.Rejection(d.reason().name(), null)));
         };
     }
 
@@ -214,7 +214,7 @@ public final class CommandMapper {
         return switch (result) {
             case ReceiptExporter.Result.Exported e -> new Download(e.bytes(), "application/json");
             case ReceiptExporter.Result.NotAvailable n ->
-                    throw new RejectedOutcomeException(RejectionCategory.CONFLICT, List.of(new Problem.Rejection(n.code().replace(':', '_'), null)));
+                    throw new RejectedOutcomeException(n.reason().category(), List.of(new Problem.Rejection(n.reason().name(), null)));
         };
     }
 
