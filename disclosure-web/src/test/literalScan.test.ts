@@ -5,8 +5,8 @@
 // 서버 쪽 같은 검사는 disclosure-app archTest LabelLiteralScanTest. 판독기는 TypeScript 컴파일러의 구문 트리(T4 교훈 — 템플릿·JSX까지 자기 시험).
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { literals } from './sourceText';
 
 const web = resolve(import.meta.dirname, '../..');
 const repo = resolve(web, '..');
@@ -17,24 +17,6 @@ const HANGUL = /[가-힣ᄀ-ᇿ㄰-㆏]/;
 
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
-}
-
-/** 원천 하나의 사람에게 보일 수 있는 텍스트 조각: 문자열·템플릿 조각·JSX 텍스트·정규식. 주석은 구문 트리에 없다. */
-export function literals(fileName: string, text: string): string[] {
-  const kind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, kind);
-  const out: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node)
-      || ts.isTemplateTail(node) || ts.isRegularExpressionLiteral(node)) {
-      out.push(node.text);
-    } else if (ts.isJsxText(node)) {
-      if (node.text.trim() !== '') out.push(node.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return out;
 }
 
 function stringLeaves(node: unknown, out: string[]): string[] {

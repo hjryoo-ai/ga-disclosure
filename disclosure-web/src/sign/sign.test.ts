@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sign } from '../shared/messages.ko.json';
 import type { PublicClient } from '../shared/api/publicClient';
-import { SignaturePad } from './pad';
+import { SignaturePad } from '../shared/pad';
 import { takeToken } from './token';
 import { ViewTracker } from './viewer';
 

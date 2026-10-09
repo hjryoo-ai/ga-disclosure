@@ -5,7 +5,9 @@ import '../shared/fonts.css';
 import './sign.css';
 import { publicClient, type PublicClient } from '../shared/api/publicClient';
 import { sign } from '../shared/messages.ko.json';
-import { SignaturePad } from './pad';
+import { fingerprint } from '../shared/fingerprint';
+import { isBusinessRejection } from '../shared/http';
+import { SignaturePad } from '../shared/pad';
 import { takeToken } from './token';
 import { renderPdf, ViewTracker } from './viewer';
 
@@ -45,7 +47,7 @@ interface Problem {
 /** openapi-fetch 결과를 화면 분기로: 성공 데이터, 422 거부 코드, 나머지는 거부 한 화면. */
 function outcome<T>(r: { data?: T; error?: unknown; response: Response }): T | Problem {
   if (r.data !== undefined && r.response.ok) return r.data;
-  if (r.response.status === 422) {
+  if (isBusinessRejection(r.response)) {
     const body = r.error as { details?: { rejections?: { code: string }[] } } | undefined;
     return { status: 422, codes: (body?.details?.rejections ?? []).map((x) => x.code) };
   }
@@ -133,13 +135,6 @@ export async function start(root: HTMLElement, client: PublicClient): Promise<vo
 /** 화면 시작: 어떤 실패든(404·네트워크·예상 밖 응답) 사유를 나누지 않는 거부 한 화면(G4). */
 export function boot(root: HTMLElement, client: PublicClient): Promise<void> {
   return start(root, client).catch(() => { showUnavailable(root); });
-}
-
-/** 기기 지문: 브라우저·화면·시간대 표기의 SHA-256(대리 서명 탐지 입력 — 개인정보 아님, 원문은 보내지 않는다). */
-async function fingerprint(): Promise<string> {
-  const raw = [navigator.userAgent, `${screen.width}x${screen.height}`, String(devicePixelRatio), Intl.DateTimeFormat().resolvedOptions().timeZone].join('|');
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 const root = document.getElementById('root');
