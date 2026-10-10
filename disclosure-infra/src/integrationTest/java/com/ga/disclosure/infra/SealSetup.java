@@ -70,6 +70,12 @@ final class SealSetup implements AutoCloseable {
         return new SealService(w.deps(clock), ledger, cipher, recordStore, store, new DisclosurePdfRenderer(), carry(w));
     }
 
+    /** 지정한 렌더러 판으로 봉인하는 서비스(Phase 8 — 앞 판 바이너리가 봉인한 문서를 만든다; 운영 배선은 현재 판뿐). */
+    SealService sealWith(com.ga.disclosure.seal.renderer.RendererVersion version) {
+        return new SealService(w.deps(w.clock), ledger, cipher, recordPort, store, new DisclosurePdfRenderer(), carry(w),
+                SealService.DEFAULT_TRANSACTION_TIMEOUT, version);
+    }
+
     SealService.Outcome sealReasoned() {
         DisclosureId id = w.reasoned();
         return seal.seal(Callers.of(w.tenant, WorkflowSetup.AGENT), id);

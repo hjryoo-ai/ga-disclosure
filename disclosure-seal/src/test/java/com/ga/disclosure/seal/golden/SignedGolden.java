@@ -1,5 +1,6 @@
 package com.ga.disclosure.seal.golden;
 
+import com.ga.disclosure.seal.renderer.RendererVersion;
 import com.ga.disclosure.domain.enums.IdentityMethod;
 import com.ga.disclosure.domain.enums.SignatureChannel;
 import com.ga.disclosure.domain.enums.SignatureMethod;
@@ -38,7 +39,7 @@ record SignedGolden(GoldenCase files) {
 
     byte[] originalPdf() {
         GoldenCase b = base();
-        return new DisclosurePdfRenderer().render(b.canonical(), b.template(), b.disclosureNo()).pdf();
+        return new DisclosurePdfRenderer().render(b.rendererVersion(), b.canonical(), b.template(), b.disclosureNo()).pdf();
     }
 
     List<SignatureAppearance> signatures() {
@@ -57,7 +58,7 @@ record SignedGolden(GoldenCase files) {
 
     DisclosurePdfRenderer.Rendered sign(byte[] original, List<SignatureAppearance> signatures) {
         GoldenCase b = base();
-        return new SignedPdfAppender().append(original, b.canonical(), b.template(), b.disclosureNo(), signatures);
+        return new SignedPdfAppender().append(b.rendererVersion(), original, b.canonical(), b.template(), b.disclosureNo(), signatures);
     }
 
     DisclosurePdfRenderer.Rendered sign() {

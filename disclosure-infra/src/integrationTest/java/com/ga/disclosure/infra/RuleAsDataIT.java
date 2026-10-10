@@ -109,12 +109,33 @@ class RuleAsDataIT {
         return TestItem.of(insurer, product, "PG-HEALTH");
     }
 
+    /**
+     * 시험 번들은 계약 밖에 산다. Phase 8부터 계약에 실제 STANDARD v2(환급금 표 열 — 렌더러 판 2)가 있으므로, 파일 이름이 아니라 <b>내용</b>으로 본다:
+     * 시험 번들(rule-as-data 전부)의 번들 ID가 계약 번들 어디에도 없다 — 이름을 바꾼 사본도 잡는다.
+     */
     @Test
-    void fixturesLiveOutsideProductionSourcesAndContracts() {
+    void fixturesLiveOutsideProductionSourcesAndContracts() throws java.io.IOException {
         Path root = Path.of(System.getProperty("ga.repoRoot"));
-        assertThat(root.resolve("disclosure-infra/src/integrationTest/resources/rule-as-data/templates/STANDARD-v2.bundle.json")).isRegularFile();
-        assertThat(root.resolve("contracts/rules/bundles/templates/STANDARD-v2.bundle.json")).doesNotExist();
-        assertThat(Files.exists(root.resolve("contracts/rules/bundles/rules/DISC-TEST-REASON.bundle.json"))).isFalse();
+        Path fixtures = root.resolve("disclosure-infra/src/integrationTest/resources/rule-as-data");
+        assertThat(fixtures.resolve("templates/STANDARD-v2.bundle.json")).isRegularFile();
+        java.util.Set<String> fixtureIds = bundleIds(fixtures);
+        java.util.Set<String> contractIds = bundleIds(root.resolve("contracts/rules/bundles"));
+        assertThat(fixtureIds).hasSizeGreaterThanOrEqualTo(3).doesNotContainAnyElementsOf(contractIds);
+        assertThat(contractIds).contains(Bundles.load(Bundles.STANDARD_V1).bundleId()).noneMatch(id -> id.startsWith("DISC-TEST-"));
+    }
+
+    private static java.util.Set<String> bundleIds(Path dir) throws java.io.IOException {
+        try (var files = Files.walk(dir)) {
+            return files.filter(f -> f.getFileName().toString().endsWith(".bundle.json"))
+                    .map(f -> {
+                        try {
+                            return com.ga.platform.canonical.Canonicalizer.parseStrict(Files.readString(f)).get("bundleId").asString();
+                        } catch (java.io.IOException e) {
+                            throw new java.io.UncheckedIOException(e);
+                        }
+                    })
+                    .collect(java.util.stream.Collectors.toSet());
+        }
     }
 
     // ------------------------------------------------------------------ (a) 최소 비교 개수·관리자 확인 모드

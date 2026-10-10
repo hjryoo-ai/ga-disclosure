@@ -51,6 +51,8 @@ cli demo seed --file disclosure-demo/src/main/resources/demo/phase1-seed.json --
 cli rules distribute --bundle rules/DISC-2026-07.bundle.json --tenants DEMO1,DEMO2 --operator "$OPERATOR"
 cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants DEMO1,DEMO2 --operator "$OPERATOR"
 cli rules distribute --bundle templates/STANDARD-v1.bundle.json --tenants DEMO1,DEMO2 --operator "$OPERATOR"
+# 서식 v2(Phase 8 — 해약환급예시 표, 상담일 2026-10-01부터): v1은 그 전날로 닫히고, 이미 봉인된 문서는 v1·판 1 그대로
+cli rules distribute --bundle templates/STANDARD-v2.bundle.json --tenants DEMO1,DEMO2 --operator "$OPERATOR"
 cli rules approve --tenant DEMO1 --rule DEMO1-HOUSE-2026 --operator "$OPERATOR"
 cli rules activate --as-of "$AS_OF" --tenants all --operator "$OPERATOR"
 cli rules reconcile --tenants DEMO1,DEMO2 --operator "$OPERATOR"
@@ -119,6 +121,7 @@ cli demo seed --file "$DEMO/demo/phase5-seed.json" --operator "$OPERATOR"
 tenant_kek DEMO3
 cli rules distribute --bundle "$DEMO_BUNDLES/rules/DISC-DEMO-SHORT.bundle.json" --tenants DEMO3 --operator "$OPERATOR"
 cli rules distribute --bundle templates/STANDARD-v1.bundle.json --tenants DEMO3 --operator "$OPERATOR"
+cli rules distribute --bundle templates/STANDARD-v2.bundle.json --tenants DEMO3 --operator "$OPERATOR"
 cli rules activate --as-of "$AS_OF" --tenants DEMO3 --operator "$OPERATOR"
 cli rules reconcile --tenants DEMO3 --bundles-dir "contracts/rules/bundles,$DEMO_BUNDLES" --operator "$OPERATOR"
 cli catalog import --tenant DEMO3 --file "$CATALOG/product-groups.json" --operator "$OPERATOR"

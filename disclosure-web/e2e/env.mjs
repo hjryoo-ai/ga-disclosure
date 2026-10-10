@@ -93,7 +93,7 @@ export async function up() {
   step('db migrate', () => cli('db', 'migrate'));
   step('seed', () => cli('demo', 'seed', '--file', `${DEMO}/demo/phase1-seed.json`, '--operator', 'e2e'));
   step('seed 6a', () => cli('demo', 'seed', '--file', `${DEMO}/demo/phase6a-seed.json`, '--operator', 'e2e'));
-  for (const b of ['rules/DISC-2026-07.bundle.json', 'rules/DISC-2027-01.bundle.json', 'templates/STANDARD-v1.bundle.json']) {
+  for (const b of ['rules/DISC-2026-07.bundle.json', 'rules/DISC-2027-01.bundle.json', 'templates/STANDARD-v1.bundle.json', 'templates/STANDARD-v2.bundle.json']) {
     step(`distribute ${b}`, () => cli('rules', 'distribute', '--bundle', b, '--tenants', 'DEMO1,DEMO2', '--operator', 'e2e'));
   }
   step('approve house rule', () => cli('rules', 'approve', '--tenant', 'DEMO1', '--rule', 'DEMO1-HOUSE-2026', '--operator', 'e2e'));

@@ -276,6 +276,18 @@ class ArchitectureRulesTest {
                 .check(classes);
     }
 
+    // (l) Phase 8 승인 Q9: 새 봉인은 언제나 현재 렌더러 판 — 판을 지정하는 SealService 생성자는 시험("앞 판이 봉인한 문서" 재현) 전용이다
+    @Test
+    void productionSealsOnlyWithTheCurrentRendererVersion() {
+        String w = P + "workflow.disclosure.";
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .should().callConstructor(w + "SealService", w + "DisclosureServiceDeps", w + "SealLedgerPort",
+                        P + "workflow.artifact.DocumentCryptoPort", P + "workflow.artifact.DocumentRecordStore", P + "workflow.artifact.ArtifactStore",
+                        P + "seal.renderer.DisclosurePdfRenderer", w + "LinkCarry", "java.time.Duration", P + "seal.renderer.RendererVersion")
+                .because("8 계획 승인 Q9: 봉인 판은 바이너리의 현재 판으로 정해져 산출물 행에 고정된다 — 운영 코드가 판을 고르지 않는다")
+                .check(classes);
+    }
+
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {

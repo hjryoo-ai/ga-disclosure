@@ -61,7 +61,7 @@ class V8MigrationIT {
                 superseded.add(s);
 
                 UUID r = v7Sealed(c, t, 'e');
-                SeedData.artifact(c, t, r, "PDF");
+                v7Artifact(c, t, r, "PDF");
                 SeedData.exec(c, "UPDATE document_artifact SET retention_applied_at = TIMESTAMPTZ '2026-09-23 10:00:05+09' WHERE tenant_id = ? AND disclosure_id = ?",
                         t, r);
                 retained.add(r);
@@ -118,6 +118,20 @@ class V8MigrationIT {
     }
 
     // ------------------------------------------------------------------ V7 형식 쓰기(현행 SeedData는 V8 형식이라 쓰지 않는다)
+
+    /** V7 형식 산출물 행 — {@code renderer_version}(V23) 전. 현행 {@link SeedData#artifact}는 그 컬럼을 적는다(Phase 8). */
+    private static void v7Artifact(Connection c, String t, UUID disclosure, String kind) throws SQLException {
+        if (SeedData.longValue(c, "SELECT count(*) FROM document_key WHERE tenant_id = ? AND disclosure_id = ?", t, disclosure) == 0) {
+            SeedData.documentKey(c, t, disclosure);
+        }
+        String cipher = SeedData.hash('9');
+        SeedData.exec(c, """
+                INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256,
+                                               cipher_bytes, key_id)
+                VALUES (?, ?, ?, ?, ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09', ?, 39, ?)
+                """, t, disclosure, kind, t + "/" + disclosure + "/" + kind + "/" + cipher, SeedData.hash('f'), cipher,
+                SeedData.documentKeyId(disclosure));
+    }
 
     private static UUID v7Draft(Connection c, String t) throws SQLException {
         UUID id = UUID.randomUUID();

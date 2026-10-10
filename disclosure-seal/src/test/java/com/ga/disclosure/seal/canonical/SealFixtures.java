@@ -75,7 +75,26 @@ public final class SealFixtures {
         return input("00000000-0000-4000-8000-000000000003", items);
     }
 
+    /**
+     * Phase 8 골든 case-04: 서식 v2(환급금 표 열 — 렌더러 판 2). 환급금 예시가 여러 행이고, 한 항목은 한 행에 환급금 키가 없다(서식의 산출불가 문구로
+     * 인쇄 — 지어내지 않는다).
+     */
+    public static CanonicalInput case04() {
+        List<CanonicalInput.Item> items = List.of(
+                catalog(1, "INS-A:PRD-1001", true, ok("LOW", "낮음", 2, 1, "0.84"), reasons("PREMIUM", "보험료 수준"), null,
+                        "[{\"refundWon\":0,\"year\":10},{\"refundWon\":0,\"year\":20}]"),
+                catalog(2, "INS-B:PRD-2044", false, ok("VERY_HIGH", "매우높음", 5, 3, "1.37"), List.of(), null,
+                        "[{\"refundWon\":1250000,\"year\":10},{\"refundWon\":3180000,\"year\":20},{\"refundWon\":5025000,\"year\":30}]"),
+                catalog(3, "INS-C:PRD-3120", true, ok("MID", "보통", 3, 2, "1.02"), reasons("COVERAGE", "보장 범위"), null,
+                        "[{\"refundWon\":410000,\"year\":10},{\"year\":20}]"));
+        return input("00000000-0000-4000-8000-000000000004", items, TemplateRef.of("STANDARD", 2));
+    }
+
     public static CanonicalInput input(String disclosureId, List<CanonicalInput.Item> items) {
+        return input(disclosureId, items, TemplateRef.of("STANDARD", 1));
+    }
+
+    public static CanonicalInput input(String disclosureId, List<CanonicalInput.Item> items, TemplateRef template) {
         List<GradeSnapshotItem> engine = new ArrayList<>();
         for (CanonicalInput.Item i : items) {
             if (i.productKeyOrNull() != null) {
@@ -97,15 +116,20 @@ public final class SealFixtures {
                 new CanonicalInput.PanelInsurer(InsurerCode.of("INS-E"), "(가상) 자차손보"));
         return new CanonicalInput(TENANT, DisclosureId.of(UUID.fromString(disclosureId)), 1, null, "agent-1@demo",
                 CustomerRef.of("CR-" + "0".repeat(31) + "7"), CONSULT, GroupCode.of("PG-HEALTH-SIMPLE-NR"), "(가상) 간편건강 무해지", IssuerMode.SELF,
-                RuleVersionId.of("DISC-2026-07"), null, TemplateRef.of("STANDARD", 1), snapshot, panel, items);
+                RuleVersionId.of("DISC-2026-07"), null, template, snapshot, panel, items);
     }
 
     public static CanonicalInput.Item catalog(int no, String key, boolean recommended, ItemGrade grade, List<CanonicalInput.Reason> reasons,
                                               String text) {
+        return catalog(no, key, recommended, grade, reasons, text, "[{\"refundWon\":0,\"year\":10}]");
+    }
+
+    public static CanonicalInput.Item catalog(int no, String key, boolean recommended, ItemGrade grade, List<CanonicalInput.Reason> reasons,
+                                              String text, String surrenderJson) {
         ProductKey k = ProductKey.parse(key);
         Map<String, FieldValue> values = new LinkedHashMap<>();
         values.put("PREMIUM", new FieldValue(String.valueOf(32100 + no), FieldValue.Origin.CATALOG));
-        values.put("SURRENDER_VALUE_EXAMPLE", new FieldValue("[{\"refundWon\":0,\"year\":10}]", FieldValue.Origin.CATALOG));
+        values.put("SURRENDER_VALUE_EXAMPLE", new FieldValue(surrenderJson, FieldValue.Origin.CATALOG));
         return new CanonicalInput.Item(no, k, k.insurer(), "(가상) " + key, GroupCode.of("PG-HEALTH-SIMPLE-NR"), false, null, recommended, false,
                 values, grade, reasons, text);
     }

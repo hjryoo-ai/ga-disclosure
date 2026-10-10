@@ -1,5 +1,6 @@
 package com.ga.disclosure.seal.golden;
 
+import com.ga.disclosure.seal.renderer.RendererVersion;
 import com.ga.disclosure.domain.enums.TemplateType;
 import com.ga.disclosure.domain.vo.TemplateRef;
 import com.ga.disclosure.rules.template.FormTemplate;
@@ -26,7 +27,8 @@ import java.util.Map;
  */
 record GoldenCase(String name, Path dir) {
 
-    static final List<String> NAMES = List.of("case-01", "case-02", "case-03");
+    /** case-04(Phase 8): 서식 v2 × 렌더러 판 2 — 환급금 표. 앞의 셋은 판 1(파일 불변). */
+    static final List<String> NAMES = List.of("case-01", "case-02", "case-03", "case-04");
 
     static Path root() {
         return Path.of(System.getProperty("ga.repoRoot"), "disclosure-seal", "src", "test", "resources", "golden");
@@ -50,6 +52,11 @@ record GoldenCase(String name, Path dir) {
 
     String disclosureNo() {
         return input().get("disclosureNo");
+    }
+
+    /** 이 사례를 그린 렌더러 판(Phase 8) — {@code input.properties}의 {@code rendererVersion}, 없으면 1(Phase 3B~7 골든은 파일을 바꾸지 않는다). */
+    RendererVersion rendererVersion() {
+        return RendererVersion.of(Integer.parseInt(input().getOrDefault("rendererVersion", "1")));
     }
 
     Map<String, String> input() {

@@ -24,6 +24,8 @@ public final class Bundles {
     public static final String DISC_2026_07 = "rules/DISC-2026-07.bundle.json";
     public static final String DISC_2027_01 = "rules/DISC-2027-01.bundle.json";
     public static final String STANDARD_V1 = "templates/STANDARD-v1.bundle.json";
+    /** Phase 8: 환급금 표 열(render.columns) — 렌더러 판 2. */
+    public static final String STANDARD_V2 = "templates/STANDARD-v2.bundle.json";
 
     private Bundles() {
     }

@@ -129,7 +129,7 @@ final class PackageFixtures {
                 new EvidenceInput.Snapshot("GRD-0000001", "GRADING-2026-07", "RANK-2026-07", "SHARED_RANK", Instant.parse("2026-09-23T00:30:00Z")),
                 Instant.parse("2026-09-23T01:00:00Z"), Instant.parse("2026-09-24T05:40:00Z"), LocalDate.parse("2031-09-24"), List.of(customer, manager),
                 rows, new EvidenceInput.AnchorRef(previous.anchorSeq(), previous.anchorDate(), previous.leafHash(), previous.sealChainSeq(),
-                previous.auditSeq()));
+                previous.auditSeq()), 2);
     }
 
     ReceiptExport receipt() {

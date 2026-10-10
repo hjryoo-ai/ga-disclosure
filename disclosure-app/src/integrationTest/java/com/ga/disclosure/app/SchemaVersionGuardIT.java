@@ -63,8 +63,23 @@ class SchemaVersionGuardIT {
         assertThat(maxVersion(url)).isEqualTo("21");
 
         String out = offline("db", "migrate", "--ga.migrator.url=" + url);
-        assertThat(out).isEqualTo("DB_MIGRATE applied=1 version=" + BUNDLED + "\n");
+        assertThat(out).isEqualTo("DB_MIGRATE applied=" + (Integer.parseInt(BUNDLED) - 21) + " version=" + BUNDLED + "\n");
         assertThat(offline("db", "migrate", "--ga.migrator.url=" + url)).as("두 번째는 적용 0").isEqualTo("DB_MIGRATE applied=0 version=" + BUNDLED + "\n");
+        start(url).close();
+    }
+
+    /** V22 뒤의 DB(헬스 롤이 이력을 읽는다)가 한 판 뒤처지면 두 버전 번호로 멈춘다 — V23(Phase 8 5단계)부터 이 경로가 실제로 생겼다. */
+    @Test
+    void aReadableOlderSchemaNamesBothVersions() throws SQLException {
+        assertThat(Integer.parseInt(BUNDLED)).isGreaterThan(22);
+        String url = DB.jdbcUrl().replace("/" + PostgresHarness.DATABASE, "/guard_readable");
+        PostgresHarness.migrate(DB.emptyDatabase("guard_readable"), "22");
+        assertThatThrownBy(() -> start(url))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("schema version mismatch: database 22, application " + BUNDLED
+                        + " — apply migrations with the operator command 'db migrate' before starting");
+        assertThat(offline("db", "migrate", "--ga.migrator.url=" + url))
+                .isEqualTo("DB_MIGRATE applied=" + (Integer.parseInt(BUNDLED) - 22) + " version=" + BUNDLED + "\n");
         start(url).close();
     }
 

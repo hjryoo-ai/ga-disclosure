@@ -14,9 +14,11 @@ import com.ga.disclosure.rules.bundle.BundleLoader;
 import com.ga.disclosure.rules.template.TemplateResolution;
 import com.ga.disclosure.seal.canonical.CanonicalDocument;
 import com.ga.disclosure.seal.renderer.DisclosurePdfRenderer;
+import com.ga.disclosure.seal.renderer.RendererVersion;
 import com.ga.disclosure.seal.renderer.SignatureAppearance;
 import com.ga.disclosure.seal.renderer.SignedPdfAppender;
 import com.ga.disclosure.workflow.disclosure.ArtifactService;
+import com.ga.disclosure.workflow.disclosure.SealService;
 import com.ga.platform.canonical.Canonicalizer;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -53,6 +55,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>제자리 수정 거부 — 같은 버전을 다른 본문으로 다시 배포하면 거부되고 아무것도 바뀌지 않는다(Phase 1 C5의 서식 판; DB 가드는
  *       {@code FormTemplateGuardIT}).</li>
  * </ol>
+ * Phase 8(승인 Q9) — (서식 v1/v2 × 렌더러 판 1/2) 매트릭스: 서식은 정본 계약 {@code STANDARD-v2}(해약환급예시 표 열 정의)로, 허용 v1×1·v1×2·v2×2,
+ * 거부 v2×1. 판 1이 봉인한 문서(Phase 3B~7 문서)는 업그레이드 뒤에도 판 1로 완료·재렌더된다.
  */
 class TemplateVersionsIT {
 
@@ -93,6 +97,13 @@ class TemplateVersionsIT {
         return x.s.text("SELECT disclosure_no FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", x.w.tenant.value(), id.value());
     }
 
+    /** 문서에 고정된 렌더러 판(V23 — 산출물 행). 재렌더는 이 판으로 한다. */
+    RendererVersion rendererOf(DisclosureId id) {
+        return RendererVersion.of(Integer.parseInt(x.s.text(
+                "SELECT renderer_version::text FROM document_artifact WHERE tenant_id = ? AND disclosure_id = ? AND kind = 'PDF'",
+                x.w.tenant.value(), id.value())));
+    }
+
     TemplateResolution load(TemplateRef ref) {
         return x.w.in(() -> new Governance().templateResolver.load(x.w.tenant, ref));
     }
@@ -130,7 +141,7 @@ class TemplateVersionsIT {
 
         // ① 문서 A — 저장 바이트 불변, 고정 버전 v1로 다시 렌더하면 바이트 동일, 새 라벨 없음
         assertThat(artifact(a, ArtifactKind.PDF)).isEqualTo(pdfA);
-        assertThat(new DisclosurePdfRenderer().render(CanonicalDocument.parse(canonicalA), load(V1), disclosureNo(a)).pdf())
+        assertThat(new DisclosurePdfRenderer().render(rendererOf(a), CanonicalDocument.parse(canonicalA), load(V1), disclosureNo(a)).pdf())
                 .as("A re-rendered with its pinned v1").isEqualTo(pdfA);
         String textA = text(pdfA);
         assertThat(textA).contains(headerLabels(com.ga.disclosure.rules.testing.Bundles.text(com.ga.disclosure.rules.testing.Bundles.STANDARD_V1)));
@@ -139,7 +150,8 @@ class TemplateVersionsIT {
         // ② 문서 B — 새 라벨로 렌더, 고정 버전 v2로 다시 렌더하면 저장본과 바이트 동일
         String textB = text(pdfB);
         headerLabels(BundleFiles.fixtureText(ALT)).forEach(l -> assertThat(textB).as("B shows the new label").contains(l));
-        assertThat(new DisclosurePdfRenderer().render(CanonicalDocument.parse(artifact(b, ArtifactKind.CANONICAL_JSON)), load(V2), disclosureNo(b)).pdf())
+        assertThat(new DisclosurePdfRenderer().render(rendererOf(b), CanonicalDocument.parse(artifact(b, ArtifactKind.CANONICAL_JSON)), load(V2),
+                disclosureNo(b)).pdf())
                 .as("B re-rendered with its pinned v2").isEqualTo(pdfB);
 
         // ③ 공존 — 상담일 기준 해석이 구간대로, A를 배포 뒤에 완료해도 서명본은 v1 문서(봉인 PDF가 바이트 접두, 새 라벨 없음)
@@ -169,7 +181,8 @@ class TemplateVersionsIT {
         for (String name : List.of("case-01", "case-02", "case-03")) {
             Map<String, String> in = properties(golden.resolve(name).resolve("input.properties"));
             assertThat(in.get("templateId") + " v" + in.get("templateVersion")).isEqualTo("STANDARD v1");
-            DisclosurePdfRenderer.Rendered pdf = new DisclosurePdfRenderer().render(canonical(golden.resolve(name)), v1, in.get("disclosureNo"));
+            DisclosurePdfRenderer.Rendered pdf = new DisclosurePdfRenderer().render(RendererVersion.V1, canonical(golden.resolve(name)), v1,
+                    in.get("disclosureNo"));
             assertThat(pdf.sha256()).as(name).isEqualTo(properties(golden.resolve(name).resolve("expected.properties")).get("pdfSha256"));
         }
         // 서명본 골든(signed-01): 바탕 사례의 봉인 PDF + 서명 페이지, 둘 다 DB의 v1로
@@ -177,9 +190,137 @@ class TemplateVersionsIT {
         JsonNode spec = Canonicalizer.parseStrict(read(signed.resolve("signatures.json")));
         Path base = golden.resolve(spec.path("base").asString());
         String no = properties(base.resolve("input.properties")).get("disclosureNo");
-        byte[] original = new DisclosurePdfRenderer().render(canonical(base), v1, no).pdf();
-        DisclosurePdfRenderer.Rendered signedPdf = new SignedPdfAppender().append(original, canonical(base), v1, no, appearances(spec, signed));
+        byte[] original = new DisclosurePdfRenderer().render(RendererVersion.V1, canonical(base), v1, no).pdf();
+        DisclosurePdfRenderer.Rendered signedPdf = new SignedPdfAppender().append(RendererVersion.V1, original, canonical(base), v1, no,
+                appearances(spec, signed));
         assertThat(signedPdf.sha256()).isEqualTo(properties(signed.resolve("expected.properties")).get("signedPdfSha256"));
+    }
+
+    /**
+     * 생산자 문자열 — 정보 사전 {@code /Producer}와 최신 XMP {@code pdf:Producer}가 같을 때만 그 값(PDF/A 일치 요건). 서명본의 정보 사전은 봉인 PDF에서
+     * 이어 오고 XMP는 갱신분이 새로 쓰므로, 덧붙임이 다른 판으로 그려지면 둘이 갈린다.
+     */
+    static String producer(byte[] pdf) {
+        try (PDDocument doc = Loader.loadPDF(pdf)) {
+            String info = doc.getDocumentInformation().getProducer();
+            String xmp = new String(doc.getDocumentCatalog().getMetadata().toByteArray(), StandardCharsets.UTF_8);
+            String inXmp = xmp.substring(xmp.indexOf("<pdf:Producer>") + "<pdf:Producer>".length(), xmp.indexOf("</pdf:Producer>"));
+            assertThat(inXmp).as("XMP pdf:Producer = /Producer").isEqualTo(info);
+            return info;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** 표 머리글(데이터에서 읽는다): 정본 STANDARD-v2 해약환급예시의 열 라벨. */
+    static List<String> columnLabels() {
+        List<String> labels = new ArrayList<>();
+        Canonicalizer.parseStrict(com.ga.disclosure.rules.testing.Bundles.text(com.ga.disclosure.rules.testing.Bundles.STANDARD_V2)).get("body")
+                .get("fields").forEach(f -> f.path("render").path("columns").forEach(c -> labels.add(c.get("label").asString())));
+        assertThat(labels).isNotEmpty();
+        return labels;
+    }
+
+    /**
+     * 매트릭스(승인 Q9). 정본 v2(개시 2026-10-01)를 v1과 함께 배포한 테넌트, 시계 2026-10-05: 상담일 9/23 문서는 v1, 10/5 문서는 v2에 고정된다.
+     * 허용 — v1×2(현재 판의 봉인), v2×2(현재 판의 봉인, 표 머리글이 데이터의 열 라벨), v1×1(판 1 봉인). 거부 — v2×1: 판 1은 열 정의를 그리지 않는다
+     * (렌더러가 거부하고 봉인은 아무것도 남기지 않는다). 각 허용 칸은 저장된 판·DB의 서식으로 다시 렌더하면 저장본과 바이트 동일하고, PDF 생산자 문자열이
+     * 판을 적는다.
+     */
+    @Test
+    void templateAndRendererMatrixAllowsV1OnBothRenderersAndV2OnlyOnRenderer2() {
+        try (SealSetup m = new SealSetup(new WorkflowSetup("2026-10-05T01:00:00Z",
+                new com.ga.disclosure.infra.engine.EngineClientSettings(java.time.Duration.ofSeconds(2), java.time.Duration.ofSeconds(3), 3),
+                List.of(com.ga.disclosure.rules.testing.Bundles.DISC_2026_07, com.ga.disclosure.rules.testing.Bundles.DISC_2027_01,
+                        com.ga.disclosure.rules.testing.Bundles.STANDARD_V1, com.ga.disclosure.rules.testing.Bundles.STANDARD_V2)))) {
+            var agent = Callers.of(m.w.tenant, WorkflowSetup.AGENT);
+            LocalDate before = WorkflowSetup.CONSULT;
+            LocalDate after = LocalDate.parse("2026-10-05");
+            record Cell(String name, DisclosureId id, TemplateRef template, RendererVersion renderer) {
+            }
+            List<Cell> allowed = new ArrayList<>();
+            for (var c : List.of(new Object[] {"v1x2", before, RendererVersion.V2}, new Object[] {"v2x2", after, RendererVersion.V2},
+                    new Object[] {"v1x1", before, RendererVersion.V1})) {
+                DisclosureId id = m.w.reasonedOn(m.w.customer, (LocalDate) c[1]);
+                SealService.Outcome o = m.sealWith((RendererVersion) c[2]).seal(agent, id);
+                assertThat(o.sealed()).as((String) c[0]).isTrue();
+                allowed.add(new Cell((String) c[0], id, c[1] == before ? V1 : V2, (RendererVersion) c[2]));
+            }
+            for (Cell c : allowed) {
+                String pin = m.text("SELECT template_id || ' v' || template_version FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?",
+                        m.w.tenant.value(), c.id().value());
+                assertThat(pin).as(c.name()).isEqualTo(c.template().templateId() + " v" + c.template().version());
+                String stored = m.text("SELECT string_agg(kind || ':' || renderer_version, ',' ORDER BY kind) FROM document_artifact"
+                        + " WHERE tenant_id = ? AND disclosure_id = ?", m.w.tenant.value(), c.id().value());
+                assertThat(stored).as(c.name()).isEqualTo("CANONICAL_JSON:" + c.renderer().number() + ",PDF:" + c.renderer().number());
+                var caller = Callers.of(m.w.tenant, SealSetup.COMPLIANCE);
+                byte[] pdf = ((ArtifactService.View.Granted) m.artifacts.view(caller, c.id(), ArtifactKind.PDF)).plaintext();
+                byte[] canonical = ((ArtifactService.View.Granted) m.artifacts.view(caller, c.id(), ArtifactKind.CANONICAL_JSON)).plaintext();
+                String no = m.text("SELECT disclosure_no FROM disclosure WHERE tenant_id = ? AND disclosure_id = ?", m.w.tenant.value(), c.id().value());
+                TemplateResolution template = m.w.in(() -> new Governance().templateResolver.load(m.w.tenant, c.template()));
+                assertThat(new DisclosurePdfRenderer().render(c.renderer(), CanonicalDocument.parse(canonical), template, no).pdf())
+                        .as(c.name() + " re-rendered with its stored renderer and template").isEqualTo(pdf);
+                assertThat(producer(pdf)).as(c.name()).isEqualTo(c.renderer().producer());
+                String body = text(pdf);
+                columnLabels().forEach(l -> {
+                    if (c.template().equals(V2)) {
+                        assertThat(body).as(c.name() + " draws the cash-value table").contains(l);
+                    } else {
+                        assertThat(body).as(c.name() + " has no table header").doesNotContain(l);
+                    }
+                });
+            }
+
+            // 거부 v2×1 — 렌더러가 거부, 봉인은 아무것도 남기지 않는다(문서는 REASONED, 산출물 0, 번호 미발급)
+            DisclosureId refused = m.w.reasonedOn(m.w.customer, after);
+            String numbersBefore = m.text("SELECT count(*)::text FROM disclosure WHERE tenant_id = ? AND disclosure_no IS NOT NULL", m.w.tenant.value());
+            assertThatThrownBy(() -> m.sealWith(RendererVersion.V1).seal(agent, refused))
+                    .hasStackTraceContaining("uses render.columns, which renderer 1 does not draw");
+            assertThat(m.text("SELECT status || ':' || (SELECT count(*) FROM document_artifact a WHERE a.tenant_id = d.tenant_id"
+                    + " AND a.disclosure_id = d.disclosure_id) FROM disclosure d WHERE d.tenant_id = ? AND d.disclosure_id = ?",
+                    m.w.tenant.value(), refused.value())).isEqualTo("REASONED:0");
+            assertThat(m.text("SELECT count(*)::text FROM disclosure WHERE tenant_id = ? AND disclosure_no IS NOT NULL", m.w.tenant.value()))
+                    .isEqualTo(numbersBefore);
+            // 같은 거부를 렌더러 단독으로도(봉인된 v2×2 문서의 정본 + DB의 v2)
+            Cell v2x2 = allowed.get(1);
+            byte[] canonical = ((ArtifactService.View.Granted) m.artifacts.view(Callers.of(m.w.tenant, SealSetup.COMPLIANCE), v2x2.id(),
+                    ArtifactKind.CANONICAL_JSON)).plaintext();
+            TemplateResolution v2 = m.w.in(() -> new Governance().templateResolver.load(m.w.tenant, V2));
+            assertThatThrownBy(() -> new DisclosurePdfRenderer().render(RendererVersion.V1, CanonicalDocument.parse(canonical), v2, "DEMO1-2026-000001"))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("which renderer 1 does not draw");
+        }
+    }
+
+    /**
+     * 업그레이드 경로(승인 Q9): 판 1이 봉인한 문서를 현재 판(2) 바이너리가 완료한다 — 서명본·증거 패키지는 저장된 판 1을 따른다(서명본은 봉인 PDF가
+     * 바이트 접두, 생산자 문자열 판 1, 매니페스트 {@code rendererVersion} 1, 산출물 행 전부 판 1). 봉인 PDF는 판 1로 다시 렌더해 바이트 동일.
+     */
+    @Test
+    void aDocumentSealedByRenderer1CompletesOnRenderer1AfterTheUpgrade() {
+        DisclosureId old = x.w.reasoned(x.signer);
+        assertThat(x.s.sealWith(RendererVersion.V1).seal(Callers.of(x.w.tenant, WorkflowSetup.AGENT), old).sealed()).isTrue();
+        assertThat(rendererOf(old)).isEqualTo(RendererVersion.V1);
+        byte[] pdf = artifact(old, ArtifactKind.PDF);
+        assertThat(producer(pdf)).isEqualTo(RendererVersion.V1.producer());
+
+        // 완료는 현재 판 바이너리(SignSetup의 서명 유스케이스 — 판을 고르지 않는다)
+        assertThat(x.customerSignsOnTouchPad(old).accepted()).isTrue();
+        x.clock.advance(java.time.Duration.ofMinutes(5));
+        assertThat(x.agentSigns(old).accepted()).isTrue();
+        x.clock.advance(java.time.Duration.ofMinutes(5));
+        assertThat(x.managerConfirms(old).completed()).isTrue();
+
+        byte[] signed = artifact(old, ArtifactKind.SIGNED_PDF);
+        assertThat(Arrays.equals(signed, 0, pdf.length, pdf, 0, pdf.length)).as("sealed PDF is a byte prefix").isTrue();
+        assertThat(producer(signed)).isEqualTo(RendererVersion.V1.producer());
+        JsonNode manifest = Canonicalizer.parseStrict(new String(com.ga.disclosure.seal.evidence.EvidencePackageReader.entries(
+                artifact(old, ArtifactKind.EVIDENCE_ZIP)).get("manifest.json"), StandardCharsets.UTF_8));
+        assertThat(manifest.get("manifestVersion").asInt()).isEqualTo(2);
+        assertThat(manifest.get("rendererVersion").asInt()).isEqualTo(1);
+        assertThat(x.s.text("SELECT string_agg(DISTINCT renderer_version::text, ',') FROM document_artifact WHERE tenant_id = ? AND disclosure_id = ?",
+                x.w.tenant.value(), old.value())).isEqualTo("1");
+        assertThat(new DisclosurePdfRenderer().render(RendererVersion.V1, CanonicalDocument.parse(artifact(old, ArtifactKind.CANONICAL_JSON)), load(V1),
+                disclosureNo(old)).pdf()).isEqualTo(pdf);
     }
 
     /** 같은 서식·버전, 다른 본문(제목 끝에 공백 하나 — 번들 ID는 새 본문 해시로 다시 계산해 번들 자체는 유효하다). */

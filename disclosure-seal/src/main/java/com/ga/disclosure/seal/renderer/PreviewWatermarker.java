@@ -65,7 +65,8 @@ public final class PreviewWatermarker {
         PdfRendererBuilder b = new PdfRendererBuilder();
         b.useFont(() -> new ByteArrayInputStream(RenderAssets.BOLD), RenderAssets.FONT_FAMILY, 700, FontStyle.NORMAL, true);
         b.withHtmlContent(html.toString(), null);
-        b.withProducer(DisclosurePdfRenderer.PRODUCER);
+        // 워터마크 쪽 문서의 정보 사전은 폼으로 옮겨지지 않는다(봉인 PDF의 정보·XMP가 그대로 남는다) — 생산자 값은 결과에 닿지 않아 판과 무관하다
+        b.withProducer(RendererVersion.V1.producer());
         ByteArrayOutputStream out = new ByteArrayOutputStream(16 * 1024);
         try (PdfBoxRenderer r = b.buildPdfRenderer()) {
             r.createPDFWithoutClosing();

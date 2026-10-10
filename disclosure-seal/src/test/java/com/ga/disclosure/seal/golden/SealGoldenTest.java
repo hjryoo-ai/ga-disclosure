@@ -30,10 +30,11 @@ class SealGoldenTest {
         CanonicalInput in = switch (name) {
             case "case-01" -> SealFixtures.case01();
             case "case-02" -> SealFixtures.case02();
-            default -> SealFixtures.case03();
+            case "case-03" -> SealFixtures.case03();
+            default -> SealFixtures.case04();
         };
         assertThat(CanonicalDocumentBuilder.build(in, SealFixtures.NAME).bytes()).as(name + " builder = committed bytes").isEqualTo(stored.bytes());
-        DisclosurePdfRenderer.Rendered pdf = new DisclosurePdfRenderer().render(stored, g.template(), g.disclosureNo());
+        DisclosurePdfRenderer.Rendered pdf = new DisclosurePdfRenderer().render(g.rendererVersion(), stored, g.template(), g.disclosureNo());
         assertThat(pdf.sha256()).as(name + " pdf (" + pdf.pdf().length + " bytes)").isEqualTo(expected.get("pdfSha256"));
     }
 }

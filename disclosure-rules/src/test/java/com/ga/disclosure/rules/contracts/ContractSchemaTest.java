@@ -447,9 +447,10 @@ class ContractSchemaTest {
     static final String DISC_2026_07 = "rules/bundles/rules/DISC-2026-07.bundle.json";
     static final String DISC_2027_01 = "rules/bundles/rules/DISC-2027-01.bundle.json";
     static final String STANDARD_V1 = "rules/bundles/templates/STANDARD-v1.bundle.json";
+    static final String STANDARD_V2 = "rules/bundles/templates/STANDARD-v2.bundle.json";
 
     static Stream<String> bundles() {
-        return Stream.of(DISC_2026_07, DISC_2027_01, STANDARD_V1);
+        return Stream.of(DISC_2026_07, DISC_2027_01, STANDARD_V1, STANDARD_V2);
     }
 
     @ParameterizedTest
@@ -461,7 +462,8 @@ class ContractSchemaTest {
     static Stream<Arguments> bodyRequiredFieldRemovals() {
         return Stream.of(
                         Arguments.of("rules/v1/rule-version.schema.json", DISC_2026_07),
-                        Arguments.of("rules/v1/form-template.schema.json", STANDARD_V1))
+                        Arguments.of("rules/v1/form-template.schema.json", STANDARD_V1),
+                        Arguments.of("rules/v1/form-template.schema.json", STANDARD_V2))
                 .flatMap(a -> required(read((String) a.get()[0])).stream().map(f -> Arguments.of(a.get()[0], a.get()[1], f)));
     }
 
@@ -605,6 +607,51 @@ class ContractSchemaTest {
             ((ObjectNode) body.get("fields").get(0)).remove(attribute);
             assertThat(schema("rules/v1/form-template.schema.json").validate(body)).as("field without %s", attribute).isNotEmpty();
         }
+    }
+
+    /**
+     * Phase 8(서식 v2): 해약환급예시 표의 열은 데이터다 — 1~8개, 키 형식, 닫힌 열 객체, 그리고 열이 있으면 빈 칸 문구가 필수다(빈 칸을 렌더러가 지어내지
+     * 않는다). v2는 v1과 열 정의·빈 칸 문구만 다르다.
+     */
+    @Test
+    void cashValueColumnsAreClosedBoundedAndNeedTheUnavailableText() {
+        JsonNode v1 = read(STANDARD_V1).get("body");
+        ObjectNode v2 = (ObjectNode) read(STANDARD_V2).get("body");
+        ObjectNode render = (ObjectNode) surrender(v2).get("render");
+        assertThat(render.path("columns")).extracting(c -> c.path("key").asString()).containsExactly("year", "refundWon");
+        ObjectNode stripped = v2.deepCopy();
+        ObjectNode strippedRender = (ObjectNode) surrender(stripped).get("render");
+        strippedRender.remove("columns");
+        strippedRender.remove("unavailableText");
+        assertThat(stripped).as("v2 = v1 + columns + unavailableText").isEqualTo(v1);
+
+        for (String mutation : List.of("noUnavailableText", "noColumns", "nineColumns", "badKey", "extraColumnKey", "noLabel")) {
+            ObjectNode body = v2.deepCopy();
+            ObjectNode r = (ObjectNode) surrender(body).get("render");
+            tools.jackson.databind.node.ArrayNode columns = (tools.jackson.databind.node.ArrayNode) r.get("columns");
+            switch (mutation) {
+                case "noUnavailableText" -> r.remove("unavailableText");
+                case "noColumns" -> columns.removeAll();
+                case "nineColumns" -> {
+                    for (int i = 0; i < 7; i++) {
+                        columns.addObject().put("key", "c" + i).put("label", "열" + i);
+                    }
+                }
+                case "badKey" -> ((ObjectNode) columns.get(0)).put("key", "Year");
+                case "extraColumnKey" -> ((ObjectNode) columns.get(0)).put("width", 3);
+                default -> ((ObjectNode) columns.get(0)).remove("label");
+            }
+            assertThat(schema("rules/v1/form-template.schema.json").validate(body)).as(mutation).isNotEmpty();
+        }
+    }
+
+    private static JsonNode surrender(JsonNode body) {
+        for (JsonNode f : body.path("fields")) {
+            if (f.path("code").asString().equals("SURRENDER_VALUE_EXAMPLE")) {
+                return f;
+            }
+        }
+        throw new AssertionError("SURRENDER_VALUE_EXAMPLE missing");
     }
 
     @Test

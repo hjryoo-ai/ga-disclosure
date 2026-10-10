@@ -34,12 +34,12 @@ class PdfAMarkersTest {
     void structuralMarkersAndPinnedPoints() throws Exception {
         CanonicalDocument canonical = RenderFixtures.canonical(SealFixtures.case02());
         String no = RenderFixtures.number(481);
-        byte[] pdf = RENDERER.render(canonical, RenderFixtures.STANDARD, no).pdf();
+        byte[] pdf = RENDERER.render(RendererVersion.CURRENT, canonical, RenderFixtures.STANDARD, no).pdf();
         try (PDDocument doc = Loader.loadPDF(pdf)) {
             String xmp = new String(doc.getDocumentCatalog().getMetadata().toByteArray(), StandardCharsets.UTF_8);
             assertThat(xmp).contains("<pdfaid:part>2</pdfaid:part>", "<pdfaid:conformance>B</pdfaid:conformance>",
                     "<xmp:CreateDate>2026-09-23T00:00:00+09:00</xmp:CreateDate>", "<xmp:ModifyDate>2026-09-23T00:00:00+09:00</xmp:ModifyDate>",
-                    "<pdf:Producer>" + DisclosurePdfRenderer.PRODUCER + "</pdf:Producer>", RenderFixtures.STANDARD.title());
+                    "<pdf:Producer>" + RendererVersion.CURRENT.producer() + "</pdf:Producer>", RenderFixtures.STANDARD.title());
             List<PDOutputIntent> intents = doc.getDocumentCatalog().getOutputIntents();
             assertThat(intents).hasSize(1);
             assertThat(intents.getFirst().getCOSObject().getNameAsString(COSName.S)).isEqualTo("GTS_PDFA1");
@@ -52,7 +52,7 @@ class PdfAMarkersTest {
             }
             var info = doc.getDocumentInformation();
             assertThat(info.getTitle()).isEqualTo(RenderFixtures.STANDARD.title());
-            assertThat(info.getProducer()).isEqualTo(DisclosurePdfRenderer.PRODUCER);
+            assertThat(info.getProducer()).isEqualTo(RendererVersion.CURRENT.producer());
             assertThat(info.getCOSObject().getString(COSName.CREATION_DATE)).isEqualTo("D:20260923000000+09'00'");
             assertThat(info.getCOSObject().getString(COSName.MOD_DATE)).isEqualTo("D:20260923000000+09'00'");
             assertThat(info.getCOSObject().keySet()).containsExactlyInAnyOrder(COSName.TITLE, COSName.PRODUCER, COSName.CREATION_DATE,
@@ -72,23 +72,23 @@ class PdfAMarkersTest {
     @Test
     void sameInputSameBytesEvenUnderAnotherDefaultLocaleAndTimeZone() {
         CanonicalDocument canonical = RenderFixtures.canonical(SealFixtures.case01());
-        byte[] first = RENDERER.render(canonical, RenderFixtures.STANDARD, RenderFixtures.number(1)).pdf();
+        byte[] first = RENDERER.render(RendererVersion.CURRENT, canonical, RenderFixtures.STANDARD, RenderFixtures.number(1)).pdf();
         Locale locale = Locale.getDefault();
         TimeZone zone = TimeZone.getDefault();
         try {
             Locale.setDefault(Locale.US);
             TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"));
-            assertThat(RENDERER.render(canonical, RenderFixtures.STANDARD, RenderFixtures.number(1)).pdf()).isEqualTo(first);
+            assertThat(RENDERER.render(RendererVersion.CURRENT, canonical, RenderFixtures.STANDARD, RenderFixtures.number(1)).pdf()).isEqualTo(first);
         } finally {
             Locale.setDefault(locale);
             TimeZone.setDefault(zone);
         }
-        assertThat(RENDERER.render(canonical, RenderFixtures.STANDARD, RenderFixtures.number(2)).pdf()).as("번호가 바뀌면 바이트도").isNotEqualTo(first);
+        assertThat(RENDERER.render(RendererVersion.CURRENT, canonical, RenderFixtures.STANDARD, RenderFixtures.number(2)).pdf()).as("번호가 바뀌면 바이트도").isNotEqualTo(first);
     }
 
     @Test
     void fiftyItemsSpanSeveralPages() throws Exception {
-        byte[] pdf = RENDERER.render(RenderFixtures.canonical(SealFixtures.case03()), RenderFixtures.STANDARD, RenderFixtures.number(3)).pdf();
+        byte[] pdf = RENDERER.render(RendererVersion.CURRENT, RenderFixtures.canonical(SealFixtures.case03()), RenderFixtures.STANDARD, RenderFixtures.number(3)).pdf();
         try (PDDocument doc = Loader.loadPDF(pdf)) {
             assertThat(doc.getNumberOfPages()).isGreaterThan(1);
             String text = new PDFTextStripper().getText(doc);

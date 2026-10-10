@@ -57,11 +57,13 @@ public final class SignedPdfAppender {
     private static final ZoneOffset KST = ZoneOffset.ofHours(9);
 
     /**
+     * @param version     문서에 고정된 렌더러 판(Phase 8 — 서명 외관 페이지·갱신분 XMP의 생산자가 봉인 PDF와 같다)
      * @param originalPdf 봉인 PDF 원본 바이트(SHA-256 = {@code pdf_hash})
      * @param signatures  서명 순서대로(비어 있으면 안 된다)
      */
-    public DisclosurePdfRenderer.Rendered append(byte[] originalPdf, CanonicalDocument canonical, TemplateResolution template,
+    public DisclosurePdfRenderer.Rendered append(RendererVersion version, byte[] originalPdf, CanonicalDocument canonical, TemplateResolution template,
                                                  String disclosureNo, List<SignatureAppearance> signatures) {
+        Objects.requireNonNull(version, "version");
         Objects.requireNonNull(originalPdf, "originalPdf");
         if (signatures.isEmpty()) {
             throw new IllegalArgumentException("a signed PDF needs at least one signature");
@@ -71,7 +73,7 @@ public final class SignedPdfAppender {
         Instant last = signatures.stream().map(SignatureAppearance::signedAt).max(Instant::compareTo).orElseThrow();
         OffsetDateTime modified = last.atOffset(KST).truncatedTo(ChronoUnit.SECONDS);
         try {
-            byte[] pageBytes = signaturePage(labels, disclosureNo, canonical.sha256().substring(0, 12), pdfHash, signatures);
+            byte[] pageBytes = signaturePage(version, labels, disclosureNo, canonical.sha256().substring(0, 12), pdfHash, signatures);
             try (PDDocument doc = Loader.loadPDF(originalPdf); PDDocument page = Loader.loadPDF(pageBytes)) {
                 LayerUtility layers = new LayerUtility(doc);
                 for (int i = 0; i < page.getNumberOfPages(); i++) {
@@ -85,7 +87,7 @@ public final class SignedPdfAppender {
                 PDDocumentInformation info = doc.getDocumentInformation();
                 info.setModificationDate(calendar(modified));
                 String created = DisclosurePdfRenderer.xmpDate(new CanonicalView(canonical, disclosureNo).consultDate());
-                PDMetadata metadata = new PDMetadata(doc, new ByteArrayInputStream(DisclosurePdfRenderer.xmp(template.title(), created,
+                PDMetadata metadata = new PDMetadata(doc, new ByteArrayInputStream(DisclosurePdfRenderer.xmp(version, template.title(), created,
                         xmpDate(modified)).getBytes(StandardCharsets.UTF_8)));
                 doc.getDocumentCatalog().setMetadata(metadata);
                 doc.setDocumentId(seed(pdfHash, signatures));
@@ -106,7 +108,7 @@ public final class SignedPdfAppender {
     }
 
     /** 서명 외관 페이지를 봉인 PDF와 같은 구성으로 렌더해 저장한 바이트(폰트 서브셋 확정). 이 문서의 정보·XMP·/ID는 복제되지 않는다. */
-    private static byte[] signaturePage(SignaturePageLayout labels, String disclosureNo, String hash12, String pdfHash,
+    private static byte[] signaturePage(RendererVersion version, SignaturePageLayout labels, String disclosureNo, String hash12, String pdfHash,
                                         List<SignatureAppearance> signatures) throws IOException {
         String html = SignaturePageComposer.compose(labels, disclosureNo, hash12, pdfHash, signatures);
         PdfRendererBuilder b = new PdfRendererBuilder();
@@ -115,7 +117,7 @@ public final class SignedPdfAppender {
         b.useFont(() -> new ByteArrayInputStream(RenderAssets.REGULAR), RenderAssets.FONT_FAMILY, 400, FontStyle.NORMAL, true);
         b.useFont(() -> new ByteArrayInputStream(RenderAssets.BOLD), RenderAssets.FONT_FAMILY, 700, FontStyle.NORMAL, true);
         b.withHtmlContent(html, null);
-        b.withProducer(DisclosurePdfRenderer.PRODUCER);
+        b.withProducer(version.producer());
         ByteArrayOutputStream out = new ByteArrayOutputStream(32 * 1024);
         b.toStream(out);
         try (PdfBoxRenderer r = b.buildPdfRenderer()) {

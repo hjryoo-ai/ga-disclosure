@@ -387,8 +387,8 @@ public final class SeedData {
         String cipher = hash('9');
         exec(c, """
                 INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256,
-                                               cipher_bytes, key_id)
-                VALUES (?, ?, ?, ?, ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09', ?, 39, ?)
+                                               cipher_bytes, key_id, renderer_version)
+                VALUES (?, ?, ?, ?, ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09', ?, 39, ?, 1)
                 """, tenant, disclosure, kind, tenant + "/" + disclosure + "/" + kind + "/" + cipher, hash('f'), cipher,
                 documentKeyId(disclosure));
     }

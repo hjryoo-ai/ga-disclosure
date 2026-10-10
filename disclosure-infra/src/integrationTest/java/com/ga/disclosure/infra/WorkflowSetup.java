@@ -212,7 +212,12 @@ final class WorkflowSetup implements AutoCloseable {
 
     /** 그 고객의 확인서로 봉인 직전(REASONED)까지(Phase 4: 연락처·생년월일이 있는 고객). */
     DisclosureId reasoned(CustomerRef who) {
-        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, CONSULT, TemplateType.STANDARD, java.util.Optional.empty());
+        return reasonedOn(who, CONSULT);
+    }
+
+    /** 상담일을 정해 봉인 직전까지(Phase 8: 서식 버전은 상담일로 해석된다 — 서식 v2 개시일 뒤의 문서). */
+    DisclosureId reasonedOn(CustomerRef who, LocalDate consult) {
+        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, consult, TemplateType.STANDARD, java.util.Optional.empty());
         service.replaceItems(Callers.of(tenant, AGENT), id, threeItems());
         service.compare(Callers.of(tenant, AGENT), id);
         service.requestGrades(Callers.of(tenant, AGENT), id);

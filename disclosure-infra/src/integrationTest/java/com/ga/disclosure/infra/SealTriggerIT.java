@@ -156,8 +156,9 @@ class SealTriggerIT {
     // ------------------------------------------------------------------ 산출물
 
     private static final String INSERT_ARTIFACT = """
-            INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256, cipher_bytes, key_id)
-            VALUES (?, ?, ?, ? || '/' || ?::text || '/' || ? || '/' || repeat('9', 64), repeat('f', 64), ?, now(), repeat('9', 64), ?, ?)""";
+            INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256, cipher_bytes, key_id,
+                                           renderer_version)
+            VALUES (?, ?, ?, ? || '/' || ?::text || '/' || ? || '/' || repeat('9', 64), repeat('f', 64), ?, now(), repeat('9', 64), ?, ?, 1)""";
 
     @Test
     void artifactsAreRecordedOnlyForSealedDocumentsWithTheirOwnKey() {

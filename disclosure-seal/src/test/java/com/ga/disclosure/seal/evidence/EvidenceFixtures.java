@@ -72,6 +72,6 @@ final class EvidenceFixtures {
         return new EvidenceInput("DEMO1", DISCLOSURE, "DEMO1-2026-000001", 1, CANONICAL, PDF, signedPdf, hash('c'), 1,
                 new EvidenceInput.Pinned("DISC-2026-07", hash('a'), null, null, "STANDARD", 1, hash('b')),
                 new EvidenceInput.Snapshot("GRD-0000001", "GRADING-2026-07", "RANK-2026-07", "SHARED_RANK", Instant.parse("2026-09-23T00:30:00Z")),
-                Instant.parse("2026-09-23T01:00:00Z"), Instant.parse("2026-09-24T05:40:00Z"), LocalDate.parse("2031-09-24"), signatures, audit, null);
+                Instant.parse("2026-09-23T01:00:00Z"), Instant.parse("2026-09-24T05:40:00Z"), LocalDate.parse("2031-09-24"), signatures, audit, null, 2);
     }
 }

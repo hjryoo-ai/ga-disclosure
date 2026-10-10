@@ -31,7 +31,7 @@ class EvidenceManifestSchemaTest {
         EvidenceInput anchored = new EvidenceInput(base.tenantId(), base.disclosureId(), base.disclosureNo(), base.version(), base.canonicalJson(),
                 base.pdf(), base.signedPdf(), base.chainHash(), base.chainSeq(), base.pinned(), base.snapshot(), base.sealedAt(), base.completedAt(),
                 base.retentionUntil(), base.signatures(), base.audit(),
-                new EvidenceInput.AnchorRef(3, java.time.LocalDate.parse("2026-09-22"), "a".repeat(64), 0, 41));
+                new EvidenceInput.AnchorRef(3, java.time.LocalDate.parse("2026-09-22"), "a".repeat(64), 0, 41), 2);
         byte[] zip = EvidencePackageBuilder.build(anchored).zip();
         ObjectNode m = (ObjectNode) Canonicalizer.parseStrict(new String(EvidencePackageReader.entries(zip).get("manifest.json"), StandardCharsets.UTF_8));
 
@@ -41,10 +41,28 @@ class EvidenceManifestSchemaTest {
         assertThat(manifest().get("anchor").isNull()).isTrue();
     }
 
+    /** Phase 8: 새 패키지는 2판(rendererVersion 포함), 1판 모양(rendererVersion 없음)도 계약상 유효하다 — 저장된 1판 패키지가 계속 검증된다. */
+    @Test
+    void manifestTwoCarriesTheRendererVersionAndOneStaysValid() {
+        ObjectNode m = manifest();
+        assertThat(m.get("manifestVersion").asInt()).isEqualTo(2);
+        assertThat(m.get("rendererVersion").asInt()).isEqualTo(2);
+        ObjectNode v1 = m.deepCopy();
+        v1.put("manifestVersion", 1);
+        v1.remove("rendererVersion");
+        assertThat(EvidenceManifestSchema.validateManifest(v1)).isEmpty();
+        ObjectNode v2WithoutVersion = m.deepCopy();
+        v2WithoutVersion.remove("rendererVersion");
+        assertThat(EvidenceManifestSchema.validateManifest(v2WithoutVersion)).isNotEmpty();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "/extra|1",
-            "/manifestVersion|2",
+            "/manifestVersion|3",
+            "/manifestVersion|1",                                         // 1판에는 rendererVersion이 없다(Phase 8)
+            "/rendererVersion|0",
+            "/rendererVersion|\"2\"",
             "/anchor|{\"ref\":\"x\"}",
             "/anchor|{\"anchorSeq\":3,\"anchorDate\":\"2026-09-22\",\"leafHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sealChainSeq\":0,\"auditSeq\":41,\"root\":\"x\"}",
             "/anchor|{\"anchorSeq\":3,\"anchorDate\":\"2026-09-22\",\"leafHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sealChainSeq\":0}",

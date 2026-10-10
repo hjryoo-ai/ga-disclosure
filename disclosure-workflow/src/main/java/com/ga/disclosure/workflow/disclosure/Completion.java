@@ -112,7 +112,10 @@ final class Completion {
                     s.identityCheck().stream().map(r -> new SignatureAppearance.IdentityResult(r.method(), r.passed())).toList(), image));
         }
         CanonicalDocument document = CanonicalDocument.parse(canonical.plaintext());
-        DisclosurePdfRenderer.Rendered signedPdf = appender.append(pdf.plaintext(), document, l.template(), seal.number().value(), appearances);
+        // 서명본은 봉인 PDF와 같은 판으로(Phase 8 — 문서에 고정된 판, 현재 판이 아니다)
+        com.ga.disclosure.seal.renderer.RendererVersion rendererVersion = pdf.record().rendererVersion();
+        DisclosurePdfRenderer.Rendered signedPdf = appender.append(rendererVersion, pdf.plaintext(), document, l.template(), seal.number().value(),
+                appearances);
 
         Map<RetentionAnchor, LocalDate> anchors = new EnumMap<>(RetentionAnchor.class);
         anchors.put(RetentionAnchor.SEAL, seal.sealedAt().atZone(SealService.SEOUL).toLocalDate());
@@ -137,7 +140,7 @@ final class Completion {
                         snapshot.snapshot().rankingPolicyVersionId(), snapshot.snapshot().tieBreak().name(), snapshot.generatedAt()),
                 seal.sealedAt(), now, retentionUntil, signatures.stream().map(s -> record(s, evidence)).toList(), auditRows,
                 dailyAnchors.latest().map(a -> new EvidenceInput.AnchorRef(a.record().anchorSeq(), a.record().anchorDate(), a.leafHash(),
-                        a.record().sealChainSeq(), a.record().auditSeq())).orElse(null));
+                        a.record().sealChainSeq(), a.record().auditSeq())).orElse(null), rendererVersion.number());
         EvidencePackage pkg = EvidencePackageBuilder.build(input);
 
         DocumentCryptoPort.StoredKey key = stored.liveKey(id);
@@ -151,7 +154,7 @@ final class Completion {
             String storageKey = ArtifactRecord.storageKey(tenant.value(), id, e.getKey(), cipherHash);
             storage.put(storageKey, cipher);
             ArtifactRecord record = new ArtifactRecord(id, e.getKey(), storageKey, Sha256.of(com.ga.platform.canonical.Sha256.of(e.getValue())),
-                    e.getValue().length, cipherHash, cipher.length, key.keyId(), now, null);
+                    e.getValue().length, cipherHash, cipher.length, key.keyId(), now, null, rendererVersion);
             records.insertArtifact(record);
             written.add(record);
         }
