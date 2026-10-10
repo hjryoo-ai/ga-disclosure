@@ -77,6 +77,13 @@ public class QueryConfiguration {
         return new com.ga.disclosure.workflow.catalog.CatalogQueryService(catalog, tx, authz, clock);
     }
 
+    /** 룰 어휘(Phase 8, 승인 Q8) — 설계사·관리자·준법, 닫힌 코드 목록만. */
+    @Bean
+    public com.ga.disclosure.workflow.vocabulary.RuleVocabularyService ruleVocabularyService(
+            com.ga.disclosure.rules.resolve.RuleResolver rules, WorkflowTransactions tx, AuthorizationPort authz, Clock clock) {
+        return new com.ga.disclosure.workflow.vocabulary.RuleVocabularyService(rules, tx, authz, clock);
+    }
+
     @Bean
     @ConditionalOnNotWebApplication
     public CursorPort ephemeralCursorCodec() {

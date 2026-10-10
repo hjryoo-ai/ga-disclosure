@@ -113,6 +113,8 @@ export async function up() {
   const jwt = (subject) => cliDemo('demo', 'token', '--tenant', 'DEMO1', '--subject', subject, '--ttl', 'PT3H').trim().split('\n')
     .filter((l) => /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(l)).pop();
   writeFileSync(resolve(run, 'scheduler.jwt'), jwt('demo-scheduler') ?? '', { mode: 0o600 });
+  // Phase 8 G9: 어휘 밖 코드의 직접 요청(화면을 거치지 않는다)이 지금처럼 거부되는지 — 준법 토큰
+  writeFileSync(resolve(run, 'compliance.jwt'), jwt('demo-compliance') ?? '', { mode: 0o600 });
 
   // 준법 흐름의 CHAIN_BROKEN(DEMO2): 감사 행 하나를 슈퍼유저로 바꿔 verify가 불일치를 찾게 한 뒤 원래대로 되돌린다(seed.sh와 같은 사건 — 해소는 화면이 한다)
   const psql = (sql) => sh('docker', ['exec', '-i', env.pg, 'psql', '-q', '-tA', '-U', 'postgres', '-d', 'disclosure', '-v', 'ON_ERROR_STOP=1'], { input: sql });

@@ -7,6 +7,7 @@ import { fingerprint } from '../../../shared/fingerprint';
 import { staff } from '../../../shared/messages.ko.json';
 import { SignaturePad } from '../../../shared/pad';
 import { useApi, write } from '../../api/useApi';
+import { useVocabularyOutcome } from '../../api/vocabulary';
 import { Choice, formText, label, ResultLine, Section, useShown } from '../../components/ui';
 
 type Detail = components['schemas']['DisclosureDetail'];
@@ -23,6 +24,9 @@ function base64(file: File): Promise<string> {
 }
 
 export function SigningSection({ id, detail, reload }: { id: string; detail: Detail; reload: () => void }) {
+  const vocabulary = useVocabularyOutcome();
+  // 룰이 켠 채널만 선택지로(룰 어휘 — Phase 8 G9). 꺼진 채널의 요청은 서버가 지금처럼 거부한다
+  const enabled: readonly string[] = vocabulary !== null && vocabulary.ok ? vocabulary.data.channels : [];
   const api = useApi();
   const [shown, show] = useShown();
   const [issued, setIssued] = useState<Issued | null>(null);
@@ -77,7 +81,7 @@ export function SigningSection({ id, detail, reload }: { id: string; detail: Det
       )}
       <form onSubmit={issue}>
         <Choice id="s-channel" name="channel" legend={staff.signing.channel} defaultValue="TOUCH_PAD"
-          options={CHANNELS.map((c) => ({ value: c, label: label(staff.channel, c) }))} />
+          options={CHANNELS.filter((c) => enabled.includes(c)).map((c) => ({ value: c, label: label(staff.channel, c) }))} />
         <button type="submit">{staff.signing.issue}</button>
       </form>
       {issued !== null && (

@@ -64,5 +64,6 @@ public enum Action {
     EVENT_FEED_READ,
     EVENT_FEED_ACK,
     KEK_REGISTER,
-    KEK_REWRAP
+    KEK_REWRAP,
+    RULE_VOCABULARY_READ
 }

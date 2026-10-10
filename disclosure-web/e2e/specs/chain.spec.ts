@@ -2,21 +2,21 @@
 // 검증 작업을 화면에서 접수·폴링하고 보고서를 본 뒤 그 작업 ID를 해소 증거로 넣는다. 사건이 하나라 데스크톱 프로젝트만(설정의 testIgnore).
 import { axe } from '../support/axe';
 import { expect, test } from '../support/fixtures';
-import { choose, type } from '../support/keyboard';
+import { choose, chooseCode, chooseValue, type } from '../support/keyboard';
 import { expectOk, login, nav, press, staff } from '../support/staff';
 
 test('compliance resolves CHAIN_BROKEN with a verify run as evidence', async ({ page, guard }, info) => {
   await login(page, 'DEMO2/demo-compliance');
   await nav(page, staff.nav.flags);
   await choose(page, page.locator('#f-status'), staff.flagStatus.OPEN);
-  await type(page, page.locator('#f-type'), 'CHAIN_BROKEN');
+  await chooseCode(page, page.locator('#f-type'), 'CHAIN_BROKEN');
   await press(page, page.getByRole('button', { name: staff.common.apply }));
   const row = page.locator('tr[data-flag-id]').filter({ hasText: 'CHAIN_BROKEN' });
   await expect(row).toHaveCount(1);
   const flagId = (await row.getAttribute('data-flag-id')) ?? '';
 
   // 증거 없이 해소하면 서버가 거부한다(룰 requiresEvidence) — 화면은 코드를 보인다
-  await type(page, row.getByLabel(staff.flags.resolutionCode), 'VERIFIED_MATCH');
+  await chooseValue(page, row.locator(`#rc-${flagId}`), 'VERIFIED_MATCH');
   await press(page, row.getByRole('button', { name: staff.flags.resolve }));
   await expect(page.locator('main .result .problem code').first()).toBeVisible();
 
@@ -30,7 +30,7 @@ test('compliance resolves CHAIN_BROKEN with a verify run as evidence', async ({ 
   expect(jobId).toMatch(/^[0-9a-f-]{36}$/);
 
   const target = page.locator(`tr[data-flag-id="${flagId}"]`);
-  await type(page, target.getByLabel(staff.flags.resolutionCode), 'VERIFIED_MATCH');
+  await chooseValue(page, target.locator(`#rc-${flagId}`), 'VERIFIED_MATCH');
   await type(page, target.getByLabel(staff.flags.verifyRunJobId), jobId);
   await press(page, target.getByRole('button', { name: staff.flags.resolve }));
   await expectOk(page.locator('main'), staff.flags.resolved);

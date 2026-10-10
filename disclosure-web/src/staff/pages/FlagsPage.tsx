@@ -1,4 +1,5 @@
-// 준법 플래그 큐(listFlags): 필터(상태·유형·담당 역할 — 계약 enum)·쪽 넘김, 행마다 배정·해소(해소 코드 + 선택 검증 실행 ID).
+// 준법 플래그 큐(listFlags): 필터(상태·담당 역할 — 계약 enum, 유형 — 룰 어휘)·쪽 넘김, 행마다 배정·해소(그 유형의 해소 코드 — 룰 어휘 + 선택 검증
+// 실행 ID).
 // 검증 실행(VERIFY_TENANT)을 이 화면에서 접수·폴링하고 보고서를 보인 뒤 그 작업 ID를 해소 증거로 넣을 수 있다. 판단은 서버가 한다.
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type { components, operations } from '../../gen/disclosure-api';
@@ -6,7 +7,8 @@ import { staff } from '../../shared/messages.ko.json';
 import { outcome, useApi, write, type Outcome } from '../api/useApi';
 import { JobPanel } from '../components/JobPanel';
 import { ProblemView } from '../components/ProblemView';
-import { Choice, formText, label, ResultLine, useShown } from '../components/ui';
+import { useVocabularyOutcome } from '../api/vocabulary';
+import { Choice, CodeChoice, formText, label, ResultLine, useShown } from '../components/ui';
 
 type Flag = components['schemas']['Flag'];
 type Job = components['schemas']['Job'];
@@ -21,6 +23,9 @@ export function FlagsPage() {
   const [page, setPage] = useState<Outcome<components['schemas']['FlagPage']> | null>(null);
   const [verifyJob, setVerifyJob] = useState<Job | null>(null);
   const [shown, show] = useShown();
+  const vocabulary = useVocabularyOutcome();
+  const flagTypes = vocabulary !== null && vocabulary.ok ? vocabulary.data.flagTypes : [];
+  const resolutionCodes = (type: string) => flagTypes.find((t) => t.type === type)?.resolutionCodes ?? [];
 
   const load = useCallback((q: Query, append: boolean) => {
     void api.GET('/api/v1/flags', { params: { query: q } }).then((r) => {
@@ -69,7 +74,10 @@ export function FlagsPage() {
         <Choice id="f-role" name="assignedRole" legend={staff.flags.assignedRole} defaultValue=""
           options={[{ value: '', label: staff.common.any }, ...ROLES.map((s) => ({ value: s, label: label(staff.role, s) }))]} />
         <label htmlFor="f-type">{staff.flags.type}</label>
-        <input id="f-type" name="type" autoComplete="off" spellCheck={false} />
+        <select id="f-type" name="type" defaultValue="">
+          <option value="">{staff.common.any}</option>
+          {flagTypes.map((t) => <option key={t.type} value={t.type}>{t.type}</option>)}
+        </select>
         <button type="submit">{staff.common.apply}</button>
       </form>
       <section aria-labelledby="h-verify" className="panel">
@@ -105,8 +113,7 @@ export function FlagsPage() {
                   </td>
                   <td>
                     <form onSubmit={(e) => { resolve(e, f.flagId); }} autoComplete="off">
-                      <label htmlFor={`rc-${f.flagId}`}>{staff.flags.resolutionCode}</label>
-                      <input id={`rc-${f.flagId}`} name="resolutionCode" autoComplete="off" spellCheck={false} />
+                      <CodeChoice id={`rc-${f.flagId}`} name="resolutionCode" legend={staff.flags.resolutionCode} codes={resolutionCodes(f.type)} />
                       <label htmlFor={`vj-${f.flagId}`}>{staff.flags.verifyRunJobId}</label>
                       <input id={`vj-${f.flagId}`} name="verifyRunJobId" autoComplete="off" spellCheck={false} />
                       <button type="submit">{staff.flags.resolve}</button>

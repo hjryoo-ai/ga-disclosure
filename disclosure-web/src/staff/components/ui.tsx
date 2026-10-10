@@ -64,3 +64,23 @@ export function Choice({ id, name, legend, options, defaultValue }: {
     </fieldset>
   );
 }
+
+/** 룰 어휘의 닫힌 목록 하나(Phase 8 G9): 라디오 묶음, 기본 선택 없음(어느 칸도 미리 고르지 않는다). 폼 값은 고른 코드. */
+export function CodeChoice({ id, name, legend, codes }: { id: string; name: string; legend: string; codes: readonly { code: string; label: string }[] }) {
+  return <Choice id={id} name={name} legend={legend} defaultValue="" options={codes.map((c) => ({ value: c.code, label: c.label }))} />;
+}
+
+/** 여러 코드를 고르는 목록(추천사유 — 절대 규칙 7): 체크 상자, 미리 체크된 칸 없음. 폼 값은 고른 코드들(같은 name). */
+export function CodeChecks({ id, name, legend, codes }: { id: string; name: string; legend: string; codes: readonly { code: string; label: string }[] }) {
+  return (
+    <fieldset className="choice" id={id}>
+      <legend>{legend}</legend>
+      {codes.map((c) => (
+        <div className="inline" key={c.code}>
+          <input type="checkbox" id={`${id}-${c.code}`} name={name} value={c.code} />
+          <label htmlFor={`${id}-${c.code}`}>{c.label}</label>
+        </div>
+      ))}
+    </fieldset>
+  );
+}

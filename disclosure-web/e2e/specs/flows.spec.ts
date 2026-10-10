@@ -5,11 +5,14 @@
 // ③ 거부 화면: 쓰인 토큰·폐기된 토큰·틀린 토큰·쿼리 토큰 → 같은 한 화면, 공개 페이지 헤더
 // ④ 준법: 큐·배정·해소, 보류 걸기·해제(4-eyes — 건 사람의 해제는 거부), 보존 재계산 dry-run, 징구율 정의 문구
 // 버튼·입력은 키보드만(keyboard.ts) — 서명 패드만 마우스.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Page } from '@playwright/test';
 import { axe } from '../support/axe';
 import { expect, test } from '../support/fixtures';
-import { choose, chooseCode, toggle, type } from '../support/keyboard';
+import { choose, chooseCode, chooseValue, toggle, type } from '../support/keyboard';
 import { expectUnavailable, openLink, readDocument, remoteLink, signAndFinish, tokenOf, verifyBirthDate, draw } from '../support/sign';
+import { env, RUN } from '../support/env';
 import { expectOk, expectStatus, login, logout, nav, press, section, staff } from '../support/staff';
 
 const GROUP = 'PG-HEALTH-SIMPLE-NR';
@@ -50,8 +53,11 @@ async function draftToSeal(page: Page, customerRef: string, checkLabels: boolean
   await expectStatus(page, 'GRADED');
 
   const reasons = section(page, 'reasons');
-  await type(page, reasons.locator('#codes-1'), 'PREMIUM');
-  await type(page, reasons.locator('#codes-3'), 'COVERAGE');
+  // 사유 코드는 룰 어휘의 체크 상자(Phase 8 G9) — 미리 체크된 칸이 없다
+  await expect(reasons.locator('input[type="checkbox"]:checked')).toHaveCount(0);
+  await expect(reasons.locator('input[type="checkbox"][value="CUSTOMER_REQUEST"]')).toHaveCount(0);   // 시스템 부가 코드는 선택지가 아니다
+  await toggle(page, reasons.locator('#codes-1-PREMIUM'));
+  await toggle(page, reasons.locator('#codes-3-COVERAGE'));
   await press(page, reasons.getByRole('button', { name: staff.reasons.save }));
   await expectOk(reasons, staff.reasons.saved);
   await expectStatus(page, 'REASONED');
@@ -259,13 +265,13 @@ test('every unusable link shows the same single screen, and public pages are not
   for (const path of ['/staff', '/oidc-callback']) expect((await request.get(path)).headers()['cache-control']).toContain('no-store');
 });
 
-test('compliance: queue, assign and resolve, legal hold with four eyes, retention dry-run, collection rates', async ({ page, context, guard }, info) => {
+test('compliance: queue, assign and resolve, legal hold with four eyes, retention dry-run, collection rates', async ({ page, context, guard, request }, info) => {
   const first = shared.first;
   expect(first).toBeDefined();
   await login(page, 'DEMO1/demo-compliance');
   await nav(page, staff.nav.flags);
   await choose(page, page.locator('#f-status'), staff.flagStatus.OPEN);
-  await type(page, page.locator('#f-type'), 'IDENTITY_FAILED');
+  await chooseCode(page, page.locator('#f-type'), 'IDENTITY_FAILED');
   await press(page, page.getByRole('button', { name: staff.common.apply }));
   const row = page.locator('tr[data-flag-id]').first();
   await expect(row).toContainText('IDENTITY_FAILED');
@@ -276,18 +282,26 @@ test('compliance: queue, assign and resolve, legal hold with four eyes, retentio
   await expectOk(page.locator('main'), staff.flags.assigned);
   const flagId = (await row.getAttribute('data-flag-id')) ?? '';
   const target = page.locator(`tr[data-flag-id="${flagId}"]`);
-  await type(page, target.getByLabel(staff.flags.resolutionCode), 'CUSTOMER_CONTACTED');
+  await chooseValue(page, target.locator(`#rc-${flagId}`), 'CUSTOMER_CONTACTED');
   await press(page, target.getByRole('button', { name: staff.flags.resolve }));
   await expectOk(page.locator('main'), staff.flags.resolved);
 
   await nav(page, staff.nav.legalHolds);
   await axe(page, 'legal-holds', info);
   await type(page, page.locator('#h-disc'), first?.id ?? '');
-  await type(page, page.locator('#h-code'), 'CUSTOMER_COMPLAINT');
+  await chooseValue(page, page.locator('#h-code'), 'CUSTOMER_COMPLAINT');
   await press(page, page.getByRole('button', { name: staff.holds.placeSubmit }));
   await expectOk(page.locator('main'), staff.holds.placed);
+  // G9: 어휘는 선택지일 뿐 — 목록 밖 코드의 직접 요청(화면을 거치지 않음)은 어휘 API 전과 같은 거부다(서버 판정 불변)
+  await expect(page.locator('#h-code input[value="NOT_IN_THE_VOCABULARY"]')).toHaveCount(0);
+  const direct = await request.post(`${env().baseUrl}/api/v1/legal-holds`, {
+    headers: { Authorization: `Bearer ${readFileSync(resolve(RUN, 'compliance.jwt'), 'utf8').trim()}`, 'Idempotency-Key': `e2e-vocab-${String(Date.now())}` },
+    data: { disclosureId: first?.id ?? '', reasonCode: 'NOT_IN_THE_VOCABULARY' },
+  });
+  expect(direct.status()).toBe(422);
+  expect(await direct.text()).toContain('UNKNOWN_REASON');
   const hold = page.locator('tr').filter({ hasText: first?.id ?? '' }).first();
-  await type(page, hold.getByLabel(staff.holds.releaseCode), 'CASE_CLOSED');
+  await chooseValue(page, hold.locator('fieldset[id^="rl-"]'), 'CASE_CLOSED');
   await press(page, hold.getByRole('button', { name: staff.holds.release }));
   await expect(page.locator('main .result .problem')).toContainText('FOUR_EYES_REQUIRED');   // 건 사람의 해제는 거부(4-eyes) — 코드를 보인다
 
@@ -295,7 +309,7 @@ test('compliance: queue, assign and resolve, legal hold with four eyes, retentio
   await login(other, 'DEMO1/demo-compliance-2');
   await nav(other, staff.nav.legalHolds);
   const holdRow = other.locator('tr').filter({ hasText: first?.id ?? '' }).first();
-  await type(other, holdRow.getByLabel(staff.holds.releaseCode), 'CASE_CLOSED');
+  await chooseValue(other, holdRow.locator('fieldset[id^="rl-"]'), 'CASE_CLOSED');
   await press(other, holdRow.getByRole('button', { name: staff.holds.release }));
   await expectOk(other.locator('main'), staff.holds.released);
   await guard.shot(other, 'legal-hold-released');

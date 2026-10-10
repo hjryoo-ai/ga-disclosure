@@ -10,6 +10,8 @@ import { DisclosureListPage } from './pages/DisclosureListPage';
 import { FlagsPage } from './pages/FlagsPage';
 import { JobsPage } from './pages/JobsPage';
 import { LegalHoldsPage } from './pages/LegalHoldsPage';
+import { VocabularyProvider, useVocabularyOutcome } from './api/vocabulary';
+import { ProblemView } from './components/ProblemView';
 
 function Login() {
   const { login, pending, failed } = useAuth();
@@ -23,11 +25,17 @@ function Login() {
   );
 }
 
+/** 어휘를 못 읽었으면(예: 룰 없는 테넌트 503) 서버 응답을 그대로 보인다 — 사유 칸의 선택지가 빈다. */
+function VocabularyStatus() {
+  const v = useVocabularyOutcome();
+  return v === null || v.ok ? null : <div className="panel" data-testid="vocabulary-problem"><ProblemView status={v.status} problem={v.problem} /></div>;
+}
+
 function Shell() {
   const { session, logout } = useAuth();
   if (session === null) return <Login />;
   return (
-    <>
+    <VocabularyProvider>
       <header className="top">
         <p className="who">{staff.app.signedInAs} <code>{session.claims.tenant}</code> · <code>{session.claims.sub}</code></p>
         <nav aria-label={staff.nav.label}>
@@ -44,6 +52,7 @@ function Shell() {
         <button type="button" onClick={logout}>{staff.app.logout}</button>
       </header>
       <main id="main">
+        <VocabularyStatus />
         <Routes>
           <Route path="/" element={<DisclosureListPage />} />
           <Route path="/staff" element={<DisclosureListPage />} />
@@ -57,7 +66,7 @@ function Shell() {
           <Route path="*" element={<p>{staff.app.notFound}</p>} />
         </Routes>
       </main>
-    </>
+    </VocabularyProvider>
   );
 }
 

@@ -104,6 +104,12 @@ public class ApiErrorAdvice {
         return Problem.of(HttpStatus.CONFLICT, "CONCURRENT_WRITE");
     }
 
+    /** 룰 없는 테넌트의 룰 읽기(Phase 8 룰 어휘) — 쓰기의 503({@code TenantRulesInterceptor})과 같은 응답. */
+    @ExceptionHandler(com.ga.disclosure.workflow.onboarding.RulesNotInForceException.class)
+    ResponseEntity<byte[]> rulesNotInForce(com.ga.disclosure.workflow.onboarding.RulesNotInForceException e) {
+        return Problem.of(HttpStatus.SERVICE_UNAVAILABLE, "TENANT_RULES_NOT_ACTIVE");
+    }
+
     @ExceptionHandler(JobAlreadyRunningException.class)
     ResponseEntity<byte[]> jobRunning(JobAlreadyRunningException e) {
         return Problem.of(HttpStatus.CONFLICT, "JOB_ALREADY_RUNNING");

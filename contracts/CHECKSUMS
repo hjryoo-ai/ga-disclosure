@@ -1,5 +1,5 @@
 0b54dec789b198373b92f1327deef95fcd212e365293e45d34e15badf1c1b10b  api/v1/demo-oidc.openapi.yaml
-d9b26737d99fcccc4d3201b7aebca0f676074e3cae458be583a6596501fa0622  api/v1/disclosure-api.openapi.yaml
+c85d1048e217f03be8cfa831ad92d7c1065247d7ba6e586e0082dea1e2389f01  api/v1/disclosure-api.openapi.yaml
 746114033fff50e3fce2a39cab73ee50f9f1d9d938307d893f3cce415b666f44  api/v1/disclosure-internal.openapi.yaml
 cd097046267baf109a678149b1fb7c25738bb93fa3b28ff7d64b1ea1d847bcee  api/v1/disclosure-public.openapi.yaml
 f58d74b0cabeeb614491047d8dc38bfc32936f3b70d99615bd449940ad107ea8  api/v1/engine-disclosure.openapi.yaml

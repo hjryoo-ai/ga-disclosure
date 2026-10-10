@@ -673,6 +673,47 @@ class ContractSchemaTest {
 
     // ------------------------------------------------------------------ OpenAPI
 
+    /**
+     * G9·G13(Phase 8 "어휘 API가 임계치 반환"): 룰 어휘 응답 스키마는 닫힌 객체이고, 참조를 따라간 하위 어디에도 수·불리언 타입이 없다 — 한도·임계치·기한·
+     * 가시성·텍스트 필수 여부를 실을 칸 자체가 없다.
+     */
+    @Test
+    void theRuleVocabularyCarriesNoNumberOrBooleanAnywhere() throws IOException {
+        JsonNode api = YAML.readTree(readString("api/v1/disclosure-api.openapi.yaml"));
+        JsonNode root = api.at("/components/schemas/RuleVocabulary");
+        assertThat(root.isMissingNode()).isFalse();
+        assertThat(root.path("additionalProperties").asBoolean(true)).isFalse();
+        List<String> found = new ArrayList<>();
+        scalarTypes(api, root, "RuleVocabulary", new java.util.HashSet<>(), found);
+        assertThat(found).as("types under RuleVocabulary").isNotEmpty().allMatch(t -> t.endsWith("=string"));
+    }
+
+    private static void scalarTypes(JsonNode api, JsonNode node, String at, java.util.Set<String> seen, List<String> out) {
+        if (node.isObject()) {
+            JsonNode ref = node.get("$ref");
+            if (ref != null) {
+                String pointer = ref.asString().substring(1);
+                if (seen.add(pointer)) {
+                    scalarTypes(api, api.at(pointer), pointer, seen, out);
+                }
+                return;
+            }
+            JsonNode type = node.get("type");
+            if (type != null && type.isString() && !type.asString().equals("object") && !type.asString().equals("array")) {
+                out.add(at + "=" + type.asString());
+            }
+            for (java.util.Map.Entry<String, JsonNode> e : node.properties()) {
+                if (e.getValue().isObject() || e.getValue().isArray()) {
+                    scalarTypes(api, e.getValue(), at + "/" + e.getKey(), seen, out);
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode n : node) {
+                scalarTypes(api, n, at, seen, out);
+            }
+        }
+    }
+
     @Test
     void openApiDocumentsParseAndDeclareExpectedOperations() throws IOException {
         JsonNode engine = YAML.readTree(Files.readString(CONTRACTS.resolve("api/v1/engine-disclosure.openapi.yaml")));

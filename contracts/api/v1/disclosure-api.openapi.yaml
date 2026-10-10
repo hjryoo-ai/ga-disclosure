@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.10.0
+  version: 2.11.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -14,6 +14,8 @@ info:
     - 2.8.0(Phase 7): 설계사의 플래그 조회 — 자기 확인서의 플래그 중 열릴 때 룰이 설계사 가시로 정한 것만(승인 Q1, 거르는 곳은 서버).
       고정 서식의 화면 문구 `getDisclosureTemplate`(승인 Q3). 워터마크 미리보기 `getPreviewPdf`(계획 ⑥).
     - 2.9.0(Phase 8): 작업 조회의 종류에 `KEK_REWRAP`(운영자 CLI 전용 작업 — 제출 경로 `JobKind`에는 없다). 추가형.
+    - 2.10.0(Phase 8): 룰 없는 테넌트의 쓰기 503 `TENANT_RULES_NOT_ACTIVE`(응답 `Problem` 설명). 추가형.
+    - 2.11.0(Phase 8): 룰 어휘 `getRuleVocabulary` — 오늘 시행 중인 룰의 닫힌 코드 목록만(코드·표기), 수·불리언 칸 없음. 추가형.
 servers:
   - url: https://disclosure.example
 security:
@@ -530,6 +532,20 @@ paths:
         '200':
           description: 검색 결과(쪽 나눔 없음)
           content: { application/json: { schema: { $ref: '#/components/schemas/CatalogProductList' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/rules/vocabulary:
+    get:
+      operationId: getRuleVocabulary
+      summary: >-
+        (2.11.0, Phase 8) 룰 어휘(설계사·관리자·준법) — 오늘(KST) 시행 중인 룰(GLOBAL + 사규)의 닫힌 목록에서 코드와 표기만, 룰 순서 그대로. 추천사유 코드는
+        시스템 부가 코드를 뺀다. 한도·임계치·기한·보존·가시성·텍스트 필수 여부는 주지 않는다 — 화면은 선택 입력을 만들 뿐이고 판정은 쓰기 경로의 서버가
+        한다(목록 밖 코드는 지금처럼 거부). 무효·정정은 그 문서의 고정 룰로 판정한다. 시행 중인 룰이 없으면 503 `TENANT_RULES_NOT_ACTIVE`. 감사 없음.
+      responses:
+        '200':
+          description: 어휘. `ETag` = 날짜·병합 룰 본문의 해시
+          headers:
+            ETag: { schema: { type: string } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/RuleVocabulary' } } }
         default: { $ref: '#/components/responses/Problem' }
   /api/v1/collection-rates:
     get:
@@ -1137,6 +1153,40 @@ components:
       properties:
         customerRef: { type: string, pattern: '^CR-[0-9a-f]{32}$', description: 고객 가명 참조(개인정보 아님) }
         receiptId: { $ref: '#/components/schemas/Uuid' }
+    RuleVocabulary:
+      type: object
+      additionalProperties: false
+      description: 닫힌 코드 목록만 — 이 객체와 하위 객체에 수·불리언 칸이 없다(계약 시험이 단언).
+      required: [asOf, reasonCodes, voidReasons, supersedeReasons, legalHoldReasons, legalHoldReleaseReasons, draftAbandonReasons, flagTypes, channels,
+                 signerRoles]
+      properties:
+        asOf: { $ref: '#/components/schemas/Date' }
+        reasonCodes: { $ref: '#/components/schemas/CodeLabelList' }
+        voidReasons: { $ref: '#/components/schemas/CodeLabelList' }
+        supersedeReasons: { $ref: '#/components/schemas/CodeLabelList' }
+        legalHoldReasons: { $ref: '#/components/schemas/CodeLabelList' }
+        legalHoldReleaseReasons: { $ref: '#/components/schemas/CodeLabelList' }
+        draftAbandonReasons: { $ref: '#/components/schemas/CodeLabelList' }
+        flagTypes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [type, resolutionCodes]
+            properties:
+              type: { $ref: '#/components/schemas/Code' }
+              resolutionCodes: { $ref: '#/components/schemas/CodeLabelList' }
+        channels: { type: array, items: { type: string, enum: [TOUCH_PAD, REMOTE_LINK, PAPER_SCAN, CERTIFIED_ESIGN] } }
+        signerRoles: { type: array, items: { type: string, enum: [CUSTOMER, AGENT, MANAGER] } }
+    CodeLabelList:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [code, label]
+        properties:
+          code: { $ref: '#/components/schemas/Code' }
+          label: { type: string, minLength: 1 }
     CatalogProductList:
       type: object
       additionalProperties: false
