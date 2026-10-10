@@ -135,6 +135,19 @@ export const test = base.extend<{ guard: Guard }>({
       sentinels: s,
     });
 
+    // 실패한 시험: Playwright가 컨텍스트를 닫으며 error-context.md에 쓰는 페이지 스냅샷보다 먼저(이 고정 장치는 context에 의존하므로 정리가 먼저 돈다)
+    // 입력 칸 값을 지운다 — 시험이 넣은 허구 개인정보가 실패 산출물에 남지 않게(Phase 8 계획 ③-x-4). 남은 것은 run.mjs 산출물 스캔이 잡는다.
+    if (info.status !== info.expectedStatus) {
+      for (const p of w.pages) {
+        if (p.isClosed()) continue;
+        await p.evaluate(() => {
+          for (const el of document.querySelectorAll('input, textarea')) {
+            if (el instanceof HTMLInputElement && ['checkbox', 'radio', 'file', 'submit', 'button', 'hidden'].includes(el.type)) continue;
+            (el as HTMLInputElement | HTMLTextAreaElement).value = '';
+          }
+        }).catch(() => undefined);
+      }
+    }
     const storage = [...closedStorage, ...(await Promise.all(w.pages.map(storageOf))).flat()];
     const cookies = (await context.cookies()).map((c) => `${c.name}=${c.value}`);
     await new Promise((r) => setTimeout(r, 300));                          // 마지막 응답 헤더 수집

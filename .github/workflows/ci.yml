@@ -71,9 +71,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-reports
+          # Phase 8: HTML 보고서는 만들지 않는다 — 단계 제목이 입력값을 싣는다(키보드 API의 'Type "<값>"'). 산출물 전체는 run.mjs가 센티널로 스캔한다
           path: |
-            disclosure-web/build/e2e/report/**
             disclosure-web/build/e2e/junit.xml
+            disclosure-web/build/e2e/artifact-scan.json
             disclosure-web/build/e2e/*-summary.json
             disclosure-web/build/e2e/leak-scan/**
             disclosure-web/build/e2e/axe/**
