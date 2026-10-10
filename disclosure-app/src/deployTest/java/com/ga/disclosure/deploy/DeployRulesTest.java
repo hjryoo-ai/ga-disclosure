@@ -30,8 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 배포 린트 — 우리 규칙(Phase 8 ③, G4·G13). 렌더 결과를 본다.
  * <ul>
- *   <li>Q5 3중 분리: 공개 클래스 라우트에 {@code /internal}·내부 서비스·8081이 없고, 내부 라우트는 mTLS 옵션 + 내부 서비스뿐, NetworkPolicy는 8081을 내부
- *       진입점 파드에만(주입 "공개 인그레스에 /internal").</li>
+ *   <li>Q5 3중 분리: 공개 컨트롤러의 라우트에 {@code /internal}·내부 서비스·8081이 없고, 내부 컨트롤러는 모든 연결에 클라이언트 인증서, NetworkPolicy는
+ *       8081을 내부 진입점 파드에만(주입 "공개 인그레스에 /internal"). 컨트롤러는 자기 네임스페이스만, 클러스터 범위 권한 0, 공개 서비스는 원 IP 보존.</li>
  *   <li>모든 라우트의 첫 미들웨어가 인증서 주체 헤더 지움(앱이 믿는 헤더 이름과 같은 이름), 공개 서명 API는 IP 한도·크기 한도.</li>
  *   <li>이미지는 digest로만, 제3자 이미지는 tools.lock의 줄 그대로. 저장소에 들인 사본(CRD·RBAC)은 tools.lock 해시와 같다.</li>
  *   <li>파드: 비루트·권한 상승 없음·읽기 전용 루트·능력 전부 버림, 우리 파드는 SA 토큰 자동 마운트 끔. 비밀 볼륨은 items(Secret 키 → 비밀 이름 경로)를
@@ -50,67 +50,82 @@ class DeployRulesTest {
         return route.path("metadata").path("annotations").path("kubernetes.io/ingress.class").asString("");
     }
 
+    static String namespace(JsonNode doc) {
+        return doc.path("metadata").path("namespace").asString("");
+    }
+
+    /** 라우트의 서비스 → 앱 쪽 대상(같은 네임스페이스의 ExternalName 서비스가 가리키는 {@code <서비스>.ga-disclosure.svc.cluster.local}:포트). */
+    static String target(List<JsonNode> docs, JsonNode route, JsonNode service) {
+        JsonNode svc = ofKind(docs, "Service").filter(d -> namespace(d).equals(namespace(route)) && name(d).equals(service.path("name").asString()))
+                .findFirst().orElse(null);
+        if (svc == null || !svc.path("spec").path("type").asString("").equals("ExternalName")) {
+            return "not an ExternalName service in " + namespace(route) + ": " + service.path("name").asString();
+        }
+        return svc.path("spec").path("externalName").asString() + ":" + service.path("port").asString();
+    }
+
+    /**
+     * Q5 인그레스 겹 + 9b 커밋 보안 검토 셋: 공개 컨트롤러(ga-ingress)의 라우트는 앱 8080·웹만, 내부 컨트롤러(ga-ingress-internal)는 /internal → 앱 8081만.
+     * 컨트롤러마다 자기 네임스페이스만 지켜보고, 내부 네임스페이스의 기본 TLS 옵션이 mTLS(라우트별 옵션은 SNI로 골라져 Host 규칙 없는 라우트에서 빠질
+     * 수 있었다). 평문 진입점 0.
+     */
     @ParameterizedTest
     @FieldSource("OVERLAYS")
-    void publicRoutesNeverReachTheInternalPortAndTheInternalRouteNeedsAClientCertificate(String overlay) {
+    void publicRoutesNeverReachTheInternalPortAndEveryInternalConnectionNeedsAClientCertificate(String overlay) {
         List<JsonNode> docs = docs(overlay);
         List<JsonNode> routes = ofKind(docs, "IngressRoute").toList();
         assertThat(routes).isNotEmpty();
+        Map<String, String> namespaceOf = Map.of(PUBLIC_CLASS, "ga-ingress", INTERNAL_CLASS, "ga-ingress-internal");
         List<String> bad = new ArrayList<>();
         for (JsonNode r : routes) {
             String cls = ingressClass(r);
             List<String> entryPoints = Manifests.strings(r.path("spec").path("entryPoints"));
-            switch (cls) {
-                case PUBLIC_CLASS -> {
-                    if (!entryPoints.equals(List.of("websecure"))) {
-                        bad.add(name(r) + ": public entry points " + entryPoints);
-                    }
-                    for (JsonNode rule : r.path("spec").path("routes")) {
-                        if (rule.path("match").asString().toLowerCase(java.util.Locale.ROOT).contains("internal")) {
-                            bad.add(name(r) + ": public match " + rule.path("match").asString());
-                        }
-                        for (JsonNode s : rule.path("services")) {
-                            String target = s.path("name").asString() + ":" + s.path("port").asString();
-                            if (!Set.of("ga-app:8080", "ga-web:8080").contains(target)) {
-                                bad.add(name(r) + ": public service " + target);
-                            }
-                        }
-                    }
-                }
-                case INTERNAL_CLASS -> {
-                    if (!entryPoints.equals(List.of("internal"))) {
-                        bad.add(name(r) + ": internal entry points " + entryPoints);
-                    }
-                    for (JsonNode rule : r.path("spec").path("routes")) {
-                        if (!rule.path("match").asString().equals("PathPrefix(`/internal/`)")) {
-                            bad.add(name(r) + ": internal match " + rule.path("match").asString());
-                        }
-                        for (JsonNode s : rule.path("services")) {
-                            String target = s.path("name").asString() + ":" + s.path("port").asString();
-                            if (!target.equals("ga-app-internal:8081")) {
-                                bad.add(name(r) + ": internal service " + target);
-                            }
-                        }
-                    }
-                    String option = r.path("spec").path("tls").path("options").path("name").asString("");
-                    JsonNode tlsOption = ofKind(docs, "TLSOption").filter(Manifests.named(option)).findFirst().orElse(null);
-                    if (tlsOption == null || !tlsOption.path("spec").path("clientAuth").path("clientAuthType").asString().equals("RequireAndVerifyClientCert")
-                            || tlsOption.path("spec").path("clientAuth").path("secretNames").isEmpty()) {
-                        bad.add(name(r) + ": internal route without a required client certificate");
-                    }
-                }
-                default -> bad.add(name(r) + ": ingress class '" + cls + "' (want " + PUBLIC_CLASS + " or " + INTERNAL_CLASS + ")");
+            if (!namespace(r).equals(namespaceOf.getOrDefault(cls, "?"))) {
+                bad.add(name(r) + ": class '" + cls + "' in namespace " + namespace(r));
+                continue;
             }
-            if (r.path("spec").path("tls").path("secretName").asString("").isEmpty()) {
-                bad.add(name(r) + ": no TLS");
+            boolean pub = cls.equals(PUBLIC_CLASS);
+            if (!entryPoints.equals(List.of(pub ? "websecure" : "internal"))) {
+                bad.add(name(r) + ": entry points " + entryPoints);
+            }
+            for (JsonNode rule : r.path("spec").path("routes")) {
+                String match = rule.path("match").asString();
+                if (pub ? match.toLowerCase(java.util.Locale.ROOT).contains("internal") : !match.equals("PathPrefix(`/internal/`)")) {
+                    bad.add(name(r) + ": match " + match);
+                }
+                for (JsonNode s : rule.path("services")) {
+                    String t = target(docs, r, s);
+                    Set<String> allowed = pub ? Set.of("ga-app.ga-disclosure.svc.cluster.local:8080", "ga-web.ga-disclosure.svc.cluster.local:8080")
+                            : Set.of("ga-app-internal.ga-disclosure.svc.cluster.local:8081");
+                    if (!allowed.contains(t)) {
+                        bad.add(name(r) + ": service " + t);
+                    }
+                }
+            }
+            if (r.path("spec").path("tls").path("secretName").asString("").isEmpty() || r.path("spec").path("tls").has("options")) {
+                bad.add(name(r) + ": TLS secret missing or a per-route TLS option (the namespace default decides)");
             }
         }
-        // 컨트롤러마다 자기 클래스만, 공개 컨트롤러의 진입점은 TLS 하나(평문 진입점 없음)
+        // 공개 네임스페이스에 내부 포트로 가는 서비스 0
+        ofKind(docs, "Service").filter(d -> namespace(d).equals("ga-ingress")).forEach(d -> {
+            if (d.path("spec").path("externalName").asString("").startsWith("ga-app-internal.") || stream(d.path("spec").path("ports")).anyMatch(pt -> pt.path("port").asInt() == 8081)) {
+                bad.add("ga-ingress/" + name(d) + ": reaches the internal port");
+            }
+        });
+        // 내부 네임스페이스의 TLS 옵션은 default 하나 = 클라이언트 인증서 필수
+        List<JsonNode> internalOptions = ofKind(docs, "TLSOption").filter(d -> namespace(d).equals("ga-ingress-internal")).toList();
+        if (internalOptions.size() != 1 || !name(internalOptions.getFirst()).equals("default")
+                || !internalOptions.getFirst().path("spec").path("clientAuth").path("clientAuthType").asString().equals("RequireAndVerifyClientCert")
+                || internalOptions.getFirst().path("spec").path("clientAuth").path("secretNames").isEmpty()) {
+            bad.add("ga-ingress-internal: the default TLS option must require a verified client certificate");
+        }
+        // 컨트롤러: 자기 네임스페이스·자기 클래스만, 모든 진입점 TLS(평문 없음)
         for (JsonNode d : ofKind(docs, "Deployment").filter(d -> name(d).startsWith("traefik-")).toList()) {
             List<String> args = Manifests.strings(d.path("spec").path("template").path("spec").path("containers").get(0).path("args"));
             String cls = name(d).equals("traefik-public") ? PUBLIC_CLASS : INTERNAL_CLASS;
-            if (!args.contains("--providers.kubernetescrd.ingressclass=" + cls)) {
-                bad.add(name(d) + ": ingress class filter");
+            if (!namespace(d).equals(namespaceOf.get(cls)) || !args.contains("--providers.kubernetescrd.ingressclass=" + cls)
+                    || !args.contains("--providers.kubernetescrd.namespaces=" + namespaceOf.get(cls))) {
+                bad.add(name(d) + ": must watch only " + namespaceOf.get(cls) + " and class " + cls);
             }
             List<String> entries = args.stream().filter(a -> a.matches("--entrypoints\\.[a-z]+\\.address=.*")).map(a -> a.split("\\.")[1]).filter(e -> !e.equals("ping")).toList();
             for (String e : entries) {
@@ -120,6 +135,35 @@ class DeployRulesTest {
             }
         }
         assertThat(bad).isEmpty();
+    }
+
+    /** 9b 커밋 보안 검토: 클러스터 범위 권한 0, 바인딩은 자기 네임스페이스의 SA에만, 앱 네임스페이스에는 바인딩 0(인그레스가 앱 Secret을 읽을 길 없음). */
+    @ParameterizedTest
+    @FieldSource("OVERLAYS")
+    void noControllerCanReadTheAppNamespaceSecrets(String overlay) {
+        List<JsonNode> docs = docs(overlay);
+        assertThat(ofKind(docs, "ClusterRole").map(Manifests::name)).isEmpty();
+        assertThat(ofKind(docs, "ClusterRoleBinding").map(Manifests::name)).isEmpty();
+        List<String> bad = new ArrayList<>();
+        ofKind(docs, "RoleBinding").forEach(b -> {
+            if (namespace(b).equals("ga-disclosure")) {
+                bad.add(name(b) + ": binding in the app namespace");
+            }
+            stream(b.path("subjects")).filter(sub -> !sub.path("namespace").asString("").equals(namespace(b)))
+                    .forEach(sub -> bad.add(name(b) + ": subject from " + sub.path("namespace").asString()));
+        });
+        assertThat(bad).isEmpty();
+    }
+
+    /** 9b 커밋 보안 검토: IP 단위 한도의 키는 연결의 원격 주소 — 공개 서비스는 원 IP를 보존해야 한다(Cluster 정책이면 노드 IP로 SNAT). */
+    @ParameterizedTest
+    @FieldSource("OVERLAYS")
+    void thePublicEntryPointKeepsTheClientAddress(String overlay) {
+        JsonNode svc = ofKind(docs(overlay), "Service").filter(d -> namespace(d).equals("ga-ingress") && name(d).equals("traefik-public")).findFirst().orElseThrow();
+        assertThat(svc.path("spec").path("type").asString()).isIn("NodePort", "LoadBalancer");
+        assertThat(svc.path("spec").path("externalTrafficPolicy").asString("")).isEqualTo("Local");
+        JsonNode rate = ofKind(docs(overlay), "Middleware").filter(Manifests.named("sign-rate-limit")).findFirst().orElseThrow().path("spec").path("rateLimit");
+        assertThat(rate.path("sourceCriterion").path("ipStrategy").path("depth").asInt(-1)).as("X-Forwarded-For is not trusted").isZero();
     }
 
     @ParameterizedTest
@@ -152,7 +196,7 @@ class DeployRulesTest {
             }
         }
         String publicIngress = "{\"kubernetes.io/metadata.name\":\"ga-ingress\"}{\"app.kubernetes.io/name\":\"traefik-public\"}";
-        String internalIngress = "{\"kubernetes.io/metadata.name\":\"ga-ingress\"}{\"app.kubernetes.io/name\":\"traefik-internal\"}";
+        String internalIngress = "{\"kubernetes.io/metadata.name\":\"ga-ingress-internal\"}{\"app.kubernetes.io/name\":\"traefik-internal\"}";
         assertThat(bad).isEmpty();
         assertThat(sourcesByPort).containsEntry("ga-app:8080", Set.of(publicIngress)).containsEntry("ga-app:8081", Set.of(internalIngress))
                 .containsEntry("ga-web:8080", Set.of(publicIngress)).containsOnlyKeys("ga-app:8080", "ga-app:8081", "ga-app:8082", "ga-web:8080");
@@ -166,12 +210,14 @@ class DeployRulesTest {
         String header = ofKind(docs, "ConfigMap").filter(c -> name(c).startsWith("ga-app-config")).findFirst().orElseThrow()
                 .path("data").path("GA_CLIENT_CERT_SUBJECT_HEADER").asString("");
         assertThat(header).isNotBlank();
-        JsonNode strip = ofKind(docs, "Middleware").filter(Manifests.named(STRIP)).findFirst().orElseThrow();
-        JsonNode set = strip.path("spec").path("headers").path("customRequestHeaders");
-        assertThat(set.has(header)).as("strip middleware removes " + header).isTrue();
-        assertThat(set.path(header).asString()).isEmpty();
         List<String> bad = new ArrayList<>();
         for (JsonNode r : ofKind(docs, "IngressRoute").toList()) {
+            // 미들웨어는 라우트의 네임스페이스에서 찾는다 — 그 네임스페이스의 지움 미들웨어가 앱이 믿는 헤더 이름을 지워야 한다
+            JsonNode set = ofKind(docs, "Middleware").filter(m -> namespace(m).equals(namespace(r)) && name(m).equals(STRIP)).findFirst()
+                    .map(m -> m.path("spec").path("headers").path("customRequestHeaders")).orElse(null);
+            if (set == null || !set.has(header) || !set.path(header).asString().isEmpty()) {
+                bad.add(namespace(r) + ": no " + STRIP + " middleware that removes " + header);
+            }
             for (JsonNode rule : r.path("spec").path("routes")) {
                 List<String> mws = stream(rule.path("middlewares")).map(m -> m.path("name").asString()).toList();
                 if (mws.isEmpty() || !mws.getFirst().equals(STRIP)) {
@@ -211,7 +257,14 @@ class DeployRulesTest {
     @org.junit.jupiter.api.Test
     void vendoredFilesMatchTheirLockedHashes() throws Exception {
         List<ToolsLock> files = ToolsLock.rows().stream().filter(ToolsLock::isRepoFile).toList();
-        assertThat(files).extracting(ToolsLock::name).contains("traefik-crds", "traefik-rbac", "eso-crd-externalsecrets", "eso-crd-secretstores");
+        // 양방향: 저장소에 들인 상류 사본(components/*/traefik·crds) = tools.lock의 파일 줄 — 지운 사본의 줄이 남아도, 줄 없는 사본이 있어도 실패
+        java.util.Set<String> vendored = new TreeSet<>();
+        try (var walk = java.nio.file.Files.walk(Manifests.repoRoot().resolve("deploy/components"))) {
+            walk.filter(java.nio.file.Files::isRegularFile).map(f -> Manifests.repoRoot().relativize(f).toString())
+                    .filter(f -> f.contains("/traefik/") || f.contains("/crds/")).forEach(vendored::add);
+        }
+        assertThat(files).extracting(ToolsLock::ref).containsExactlyInAnyOrderElementsOf(vendored);
+        assertThat(vendored).hasSize(3);
         for (ToolsLock f : files) {
             byte[] bytes = java.nio.file.Files.readAllBytes(Manifests.repoRoot().resolve(f.ref()));
             assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))).as(f.ref()).isEqualTo(f.sha256());

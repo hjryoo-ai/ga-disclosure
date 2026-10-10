@@ -11,7 +11,6 @@ kubectl      v1.37.1  linux-amd64   https://dl.k8s.io/release/v1.37.1/bin/linux/
 kindest-node v1.37.0  any  kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5                                  -
 traefik      v3.7.14  any  traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c                                      -
 traefik-crds v3.7.14  any  deploy/components/ingress/traefik/kubernetes-crd-definition-v1.yml                                                         ecbe44ea9b011cda1b562716175b882d59cf6561fe6d3e5832df7ee072687d17
-traefik-rbac v3.7.14  any  deploy/components/ingress/traefik/kubernetes-crd-rbac.yml                                                                  01e592c73d42c225351fe41b40162fc77ec5239773e7d7be81d40bba08f65f27
 # 쿠버네티스 스키마(kubeconform -schema-location): yannh/kubernetes-json-schema의 커밋 고정 URL(2026-10-10 master 머리) — 이 커밋의 v1.37.1-standalone-strict
 k8s-schemas  v1.37.1  any  https://raw.githubusercontent.com/yannh/kubernetes-json-schema/5f1fa4f7908afc9b6641c62d282a4a22437626e1                    -
 # 운영 비밀(ESO v2.12.0 — Apache-2.0): 스키마 린트용 CRD 사본(설치하지 않는다)

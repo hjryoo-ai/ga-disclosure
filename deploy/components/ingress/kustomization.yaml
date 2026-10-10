@@ -1,20 +1,17 @@
-# 인그레스(Phase 8 ③, 승인 Q4·Q5): Traefik v3.7.14(MIT — tools.lock에 digest·CRD 사본 해시). 진입점 셋을 컨트롤러 둘로 나눈다 —
-#   traefik-public(공개 A staff·B sign, IngressRoute 클래스 ga-public)·traefik-internal(클러스터 내부 C, mTLS, 클래스 ga-internal).
-#   둘로 나누는 이유: /internal의 3중 분리(인그레스 미노출 + NetworkPolicy + 앱 포트 분리) 중 NetworkPolicy가 "내부 진입점 파드만 8081"을
-#   파드 라벨로 가를 수 있어야 한다 — 한 컨트롤러가 셋을 다 받으면 그 겹이 사라진다.
+# 인그레스(Phase 8 ③, 승인 Q4·Q5): Traefik v3.7.14(MIT — tools.lock에 digest·CRD 사본 해시). 진입점 셋을 컨트롤러 둘로, 컨트롤러마다 자기 네임스페이스:
+#   ga-ingress          traefik-public   — 공개 A(staff)·B(sign), IngressRoute 클래스 ga-public
+#   ga-ingress-internal traefik-internal — 클러스터 내부 C(/internal, mTLS), 클래스 ga-internal
+# 둘로 나누는 이유: /internal 3중 분리(인그레스 미노출 + NetworkPolicy + 앱 포트 분리) 중 NetworkPolicy가 "내부 진입점 파드만 8081"을 가를 수 있어야 한다.
+# 네임스페이스를 나누는 이유(9b 커밋 보안 검토):
+#   ① 권한 — 각 컨트롤러는 자기 네임스페이스만 지켜보고 그 네임스페이스의 Role만 가진다. 상류 RBAC(ClusterRole — 모든 네임스페이스의 Secret 읽기)를 쓰면
+#      인터넷에 닿는 Traefik 파드가 ga-disclosure의 KEK·DB 자격 증명 Secret을 읽을 수 있었다. 앱 서비스에는 ExternalName 서비스(같은 네임스페이스)로 닿는다.
+#   ② mTLS — 내부 네임스페이스의 TLSOption 이름이 default라 내부 컨트롤러의 모든 TLS 연결이 클라이언트 인증서를 요구한다(SNI·Host와 무관). 라우트에
+#      옵션을 다는 방식은 Traefik이 SNI로 옵션을 고르므로 Host 규칙 없는 라우트에서 기본 옵션(인증서 불요)으로 떨어질 수 있었다.
 # ingress-nginx는 쓰지 않는다: kubernetes/ingress-nginx 저장소는 GitHub에서 보관(archived) 상태다(2026-10-10 GitHub API repos/kubernetes/ingress-nginx
 #   — archived=true, 마지막 push 2026-03-23, 마지막 릴리스 controller-v1.15.1 2026-03-19).
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
-  - namespace.yaml
   - traefik/kubernetes-crd-definition-v1.yml
-  - traefik/kubernetes-crd-rbac.yml
-  - controllers.yaml
-  - routes.yaml
-patches:
-  - target: { kind: ClusterRoleBinding, name: traefik-ingress-controller }
-    patch: |-
-      - op: replace
-        path: /subjects/0/namespace
-        value: ga-ingress
+  - public.yaml
+  - internal.yaml

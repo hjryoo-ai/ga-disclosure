@@ -1,0 +1,225 @@
+# 공개 진입점(A 직원·B 서명). 평문 HTTP 진입점은 없다(TLS만). 서비스 형태는 오버레이가 바꾼다(kind = NodePort, 운영 = LoadBalancer).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ga-ingress
+  labels:
+    app.kubernetes.io/part-of: ga-disclosure
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# 권한은 이 네임스페이스 안만(ClusterRole 없음 — 앱 네임스페이스의 Secret에 닿지 않는다). 읽는 Secret은 이 네임스페이스의 TLS·CA뿐.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik
+  namespace: ga-ingress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: traefik
+  namespace: ga-ingress
+rules:
+  - apiGroups: [""]
+    resources: [services, secrets, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list, watch]
+  - apiGroups: [traefik.io]
+    resources: [middlewares, middlewaretcps, ingressroutes, traefikservices, ingressroutetcps, ingressrouteudps, tlsoptions, tlsstores, serverstransports, serverstransporttcps]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: traefik
+  namespace: ga-ingress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: traefik
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: ga-ingress
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-public
+  namespace: ga-ingress
+  labels: &traefik_public
+    app.kubernetes.io/name: traefik-public
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-public
+  template:
+    metadata:
+      labels: *traefik_public
+    spec:
+      serviceAccountName: traefik
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traefik
+          image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+          args:
+            - --entrypoints.websecure.address=:8443
+            - --entrypoints.websecure.http.tls=true
+            - --providers.kubernetescrd
+            - --providers.kubernetescrd.namespaces=ga-ingress
+            - --providers.kubernetescrd.ingressclass=ga-public
+            - --providers.kubernetescrd.allowexternalnameservices=true
+            - --ping
+            - --entrypoints.ping.address=:8082
+            - --ping.entrypoint=ping
+            - --log.format=json
+            - --accesslog=true
+            - --accesslog.format=json
+            - --accesslog.fields.headers.defaultmode=drop
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+          ports:
+            - { name: websecure, containerPort: 8443 }
+            - { name: ping, containerPort: 8082 }
+          readinessProbe:
+            httpGet: { path: /ping, port: ping }
+          livenessProbe:
+            httpGet: { path: /ping, port: ping }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-public
+  namespace: ga-ingress
+spec:
+  type: NodePort
+  # 클라이언트 원 IP 보존(IP 단위 한도의 키 — 9b 커밋 보안 검토): Cluster 정책이면 다른 노드를 거친 요청의 출발지가 노드 IP로 바뀌어
+  # 모든 클라이언트가 한 버킷을 나눠 쓴다. X-Forwarded-For는 믿지 않는다(한도의 ipStrategy depth 0 = 원격 주소).
+  externalTrafficPolicy: Local
+  selector: { app.kubernetes.io/name: traefik-public }
+  ports:
+    - { name: websecure, port: 8443, targetPort: websecure, nodePort: 30443 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-app
+  namespace: ga-ingress
+spec:
+  type: ExternalName
+  externalName: ga-app.ga-disclosure.svc.cluster.local
+  ports:
+    - { name: http, port: 8080 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-web
+  namespace: ga-ingress
+spec:
+  type: ExternalName
+  externalName: ga-web.ga-disclosure.svc.cluster.local
+  ports:
+    - { name: http, port: 8080 }
+---
+# 인증서 주체 헤더(ga.api.client-cert.subject-header)는 진입점에서 언제나 지운다 — 밖에서 온 같은 이름 헤더를 앱이 믿지 않게.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-client-cert
+  namespace: ga-ingress
+spec:
+  headers:
+    customRequestHeaders:
+      X-Client-Cert-Subject: ""
+---
+# 공개 서명(B): IP 단위 한도(앱의 테넌트 한도와 별도 — 인증 전 경로라 IP로, 키는 연결의 원격 주소)와 요청 크기 한도
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sign-rate-limit
+  namespace: ga-ingress
+spec:
+  rateLimit:
+    average: 30
+    period: 1m
+    burst: 30
+    sourceCriterion:
+      ipStrategy:
+        depth: 0
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sign-body-limit
+  namespace: ga-ingress
+spec:
+  buffering:
+    maxRequestBodyBytes: 1048576
+---
+# A — 직원 화면과 사람 역할 API
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: staff
+  namespace: ga-ingress
+  annotations:
+    kubernetes.io/ingress.class: ga-public
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`staff.ga.example.invalid`) && PathPrefix(`/api/`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }]
+      services: [{ name: ga-app, port: 8080 }]
+    - match: Host(`staff.ga.example.invalid`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }]
+      services: [{ name: ga-web, port: 8080 }]
+  tls:
+    secretName: ga-tls-staff
+---
+# B — 고객 서명(별도 호스트): 서명 화면·자산·공개 API만
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sign
+  namespace: ga-ingress
+  annotations:
+    kubernetes.io/ingress.class: ga-public
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`sign.ga.example.invalid`) && PathPrefix(`/public/`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }, { name: sign-rate-limit }, { name: sign-body-limit }]
+      services: [{ name: ga-app, port: 8080 }]
+    - match: Host(`sign.ga.example.invalid`) && (Path(`/s`) || PathPrefix(`/assets/`))
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }, { name: sign-rate-limit }]
+      services: [{ name: ga-web, port: 8080 }]
+  tls:
+    secretName: ga-tls-sign
