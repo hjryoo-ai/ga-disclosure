@@ -100,6 +100,8 @@ testing {
                 implementation(project(":disclosure-compliance"))
                 implementation(project(":disclosure-workflow"))
                 implementation(testFixtures(project(":disclosure-rules")))
+                // 질의 계획 실측·플래너 시험의 허구 데이터(Phase 8 ③-x-2 — 시드 고정 생성기)
+                implementation(testFixtures(project(":platform-core")))
                 implementation(platform(libs.spring.boot.bom))
                 implementation(libs.junit.jupiter)
                 implementation(libs.assertj.core)
@@ -137,4 +139,17 @@ testing {
 
 tasks.named("check") {
     dependsOn(testing.suites.named("integrationTest"))
+}
+
+// Phase 8 ③-x-2: 질의 계획 실측(수동 — 빌드·CI가 부르지 않는다). 허구 데이터(테넌트 하나에 확인서 10만·플래그 3만·감사 10만 — 감사는 체인을 지키는
+// 실제 경로)를 V23까지의 스키마에 만들고 실제 질의를 EXPLAIN (ANALYZE, BUFFERS)한 뒤, 최신 마이그레이션(인덱스)을 적용해 같은 데이터로 다시 잰다.
+// 결과: build/reports/query-plans.md(전후 표)·query-plans.json. Docker 필요.
+tasks.register<JavaExec>("queryPlanReport") {
+    group = "verification"
+    description = "Measures the screen/API queries on generated fictional data before and after the latest migration (manual)."
+    val suite = sourceSets.named("integrationTest")
+    classpath(suite.map { it.runtimeClasspath })
+    mainClass = "com.ga.disclosure.infra.perf.QueryPlanReport"
+    args(layout.buildDirectory.dir("reports").get().asFile.absolutePath)
+    systemProperty("ga.repoRoot", rootDir.absolutePath)
 }

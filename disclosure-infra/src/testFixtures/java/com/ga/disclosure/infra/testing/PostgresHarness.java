@@ -119,6 +119,11 @@ public final class PostgresHarness {
         return dataSource(role, password);
     }
 
+    /** 같은 컨테이너의 다른 데이터베이스({@link #emptyDatabase})의 앱 롤 데이터 소스(Phase 8 — 질의 계획 실측). */
+    public DataSource appDataSource(String database) {
+        return dataSource(APP, APP_PASSWORD, database);
+    }
+
     /** 같은 컨테이너의 다른 데이터베이스({@link #emptyDatabase})의 superuser 데이터 소스. */
     public DataSource superuserDataSource(String database) {
         return dataSource("postgres", "postgres", database);
