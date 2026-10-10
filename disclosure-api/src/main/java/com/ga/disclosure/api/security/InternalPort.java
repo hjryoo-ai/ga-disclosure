@@ -22,9 +22,4 @@ public final class InternalPort {
     public boolean arrivedOn(int localPort) {
         return port > 0 && localPort == port;
     }
-
-    /** 경로가 내부 접두인가(문맥 경로 뒤의 원 URI 기준 — 매칭 전 판정이라 원 URI를 본다. 인코딩된 접두는 라우트에 닿지 않는다). */
-    public static boolean internalPath(String pathWithinApplication) {
-        return pathWithinApplication.equals(PREFIX) || pathWithinApplication.startsWith(PREFIX + "/");
-    }
 }

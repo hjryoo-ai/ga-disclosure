@@ -73,4 +73,43 @@ class PortSeparationIT {
         assertThat(onPublic.status()).isEqualTo(404);
         assertThat(onInternal.fingerprint()).isEqualTo(onPublic.fingerprint());
     }
+
+    /**
+     * 보안 검토(Phase 8 3단계 뒤): 포트 대조는 라우팅과 같은 파서로 한다 — 원 URI 접두로 판정하면 퍼센트 인코딩·세미콜론·중복 슬래시 표기의 내부 경로가
+     * 앱 포트에서 대조를 건너뛰고 MVC(디코딩한 경로로 매칭)를 통해 내부 핸들러에 닿는다(6B 8단계와 같은 부류 — 첫 판의 {@code /%69nternal/v1/jobs}가 200이었다).
+     * 어떤 표기든 앱 포트에서는 없는 경로와 같은 404이거나, 앱 앞에서 컨테이너가 400으로 거부한다. 요청은 계약 검증 없이 원문 그대로 보낸다(정규화 금지).
+     */
+    @Test
+    void noSpellingOfTheInternalPrefixReachesItsHandlersOnTheAppPort() {
+        String scheduler = TestJwts.token(T, "scheduler-1");
+        ApiTestSupport.Response unrouted = sendExact(port, "GET", "/no-such-route", null, null, Map.of());
+        for (String spelling : java.util.List.of("/%69nternal/v1/jobs", "/internal%2Fv1/jobs", "/internal;x=1/v1/jobs", "/internal/v1;x=1/jobs",
+                "//internal/v1/jobs", "/internal/./v1/jobs", "/api/../internal/v1/jobs", "/%2569nternal/v1/jobs", "/internal/v1/jobs/")) {
+            ApiTestSupport.Response r = raw(port, spelling, scheduler);
+            if (r.status() == 400) {
+                // 컨테이너(Tomcat)가 앱 앞에서 거부하는 표기(인코딩된 '/' 등) — 어떤 핸들러에도 닿지 않는다
+                assertThat(r.text()).as(spelling).doesNotContain("\"items\"").doesNotContain("NOT_FOUND");
+            } else {
+                // 404 본문은 없는 경로와 같다(세미콜론 표기는 보안 방화벽이 체인 앞에서 거부해 보안 헤더가 없다 — 포트와 무관한 기존 동작)
+                assertThat(r.status()).as(spelling).isEqualTo(404);
+                assertThat(r.text()).as(spelling).isEqualTo(unrouted.text());
+            }
+        }
+    }
+
+    /** 경로를 정규화하지 않고 그대로 보낸다(java.net.URI는 '..'·'.'을 남기지만 계약 검증기는 표기 변형을 모른다 — 응답만 본다). */
+    private static ApiTestSupport.Response raw(int port, String path, String token) {
+        try (java.net.http.HttpClient http = java.net.http.HttpClient.newHttpClient()) {
+            java.net.http.HttpResponse<byte[]> r = http.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + port + path))
+                    .header("Authorization", "Bearer " + token).GET().build(), java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+            java.util.Map<String, String> headers = new java.util.TreeMap<>();
+            r.headers().map().forEach((k, v) -> headers.put(k.toLowerCase(java.util.Locale.ROOT), String.join(",", v)));
+            return new ApiTestSupport.Response(r.statusCode(), headers, r.body());
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
 }

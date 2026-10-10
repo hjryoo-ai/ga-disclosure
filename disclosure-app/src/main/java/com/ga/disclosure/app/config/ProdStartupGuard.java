@@ -14,7 +14,8 @@ import java.util.Objects;
 
 /**
  * 운영 기동 가드(Phase 8, 8 계획 ③, G3): {@code prod} 프로파일이면 <b>어떤 빈보다 먼저</b>(스키마 버전 가드보다도) 닫힌 목록을 검사한다 — 필수 키가 없거나
- * 비었거나(기본값 없는 자리표시가 풀리지 않음 포함), 운영에서 금지된 값(스텁 엔진·스텁 TSA·환경변수 비밀·버킷 생성·정적 공개키·예시 서명 링크)이면 멈춘다.
+ * 비었거나(기본값 없는 자리표시가 풀리지 않음 포함), 운영에서 금지된 값(스텁 엔진·스텁 TSA·환경변수 비밀·버킷 생성·정적 공개키·예시 서명 링크)이거나
+ * {@code demo} 프로파일이 함께 켜져 있으면 멈춘다.
  * 문장에는 <b>키 이름만</b> 싣는다(값·기본값·경로 0). 6B의 {@code ClientCertHeaderGuard}를 이 목록으로 흡수했다.
  */
 public final class ProdStartupGuard implements BeanFactoryPostProcessor, EnvironmentAware, PriorityOrdered {
@@ -64,10 +65,14 @@ public final class ProdStartupGuard implements BeanFactoryPostProcessor, Environ
         }
     }
 
-    /** 문제가 있는 키 이름 목록(정렬: 필수 키 순서 → 금지 키 이름순). 값은 싣지 않는다. */
+    /** 문제가 있는 키 이름 목록(정렬: 프로파일 → 필수 키 순서 → 금지 키 이름순). 값은 싣지 않는다. */
     public static List<String> problems(Environment env) {
         Objects.requireNonNull(env, "env");
         List<String> out = new ArrayList<>();
+        // 데모 프로파일(데모 OIDC 발급자·화면 서빙·시계 오프셋)은 운영과 함께 켜지지 않는다
+        if (env.acceptsProfiles(Profiles.of("demo"))) {
+            out.add("spring.profiles.active (demo not allowed with prod)");
+        }
         for (String key : REQUIRED) {
             String value = read(env, key);
             if (value == null || value.isBlank()) {

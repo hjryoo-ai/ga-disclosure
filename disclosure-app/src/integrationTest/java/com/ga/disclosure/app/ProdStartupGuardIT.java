@@ -98,6 +98,17 @@ class ProdStartupGuardIT {
     }
 
     @Test
+    void theDemoProfileCannotRideAlongWithProd() {
+        List<String> args = new ArrayList<>(List.of("--spring.profiles.active=prod,demo", "--server.port=0", "--management.server.port=0",
+                "--ga.internal.port=0"));
+        environment().forEach((k, v) -> args.add("--" + k + "=" + v));
+        assertThatThrownBy(() -> new SpringApplicationBuilder(DisclosureApplication.class).web(WebApplicationType.SERVLET).run(args.toArray(String[]::new)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("prod profile cannot start — missing or forbidden settings: spring.profiles.active (demo not allowed with prod)")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain(SENTINEL));
+    }
+
+    @Test
     void everythingGivenStarts() {
         try (ConfigurableApplicationContext app = start(environment(), List.of())) {
             assertThat(app.getEnvironment().getActiveProfiles()).containsExactly("prod");
