@@ -40,6 +40,7 @@ GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest 
 #     verify package --package <zip> [--receipt <json>] [--tsa-trust <pem>] (0 일치, 2 불일치, 3 입력 오류) | verify tenant [--tenants all]
 #     retention destroy [--tenants all] [--dry-run yes] | legal-hold place --tenant T1 --id <uuid> --reason-code <CODE> | legal-hold release --hold <uuid>
 # (6A) jobs list --tenant T1 [--limit 20] | jobs show --tenant T1 --id <uuid> | jobs report --tenant T1 --id <uuid> --out <json>
+# (Phase 8) jobs run <KIND> --tenants all|T1,T2 [--params limit=100,asOf=...] — CronJob 진입점(내부 작업 API와 같은 처리기 표, ANCHOR·KEK_REWRAP은 전용 명령)
 #      demo token --tenant T1 --subject <sub> [--ttl PT15M] — 데모 프로파일만(--spring.profiles.active=cli,demo), JWT를 표준 출력으로(클레임 sub·tenant_id·iss·aud·exp, 역할 없음)
 #      notify dispatch [--tenants all] [--limit 100] — 원격 링크는 발급 때 아웃박스에 적재되고(sign session … queued=) 이 명령이 보낸다(링크는 …/s#{token})
 #      배치 명령(anchor run·verify tenant·retention destroy·disclosure expire·artifacts reconcile)은 작업 실행기를 지나며 테넌트마다 `JOB <id> <status>` 줄을 더한다

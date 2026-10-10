@@ -108,7 +108,7 @@ import java.util.stream.Stream;
  * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
  * sign …·disclosure complete|expire — {@link SignCommands}(Phase 4)
  * anchor run|receipt export·verify package|tenant·retention destroy·legal-hold place|release — {@link RetentionCommands}(Phase 5)
- * jobs list|show|report — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다)
+ * jobs list|show|report|run — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다; Phase 8 {@code jobs run}은 CronJob의 진입점)
  * contract-links import|purge-unmatched — {@link ContractLinkCommands}(6B) · drafts abandon|abandon-idle — {@link DraftCommands}(6B) · flags list|resolve — {@link FlagCommands}(6B)
  * collection-rates snapshot|list — {@link CollectionRateCommands}(6B, 내부 지표 — 규제 정의 없음) · gate check — {@link GateCommands}(6B)
  * </pre>
@@ -169,7 +169,8 @@ public class OperatorCli implements ApplicationRunner {
                        com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate,
                        com.ga.disclosure.workflow.disclosure.RetentionRecomputeService retentionRecompute,
                        com.ga.disclosure.workflow.flag.FlagQueryService flagQueries, com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService,
-                       com.ga.disclosure.workflow.kek.TenantKekService keks, com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
+                       com.ga.disclosure.workflow.kek.TenantKekService keks, com.ga.disclosure.workflow.metrics.OperationalMetrics metrics,
+                       com.ga.disclosure.workflow.job.JobHandlers jobHandlers) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -188,7 +189,7 @@ public class OperatorCli implements ApplicationRunner {
         this.lifecycle = lifecycle;
         this.artifacts = artifacts;
         this.identityLinks = identityLinks;
-        this.jobs = new JobCommands(jobRunner, jobQueries, out);
+        this.jobs = new JobCommands(jobRunner, jobQueries, jobHandlers, this::tenants, out);
         this.dispatcher = notifications;
         this.demoOidc = demoOidc;
         this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
