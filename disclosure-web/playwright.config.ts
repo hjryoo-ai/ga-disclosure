@@ -8,13 +8,22 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const out = resolve(import.meta.dirname, 'build/e2e');
-const baseURL = (() => {
+interface HarnessEnv { baseUrl?: string; mode?: 'kind'; hosts?: string[]; spki?: string[] }
+const harness = ((): HarnessEnv => {
   try {
-    return (JSON.parse(readFileSync(resolve(out, 'env.json'), 'utf8')) as { baseUrl?: string }).baseUrl ?? undefined;
+    return JSON.parse(readFileSync(resolve(out, 'env.json'), 'utf8')) as HarnessEnv;
   } catch {
-    return undefined;
+    return {};
   }
 })();
+const baseURL = harness.baseUrl ?? undefined;
+// (Phase 8) 클러스터 대상: 데모 진입점 이름을 127.0.0.1(kind 노드 포트)로, 인증서 오류 허용은 두 진입점 인증서의 공개키(SPKI)만 — 다른 인증서는 그대로 거부
+const launchOptions = harness.mode === 'kind' ? {
+  args: [
+    `--host-resolver-rules=${(harness.hosts ?? []).map((h) => `MAP ${h} 127.0.0.1`).join(',')}`,
+    `--ignore-certificate-errors-spki-list=${(harness.spki ?? []).join(',')}`,
+  ],
+} : {};
 
 export default defineConfig({
   testDir: 'e2e/specs',
@@ -26,7 +35,7 @@ export default defineConfig({
   timeout: 240_000,
   expect: { timeout: 20_000 },
   reporter: [['list'], ['junit', { outputFile: resolve(out, 'junit.xml') }]],
-  use: { baseURL, trace: 'off', screenshot: 'off', video: 'off', locale: 'ko-KR', timezoneId: 'Asia/Seoul', actionTimeout: 20_000 },
+  use: { baseURL, launchOptions, trace: 'off', screenshot: 'off', video: 'off', locale: 'ko-KR', timezoneId: 'Asia/Seoul', actionTimeout: 20_000 },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] }, testIgnore: ['after.spec.ts'] },
     // DEMO2 CHAIN_BROKEN은 한 번만 해소할 수 있는 사건이라 데스크톱에서만 돈다(건너뛰기가 아니라 대상 밖).

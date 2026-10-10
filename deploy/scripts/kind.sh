@@ -11,13 +11,17 @@
 #   deploy/scripts/kind.sh verify  <cluster>   클러스터 안 VERIFY_TENANT 작업(CronJob에서 한 번) — 모든 테넌트 MATCH가 아니면 종료 1
 #   deploy/scripts/kind.sh backup  <cluster>   표 내용 해시를 저장한 뒤 ga-backup CronJob을 한 번 → 실행 이름 출력
 #   deploy/scripts/kind.sh restore <cluster> <실행>  DB 볼륨을 지우고 kind-restore 오버레이로 복구 → 표 해시 = 백업 때, VERIFY_TENANT MATCH
+#   deploy/scripts/kind.sh rotate  <cluster> [cursor|request-hash|receipt|demo-oidc|kek|tsa|all]   키 회전(docs/operations/keys.md) — 키마다
+#                                  영향 단언(회전 전에 만든 것이 회전 뒤 어떻게 되는지) + VERIFY_TENANT MATCH. 기본 all(여섯 가지를 이 순서로 한 번씩)
+#   deploy/scripts/kind.sh e2e-prep <cluster> <dir>  클러스터 대상 E2E 준비(disclosure-web e2e — GA_E2E_KIND): 6A 주체, DEMO2 CHAIN_BROKEN 사건,
+#                                  스케줄러·준법 토큰 파일(<dir>, 소유자 전용)
 #   deploy/scripts/kind.sh down    <cluster>   클러스터와 그 비밀 디렉터리 삭제(이 스크립트가 만든 것만)
 #
 # 값은 출력하지 않는다. 비밀 값은 명령줄·환경변수에 싣지 않는다 — 파일(소유자 전용)과 --from-file·--from-env-file로만 넘긴다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-CMD="${1:?usage: kind.sh up|secrets|deploy|smoke|logscan|seed|verify|backup|restore|down <cluster> [run]}"
+CMD="${1:?usage: kind.sh up|secrets|deploy|smoke|logscan|seed|verify|backup|restore|rotate|e2e-prep|down <cluster> [run|key|dir]}"
 CLUSTER="${2:?cluster name (e.g. ga-p8-$(date +%s))}"
 [[ "$CLUSTER" =~ ^ga-[a-z0-9-]{1,40}$ ]] || { echo "cluster name must match ga-[a-z0-9-]+" >&2; exit 2; }
 
@@ -26,15 +30,19 @@ KIND="$TOOLS/kind"
 KUBECTL="$TOOLS/kubectl --context kind-$CLUSTER"
 STATE="$HOME/.ga-disclosure/kind/$CLUSTER"
 HOST_PORT=18443
+ROT="$STATE/rotate"
 NS=ga-disclosure
 
 lock() { awk -v n="$1" '$1 == n { print $4 }' deploy/tools.lock; }
 render() { $TOOLS/kubectl kustomize --load-restrictor LoadRestrictionsNone "deploy/overlays/${1:-kind-demo}"; }
-java_bin() { ./gradlew -q :disclosure-app:demoJavaLauncher; }
+# Gradle은 umask 022 하위 셸에서 — 이 스크립트의 비밀 단계는 umask 077이고, 그 안에서 뜬 Gradle 데몬은 umask를 물려받아 이후 모든 빌드의 산출물을 0600으로
+# 만든다(시험 하네스가 컨테이너에 복사한 설정 파일을 컨테이너가 못 읽었다 — 11단계)
+gradle() { (umask 022; ./gradlew -q "$@"); }
+java_bin() { gradle :disclosure-app:demoJavaLauncher; }
 app_jar() { ls disclosure-app/build/libs/disclosure-app-*.jar | grep -v -- '-plain.jar' | head -n 1; }
 
 up() {
-  [ -x "$KIND" ] || ./gradlew -q :disclosure-app:deployTools
+  [ -x "$KIND" ] || gradle :disclosure-app:deployTools
   local config="$STATE/kind-config.yaml"
   mkdir -p "$STATE" && chmod 700 "$STATE"
   cat > "$config" <<EOF
@@ -47,8 +55,15 @@ nodes:
       - { containerPort: 30443, hostPort: $HOST_PORT, listenAddress: 127.0.0.1, protocol: TCP }
 EOF
   "$KIND" create cluster --name "$CLUSTER" --config "$config" --wait 120s
-  ./gradlew -q :disclosure-app:appImage :disclosure-app:webImage
+  gradle :disclosure-app:appImage :disclosure-app:webImage
   "$KIND" load docker-image --name "$CLUSTER" ga-disclosure/app:dev ga-disclosure/web:dev
+}
+
+# 스텁 TSA 키 저장소의 인증서(공개 — PEM). 저장소 비밀번호는 비밀이 아닌 고정값(LocalStubTsa)이고 파일로만 keytool에 준다
+stub_cert() {
+  local pass="$STATE/stub-p12.pass"
+  printf 'ga-disclosure-stub-not-a-secret' > "$pass"
+  "$(dirname "$JAVA")/keytool" -exportcert -rfc -alias tsa -storetype PKCS12 -keystore "$1" -storepass:file "$pass" 2>/dev/null
 }
 
 # 무작위 비밀번호(16진 32자) — 파일로만. (tr < /dev/urandom | head는 pipefail에서 SIGPIPE로 실패한다)
@@ -59,10 +74,15 @@ secrets() {
   mkdir -p "$STATE"/{secrets,db,pki,s3}
   chmod 700 "$STATE"
   local JAVA JAR
-  ./gradlew -q :disclosure-app:bootJar
+  gradle :disclosure-app:bootJar
   JAVA="$(java_bin)"; JAR="$(app_jar)"
   # 키 재료(앱의 오프라인 명령 — 없는 것만 만든다): API 키·백업 키·데모 OIDC 서명 키·스텁 TSA 키 저장소, 데모 테넌트의 첫 KEK
   "$JAVA" -jar "$JAR" --spring.profiles.active=cli secrets init --secrets-dir "$STATE/secrets" --demo yes
+  # TSA 신뢰 앵커 집합(운영 http 모드와 같은 비밀 이름 tsa/trust-anchors.pem — 회전은 덧붙이기): 처음엔 스텁 인증서 하나. 클러스터 안 verify가 이 집합을 쓴다
+  if [ ! -f "$STATE/secrets/tsa/trust-anchors.pem" ]; then
+    mkdir -p "$STATE/secrets/tsa"
+    stub_cert "$STATE/secrets/demo/tsa-stub.p12" > "$STATE/secrets/tsa/trust-anchors.pem"
+  fi
   # 데모 테넌트 셋(DEMO3 = 짧은 보존 — seed.sh가 등록한다)의 첫 KEK. 클러스터 Secret보다 늦게 생긴 키는 파드가 읽지 못한다 — 여기서 미리 만든다.
   for t in DEMO1 DEMO2 DEMO3; do
     "$JAVA" -jar "$JAR" --spring.profiles.active=cli crypto kek init --tenant "$t" --kek-id "$t-KEK-1" --secrets-dir "$STATE/secrets" --if-absent yes
@@ -92,12 +112,7 @@ secrets() {
 
   # 클러스터로(값은 파일에서만). 이미 있으면 바꾼다(같은 값 — 재실행 멱등)
   local apply="$KUBECTL apply -f -"
-  local secret_args=()
-  while IFS= read -r f; do
-    local name="${f#"$STATE/secrets/"}"
-    secret_args+=("--from-file=${name//\//.}=$f")
-  done < <(find "$STATE/secrets" -type f | sort)
-  $KUBECTL -n $NS create secret generic ga-secrets "${secret_args[@]}" --dry-run=client -o yaml | $apply
+  push_secrets
   $KUBECTL -n $NS create secret generic ga-pg \
     --from-file=superuser-password="$STATE/db/superuser-password" --from-file=migrator-password="$STATE/db/migrator-password" \
     --from-file=app-password="$STATE/db/app-password" --from-file=operator-password="$STATE/db/operator-password" \
@@ -115,6 +130,16 @@ secrets() {
   $KUBECTL -n ga-ingress-internal create secret tls ga-tls-internal --cert="$STATE/pki/internal.crt" --key="$STATE/pki/internal.key" --dry-run=client -o yaml | $apply
   $KUBECTL -n ga-ingress-internal create secret generic ga-internal-client-ca --from-file=ca.crt="$STATE/pki/client-ca.crt" --dry-run=client -o yaml | $apply
   echo "KIND_SECRETS created in $NS, ga-ingress, ga-ingress-internal (values not shown)"
+}
+
+# 비밀 디렉터리 전체 → Secret ga-secrets(키 = 비밀 이름의 '/'를 '.'으로). 회전도 이 함수로 다시 올린다
+push_secrets() {
+  local secret_args=() f name
+  while IFS= read -r f; do
+    name="${f#"$STATE/secrets/"}"
+    secret_args+=("--from-file=${name//\//.}=$f")
+  done < <(find "$STATE/secrets" -type f | sort)
+  $KUBECTL -n $NS create secret generic ga-secrets "${secret_args[@]}" --dry-run=client -o yaml | $KUBECTL apply -f - >/dev/null
 }
 
 # 데모 PKI: 서버 CA → 진입점 인증서 셋, 클라이언트 CA → 내부 호출자 인증서 하나(스모크). CA는 v3 확장(basicConstraints CA:TRUE)을 명시한다 — 설정 없는
@@ -164,6 +189,7 @@ deploy() {
   for d in "$NS/ga-app" "$NS/ga-web" ga-ingress/traefik-public ga-ingress-internal/traefik-internal; do
     $KUBECTL -n "${d%%/*}" rollout status "deployment/${d#*/}" --timeout=600s
   done
+  mount_keks                                                               # 회전으로 더한 KEK 줄(렌더에는 첫 KEK만)
 }
 
 # 공개 진입점에 보내는 요청(이름 해석은 --resolve — DNS 없이 kind 노드 포트로)
@@ -269,10 +295,14 @@ logscan() {
     done
   done
   : > "$needles"
-  find "$STATE/secrets" "$STATE/db" "$STATE/s3" -type f ! -name '*.env' ! -name '*.json' -print0 | while IFS= read -r -d '' f; do
+  # 회전한 옛 키(rotate/retired)와 회전 단언이 쓴 토큰도 바늘이다
+  local dirs=("$STATE/secrets" "$STATE/db" "$STATE/s3")
+  [ -d "$ROT/retired" ] && dirs+=("$ROT/retired")
+  find "${dirs[@]}" -type f ! -name '*.env' ! -name '*.json' -print0 | while IFS= read -r -d '' f; do
     if LC_ALL=C grep -q '[^[:print:][:space:]]' "$f"; then continue; fi        # 이진(키 저장소) — 텍스트 로그에 원형으로 실리지 않는다
     grep -v -- '-----' "$f" | awk 'length($0) >= 16' >> "$needles"
   done
+  [ -f "$ROT/agent.hdr" ] && sed 's/^Authorization: Bearer //' "$ROT/agent.hdr" >> "$needles"
   jq -r '.customers[] | .name, (.phone // empty)' disclosure-demo/src/main/resources/customers.json >> "$needles"
   local files hits
   files=$(find "$logs" -type f | wc -l | tr -d ' ')
@@ -308,10 +338,12 @@ run_job() {
 }
 
 # 클러스터 안 검증: VERIFY_TENANT CronJob의 파드 틀(같은 이미지·설정·비밀)로 운영자 명령 verify tenant — 테넌트마다 MATCH/MISMATCH를 출력하고 불일치면
-# 종료 코드가 0이 아니다(예약 작업 jobs run VERIFY_TENANT는 보고서에만 남긴다). 신뢰 앵커는 스텁 TSA가 기동 때 쓴 /tmp/tsa-trust.pem.
+# 종료 코드가 0이 아니다(예약 작업 jobs run VERIFY_TENANT는 보고서에만 남긴다). 신뢰 앵커는 비밀 tsa/trust-anchors.pem(집합 — 운영과 같은 이름; 스텁이
+# 기동 때 쓰는 /tmp/tsa-trust.pem은 지금 키 하나뿐이라 TSA 회전 뒤 옛 앵커를 검증하지 못한다 — rotate_tsa의 대조).
+TRUST_SET=/var/run/ga-secrets/tsa/trust-anchors.pem
 verify() {
   local out
-  out="$(run_job ga-job-verify-tenant '["--spring.profiles.active=cli,$(GA_PROFILE)","verify","tenant","--tenants","all","--tsa-trust","/tmp/tsa-trust.pem","--operator","kind-verify"]')" \
+  out="$(run_job ga-job-verify-tenant "[\"--spring.profiles.active=cli,\$(GA_PROFILE)\",\"verify\",\"tenant\",\"--tenants\",\"all\",\"--tsa-trust\",\"${VERIFY_TRUST:-$TRUST_SET}\",\"--operator\",\"kind-verify\"]")" \
     || { echo "$out" | grep -E '^VERIFY_TENANT|^  ' >&2; return 1; }
   echo "$out" | grep -E '^VERIFY_TENANT'
   ! echo "$out" | grep -qE '^VERIFY_TENANT .* MISMATCH'
@@ -319,14 +351,28 @@ verify() {
 
 # 데모 시드: seed.sh(로컬 JVM — 운영자 CLI)를 클러스터의 DB·S3에 포트 포워드로. 비밀번호·키는 저장소 밖 비밀 디렉터리의 파일에서(이 프로세스의 환경에만 —
 # 개인정보 아님), 고객 정보는 seed.sh 그대로 허구 파일로만.
-seed() {
+# 클러스터의 DB·S3에 포트 포워드 두 개(로컬 JVM 운영자 CLI·seed.sh가 쓴다). 스크립트가 끝나면 닫는다(EXIT 트랩)
+PF_PIDS=()
+forwards_up() {
+  [ "${#PF_PIDS[@]}" -gt 0 ] && return 0
   $KUBECTL -n $NS port-forward svc/ga-postgres 15432:5432 >/dev/null 2>&1 &
-  local pf1=$!
+  PF_PIDS+=($!)
   $KUBECTL -n $NS port-forward svc/ga-seaweedfs 18333:8333 >/dev/null 2>&1 &
-  local pf2=$!
-  trap 'kill $pf1 $pf2 2>/dev/null || true' RETURN
+  PF_PIDS+=($!)
+  trap forwards_down EXIT
   wait_port 15432
   wait_port 18333
+}
+forwards_down() {
+  [ "${#PF_PIDS[@]}" -gt 0 ] || return 0
+  kill "${PF_PIDS[@]}" 2>/dev/null || true
+  wait "${PF_PIDS[@]}" 2>/dev/null || true
+  PF_PIDS=()
+}
+
+# 명령 하나를 클러스터 DB·S3·비밀 디렉터리를 보는 환경으로(비밀번호·키는 파일에서 이 프로세스의 환경에만 — 개인정보 아님)
+with_cluster() {
+  forwards_up
   DISCLOSURE_DB_URL=jdbc:postgresql://localhost:15432/disclosure \
   DISCLOSURE_APP_PASSWORD="$(cat "$STATE/db/app-password")" DISCLOSURE_HEALTH_PASSWORD="$(cat "$STATE/db/health-password")" \
   DISCLOSURE_OPERATOR_PASSWORD="$(cat "$STATE/db/operator-password")" DISCLOSURE_JOB_LOCK_PASSWORD="$(cat "$STATE/db/job-lock-password")" \
@@ -335,7 +381,14 @@ seed() {
   GA_S3_ENDPOINT=http://localhost:18333 GA_S3_BUCKET=ga-disclosure-kind \
   GA_S3_ACCESS_KEY_ID="$(cat "$STATE/s3/access")" GA_S3_SECRET_ACCESS_KEY="$(cat "$STATE/s3/secret")" \
   DEMO_PSQL="$TOOLS/kubectl --context kind-$CLUSTER -n $NS exec -i ga-postgres-0 -- psql -U postgres -d disclosure" \
-    disclosure-demo/scripts/seed.sh > "$STATE/seed.log" 2>&1 || { tail -n 40 "$STATE/seed.log" >&2; return 1; }
+    "$@"
+}
+
+# 슈퍼유저 psql(DB 파드 안, 소켓 인증) — 질의 하나의 값
+sql() { $KUBECTL -n $NS exec -i ga-postgres-0 -- psql -U postgres -d disclosure -v ON_ERROR_STOP=1 -qtA -c "$1"; }
+
+seed() {
+  with_cluster disclosure-demo/scripts/seed.sh > "$STATE/seed.log" 2>&1 || { tail -n 40 "$STATE/seed.log" >&2; return 1; }
   grep -cE '^(SEED|DEMO_|ANCHOR_RUN|VERIFY_TENANT)' "$STATE/seed.log" | sed 's/^/SEED_LINES /'
   verify
 }
@@ -374,6 +427,7 @@ restore() {
   $KUBECTL -n $NS logs job/ga-restore-objects | grep '^BACKUP_OBJECTS_IMPORTED'
   $KUBECTL -n $NS wait --for=condition=complete job/ga-db-migrate --timeout=600s >/dev/null
   $KUBECTL -n $NS logs "$($KUBECTL -n $NS get pods -l job-name=ga-db-migrate --field-selector=status.phase==Succeeded -o name | head -n 1)" | grep '^DB_MIGRATE '
+  mount_keks                                                               # 회전으로 더한 KEK 줄(복구한 DB의 키를 풀려면 그 KEK가 있어야 한다)
   digests > "$STATE/digests-after.txt"
   if diff -q "$STATE/digests-before.txt" "$STATE/digests-after.txt" >/dev/null; then
     echo "RESTORE_TABLES MATCH tables=$(wc -l < "$STATE/digests-after.txt" | tr -d ' ')"
@@ -383,6 +437,272 @@ restore() {
   fi
   $KUBECTL -n $NS rollout status deployment/ga-app --timeout=600s
   verify
+}
+
+# ---------------------------------------------------------------------------------------------- 키 회전(11단계, G5 — docs/operations/keys.md)
+# 키마다: 회전 전에 만든 것(커서·멱등 청구·등록 영수증·토큰·감싼 DEK) → 회전 → 영향 단언 → VERIFY_TENANT MATCH. 옛 값은 rotate/retired/로 옮겨 둔다(소유자
+# 전용 — 되돌리기·로그 스캔 바늘). 값은 출력하지 않는다. HTTP는 공개 진입점 A(직원 호스트)로, 토큰은 머리 줄 파일(-H @파일)로만 넘긴다.
+jar_env() { gradle :disclosure-app:bootJar; JAVA="$(java_bin)"; JAR="$(app_jar)"; }
+
+# 로컬 JVM 운영자 CLI(부트 jar)를 클러스터 환경으로 — 데모 프로파일(데모 토큰 발급)
+cluster_cli() {
+  with_cluster "$JAVA" -jar "$JAR" --spring.profiles.active=cli,demo --ga.demo.oidc-public-pem="$STATE/demo-oidc.pem" "$@"
+}
+
+# 데모 OIDC 토큰을 파일로(소유자 전용, 토큰은 출력·명령줄에 없다): 기본은 머리 줄(curl -H @파일), raw면 토큰만(E2E 하네스가 읽는 형식)
+mint() {   # mint <tenant> <subject> <file> [raw] [ttl]
+  local jwt
+  jwt="$(cluster_cli demo token --tenant "$1" --subject "$2" --ttl "${5:-PT1H}" | grep -E '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' | tail -n 1)"
+  [ -n "$jwt" ] || { echo "demo token for $1/$2 failed" >&2; return 1; }
+  if [ "${4:-}" = raw ]; then printf '%s\n' "$jwt" > "$3"; else printf 'Authorization: Bearer %s\n' "$jwt" > "$3"; fi
+}
+
+# 직원 호스트 API 한 번: 상태 코드를 출력하고 본문은 $ROT/body, 머리는 $ROT/headers
+api() {   # api <method> <path> <token file> [curl 인자…]
+  local method="$1" path="$2" auth="$3"; shift 3
+  pub staff.ga.example.invalid -o "$ROT/body" -D "$ROT/headers" -w '%{http_code}' -X "$method" -H @"$auth" "$@" \
+    "https://staff.ga.example.invalid:$HOST_PORT$path"
+}
+header() { awk -v h="$(echo "$1" | tr 'A-Z' 'a-z')" 'BEGIN { FS = ": " } tolower($1) == h { sub(/\r$/, "", $2); print $2 }' "$ROT/headers"; }
+idem() { echo "kind-rot-$1-$(openssl rand -hex 8)"; }
+
+# 롤링 재기동 + 무중단 단언: 재기동 동안(옛 파드가 끝날 때까지 — preStop 대기 포함) 직원 호스트 API를 0.2초마다 불러 5xx·연결 실패(000)를 센다.
+# 401은 센다에서 뺀다(데모 OIDC 회전 직후의 옛 토큰은 설계된 거부). 첫 실행에서 재기동 직후 502가 나왔다 — preStop·maxUnavailable 0(base/app.yaml).
+restart_app() {
+  local probe="$ROT/restart-probe.txt" flag="$ROT/restart-probe.run"
+  : > "$probe"; echo run > "$flag"
+  ( while [ "$(cat "$flag")" = run ]; do
+      pub staff.ga.example.invalid -o /dev/null -w '%{http_code}\n' -H @"$ROT/agent.hdr" \
+        "https://staff.ga.example.invalid:$HOST_PORT/api/v1/disclosures?limit=1" >> "$probe" 2>/dev/null || echo 000 >> "$probe"
+      sleep 0.2
+    done ) &
+  local poller=$!
+  $KUBECTL -n $NS rollout restart deployment/ga-app >/dev/null
+  $KUBECTL -n $NS rollout status deployment/ga-app --timeout=600s >/dev/null
+  # 옛 파드(종료 중 — preStop 대기·우아한 종료)가 사라질 때까지
+  for _ in $(seq 1 120); do
+    [ "$($KUBECTL -n $NS get pods -l app.kubernetes.io/name=ga-app --no-headers | grep -c Terminating || true)" = 0 ] && break
+    sleep 1
+  done
+  echo stop > "$flag"; wait "$poller" 2>/dev/null || true
+  check "rolling restart: no 5xx or dropped connection while the pods were replaced ($(wc -l < "$probe" | tr -d ' ') requests)" "^0$" \
+    "$(grep -cE '^(5[0-9][0-9]|000)$' "$probe" || true)"
+}
+
+# 비밀 하나를 새 값으로: 옛 파일을 retired/로 옮기고 secrets init이 빠진 그 이름만 새로 만든다(앱은 비밀을 만들지 않는다) → Secret. 재기동은 부르는 쪽
+rotate_file() {   # rotate_file <비밀 이름>
+  local name="$1" old
+  old="$ROT/retired/$name.$(date +%Y%m%dT%H%M%S)"
+  mkdir -p "$(dirname "$old")"
+  mv "$STATE/secrets/$name" "$old"
+  "$JAVA" -jar "$JAR" --spring.profiles.active=cli secrets init --secrets-dir "$STATE/secrets" --demo yes | grep -F "SECRET $name "
+  if [ ! -f "$STATE/secrets/$name" ] || cmp -s "$old" "$STATE/secrets/$name"; then echo "$name was not replaced" >&2; return 1; fi
+  push_secrets
+}
+
+rotate_cursor() {
+  echo "== ROTATE api/cursor"
+  check "cursor: list page 1 before (200)" "^200$" "$(api GET '/api/v1/disclosures?limit=1' "$ROT/agent.hdr")"
+  local cursor
+  cursor="$(jq -r '.next // empty' "$ROT/body")"
+  check "cursor: there is a next page to hold on to" "^present$" "$([ -n "$cursor" ] && echo present)"
+  rotate_file api/cursor
+  restart_app
+  check "cursor: the cursor from before the rotation is refused (400 INVALID_CURSOR)" "^400 INVALID_CURSOR$" \
+    "$(api GET "/api/v1/disclosures?limit=1&after=$cursor" "$ROT/agent.hdr") $(jq -r .code "$ROT/body")"
+  check "cursor: a fresh list works (200)" "^200$" "$(api GET '/api/v1/disclosures?limit=1' "$ROT/agent.hdr")"
+}
+
+# 고객 등록(허구 값 — 파일로만). 같은 등록 키(주체 + 멱등 키)는 같은 가명이다
+register() {   # register <멱등 키> → 상태 코드, 본문 $ROT/body
+  api POST /api/v1/customers "$ROT/agent.hdr" -H 'Content-Type: application/json' -H "Idempotency-Key: $1" --data-binary @"$ROT/customer.json"
+}
+same() { [ "$(jq -r ".$1" "$ROT/body")" = "$(cat "$2")" ] && echo same || echo other; }
+
+rotate_request_hash() {
+  echo "== ROTATE api/request-hash"
+  printf '{"name":"가상회전","phone":"010-0000-0%03d","birthDate":"1990-01-01"}' "$((RANDOM % 1000))" > "$ROT/customer.json"   # 허구
+  local k1 k2
+  k1="$(idem rh)"; echo "$k1" > "$ROT/k1"
+  check "request-hash: register before (201)" "^201$" "$(register "$k1")"
+  jq -r .customerRef "$ROT/body" > "$ROT/ref"; jq -r .receiptId "$ROT/body" > "$ROT/receipt-1"
+  check "request-hash: the same key and body replays before the rotation" "^201 true$" "$(register "$k1") $(header Idempotency-Replayed)"
+  rotate_file api/request-hash
+  restart_app
+  check "request-hash: the same key and body within the window is refused after the rotation (422 IDEMPOTENCY_KEY_REUSED)" \
+    "^422 IDEMPOTENCY_KEY_REUSED$" "$(register "$k1") $(jq -r .code "$ROT/body")"
+  k2="$(idem rh)"
+  check "request-hash: a new key works (201)" "^201$" "$(register "$k2")"
+  check "request-hash: and replays (201, Idempotency-Replayed)" "^201 true$" "$(register "$k2") $(header Idempotency-Replayed)"
+}
+
+# 멱등 기록 만료를 앞당긴다(데모 클러스터의 슈퍼유저 — 24시간을 기다리지 않고 "만료 뒤"를 본다. 트리거 밖, 이 키 한 줄만)
+expire_claim() {
+  sql "BEGIN; SET LOCAL session_replication_role = replica; UPDATE idempotency_key
+       SET created_at = created_at - interval '2 days', claimed_at = claimed_at - interval '2 days', expires_at = created_at - interval '1 day'
+       WHERE tenant_id = 'DEMO1' AND actor_subject = 'demo-agent' AND idem_key = '$1'; COMMIT;" >/dev/null
+}
+
+rotate_receipt() {
+  echo "== ROTATE api/customer-receipt"
+  local k1
+  k1="$(cat "$ROT/k1")"
+  # 만료 뒤 같은 등록 키 = 다시 파생한 같은 응답(영수증은 결정론적) — 회전 전 기준선
+  expire_claim "$k1"
+  check "receipt: after expiry the same registration key gives the same pseudonym and receipt (before rotation)" "^201 same same$" \
+    "$(register "$k1") $(same customerRef "$ROT/ref") $(same receiptId "$ROT/receipt-1")"
+  rotate_file api/customer-receipt
+  restart_app
+  expire_claim "$k1"
+  check "receipt: after the rotation the same registration key keeps the pseudonym but the receipt changes" "^201 same other$" \
+    "$(register "$k1") $(same customerRef "$ROT/ref") $(same receiptId "$ROT/receipt-1")"
+}
+
+rotate_demo_oidc() {
+  echo "== ROTATE demo/oidc-signing"
+  check "demo-oidc: the token from before works (200)" "^200$" "$(api GET '/api/v1/disclosures?limit=1' "$ROT/agent.hdr")"
+  rotate_file demo/oidc-signing
+  # 공개키 재게시(비밀 아님 — 서명 키에서 유도) → 앱 준비 컨테이너가 기동 때 옮긴다
+  openssl pkey -in "$STATE/secrets/demo/oidc-signing" -pubout -out "$STATE/demo-oidc.pem" 2>/dev/null
+  $KUBECTL -n $NS create configmap ga-demo-oidc-public --from-file=demo-oidc.pem="$STATE/demo-oidc.pem" --dry-run=client -o yaml | $KUBECTL apply -f - >/dev/null
+  restart_app
+  check "demo-oidc: the token signed with the old key is refused (401)" "^401$" "$(api GET '/api/v1/disclosures?limit=1' "$ROT/agent.hdr")"
+  mint DEMO1 demo-agent "$ROT/agent.hdr"
+  check "demo-oidc: a new login works (200)" "^200$" "$(api GET '/api/v1/disclosures?limit=1' "$ROT/agent.hdr")"
+}
+
+# 테넌트 KEK의 Secret 볼륨 줄: 비밀 디렉터리의 모든 kek/<T>/<ID> 파일이 웹 Deployment와 작업 CronJob의 items에 있게 한다(오버레이는 첫 KEK만 — 회전한
+# 키는 여기서 더한다; 운영은 오버레이 커밋). 없는 줄만 더하므로 재실행 멱등.
+mount_keks() {
+  local f name key target spec idx have
+  while IFS= read -r f; do
+    name="${f#"$STATE/secrets/"}"; key="${name//\//.}"
+    for target in deployment/ga-app $($KUBECTL -n $NS get cronjob -l app.kubernetes.io/name=ga-job -o name); do
+      spec=/spec/template/spec
+      [[ "$target" == cronjob* ]] && spec=/spec/jobTemplate/spec/template/spec
+      read -r idx have < <($KUBECTL -n $NS get "$target" -o json | jq -r --arg p "$spec" --arg k "$key" \
+        '($p | ltrimstr("/") | split("/")) as $s | getpath($s).volumes as $v | ($v | map(.name) | index("ga-secrets")) as $i
+         | "\($i) \([$v[$i].secret.items[] | select(.key == $k)] | length)"')
+      [ "$have" -eq 0 ] || continue
+      $KUBECTL -n $NS patch "$target" --type=json \
+        -p "[{\"op\":\"add\",\"path\":\"$spec/volumes/$idx/secret/items/-\",\"value\":{\"key\":\"$key\",\"path\":\"$name\"}}]" >/dev/null
+    done
+  done < <(find "$STATE/secrets/kek" -type f | sort)
+  $KUBECTL -n $NS rollout status deployment/ga-app --timeout=600s >/dev/null
+}
+
+# 옛 KEK로 감싼 살아 있는 키(document_key·customer_data_key·끝난 작업의 보고서 키 — 재래핑 대상과 같은 조건)
+old_kek_rows() {
+  sql "SELECT (SELECT count(*) FROM document_key WHERE tenant_id = '$1' AND kek_key_id = '$2' AND wrapped_dek IS NOT NULL)
+            + (SELECT count(*) FROM customer_data_key WHERE tenant_id = '$1' AND kek_id = '$2' AND status <> 'DESTROYED' AND wrapped_key IS NOT NULL)
+            + (SELECT count(*) FROM async_job WHERE tenant_id = '$1' AND report_kek_id = '$2' AND report_key_wrapped IS NOT NULL)"
+}
+
+# 클러스터 안 운영자 명령(KEK_REWRAP CronJob의 파드 틀 — 클러스터 Secret의 KEK로 감싸고 푼다: 마운트가 됐는지가 곧 시험)
+# 인자 배열은 jq -R로(jq --args는 뒤의 --tenant를 자기 옵션으로 읽는다). 빈 배열이면 거부 — run_job은 빈 인자면 CronJob 기본 명령을 돈다(첫 실행에서 그렇게 됐다)
+kek_job() {
+  [ "$#" -gt 0 ] || { echo "kek_job needs a command" >&2; return 1; }
+  run_job ga-job-kek-rewrap "$(printf '%s\n' '--spring.profiles.active=cli,$(GA_PROFILE)' "$@" | jq -R . | jq -sc .)"
+}
+
+rotate_kek() {
+  local t=DEMO1 old new n out before
+  echo "== ROTATE kek/$t"
+  old="$(sql "SELECT kek_id FROM tenant_kek WHERE tenant_id = '$t' AND status = 'CURRENT'")"
+  n="${old##*-KEK-}"; new="$t-KEK-$((n + 1))"
+  before="$(old_kek_rows "$t" "$old")"
+  check "kek: live keys wrapped with $old before the rotation" "^[1-9][0-9]*$" "$before"
+  # 1) 프로비저닝·마운트가 먼저(온보딩 런북과 같은 순서 — 마운트 전에 등록하면 등록이 실패한다)
+  "$JAVA" -jar "$JAR" --spring.profiles.active=cli crypto kek init --tenant "$t" --kek-id "$new" --secrets-dir "$STATE/secrets" --if-absent yes
+  push_secrets
+  mount_keks
+  # 2) 등록(CURRENT 교체 — 새 감싸기는 새 KEK) → 3) 재래핑 dry-run(기본) → 적용 → 두 번째 적용 0건
+  out="$(kek_job crypto kek register --tenant "$t" --kek-id "$new" --operator kind-rotate)"
+  check "kek: register $new" "^KEK_REGISTER $t $new CURRENT$" "$(echo "$out" | grep '^KEK_REGISTER')"
+  out="$(kek_job crypto kek rewrap --tenants "$t" --operator kind-rotate)"
+  check "kek: dry-run counts the keys and changes nothing" "^KEK_REWRAP $t to=$new DRY_RUN rewrapped=0 pending=$before skipped=[0-9]+ failed=0$" \
+    "$(echo "$out" | grep '^KEK_REWRAP')"
+  check "kek: dry-run left the rows on $old" "^$before$" "$(old_kek_rows "$t" "$old")"
+  out="$(kek_job crypto kek rewrap --tenants "$t" --apply yes --operator kind-rotate)"
+  check "kek: apply rewraps every live key" "^KEK_REWRAP $t to=$new APPLY rewrapped=$before pending=0 skipped=[0-9]+ failed=0$" \
+    "$(echo "$out" | grep '^KEK_REWRAP')"
+  out="$(kek_job crypto kek rewrap --tenants "$t" --apply yes --operator kind-rotate)"
+  check "kek: the second run rewraps nothing (idempotent)" "^KEK_REWRAP $t to=$new APPLY rewrapped=0 pending=0 skipped=[0-9]+ failed=0$" \
+    "$(echo "$out" | grep '^KEK_REWRAP')"
+  check "kek: no live key is wrapped with $old" "^0$" "$(old_kek_rows "$t" "$old")"
+  check "kek: one audit row per rewrapped key" "^$before$" \
+    "$(sql "SELECT count(*) FROM audit_log WHERE tenant_id = '$t' AND action = 'KEK_REWRAPPED' AND detail->>'toKekId' = '$new'")"
+  check "kek: registry — $new CURRENT, $old RETIRED" "^CURRENT RETIRED$" \
+    "$(sql "SELECT string_agg(status, ' ' ORDER BY kek_id = '$old') FROM tenant_kek WHERE tenant_id = '$t' AND kek_id IN ('$new', '$old')")"
+}
+
+# TSA 키(스텁 키 저장소) 회전 + 신뢰 앵커 집합에 덧붙이기. 새 키의 토큰은 앵커 실행으로만 생긴다 — 오늘 앵커는 시드가 이미 만들었으므로 데모 시계
+# 오프셋(+P1D, 데모 프로파일만)으로 "내일" 앵커를 하나 만든다(데모 장치 — 클러스터는 일회용)
+rotate_tsa() {
+  echo "== ROTATE demo/tsa-stub.p12 + tsa/trust-anchors.pem"
+  local out
+  stub_cert "$STATE/secrets/demo/tsa-stub.p12" > "$ROT/tsa-old.pem"
+  check "tsa: the anchor set holds the current stub certificate" "^1$" \
+    "$(grep -c 'BEGIN CERTIFICATE' "$STATE/secrets/tsa/trust-anchors.pem" | tr -d ' ')"
+  rotate_file demo/tsa-stub.p12
+  stub_cert "$STATE/secrets/demo/tsa-stub.p12" > "$ROT/tsa-new.pem"
+  cat "$ROT/tsa-new.pem" >> "$STATE/secrets/tsa/trust-anchors.pem"           # 덧붙이기(교체가 아니다)
+  push_secrets
+  restart_app
+  check "tsa: the set now holds the old and the new certificate" "^2$" \
+    "$(grep -c 'BEGIN CERTIFICATE' "$STATE/secrets/tsa/trust-anchors.pem" | tr -d ' ')"
+  out="$(run_job ga-job-anchor '["--spring.profiles.active=cli,$(GA_PROFILE)","--ga.demo.clock-offset=P1D","anchor","run","--tenants","all","--operator","kind-rotate"]')"
+  check "tsa: a new anchor is stamped with the new key" "^ANCHOR_RUN " "$(echo "$out" | grep '^ANCHOR_RUN' | head -n 1)"
+  # 대조: 새 키 하나(스텁이 기동 때 쓴 /tmp/tsa-trust.pem)로는 옛 앵커가 검증되지 않는다 — 집합이 필요하다는 것을 시험이 먼저 보인다
+  local control
+  control="$(VERIFY_TRUST=/tmp/tsa-trust.pem verify 2>&1 || true)"
+  check "tsa: the new certificate alone does not verify the old anchors (control — TSA trust finding)" "MISMATCH.*TSA_UNTRUSTED|TSA_UNTRUSTED.*MISMATCH" \
+    "$(echo "$control" | grep -E 'VERIFY_TENANT|TSA_' | tr '\n' ' ')"
+}
+
+rotate() {
+  local which="${ROTATE_ARG:-all}"
+  umask 077
+  mkdir -p "$ROT"
+  jar_env
+  mint DEMO1 demo-agent "$ROT/agent.hdr"
+  case "$which" in
+    cursor) rotate_cursor ;;
+    request-hash) rotate_request_hash ;;
+    receipt) [ -f "$ROT/k1" ] || rotate_request_hash; rotate_receipt ;;
+    demo-oidc) rotate_demo_oidc ;;
+    kek) rotate_kek ;;
+    tsa) rotate_tsa ;;
+    all) rotate_cursor; rotate_request_hash; rotate_receipt; rotate_demo_oidc; rotate_kek; rotate_tsa ;;
+    *) echo "unknown key $which" >&2; return 2 ;;
+  esac
+  echo "ROTATE checks failures=$FAILS"
+  [ "$FAILS" -eq 0 ] || return 1
+  verify
+}
+
+# 클러스터 대상 E2E 준비: 6A 주체(스케줄러·준법 둘째), DEMO2 CHAIN_BROKEN 사건(seed.sh는 시연 뒤 해소한다 — 화면 흐름이 해소할 새 사건 하나), 토큰 파일
+e2e_prep() {
+  local dir="${PREP_DIR:?usage: kind.sh e2e-prep <cluster> <dir>}" seq original open
+  umask 077
+  mkdir -p "$dir"
+  jar_env
+  cluster_cli demo seed --file disclosure-demo/src/main/resources/demo/phase6a-seed.json --operator e2e | grep -c '^SEED ' | sed 's/^/E2E_PREP seed lines /'
+  open="SELECT count(*) FROM compliance_flag WHERE tenant_id = 'DEMO2' AND type = 'CHAIN_BROKEN' AND resolved_at IS NULL"
+  if [ "$(sql "$open")" = 0 ]; then
+    seq="$(sql "SELECT min(seq) FROM audit_log WHERE tenant_id = 'DEMO2' AND action = 'RULE_ACTIVATE'")"
+    original="$(sql "SELECT detail::text FROM audit_log WHERE tenant_id = 'DEMO2' AND seq = $seq")"
+    sql "BEGIN; SET LOCAL session_replication_role = replica; UPDATE audit_log SET detail = '{\"tampered\": true}' WHERE tenant_id = 'DEMO2' AND seq = $seq; COMMIT;" >/dev/null
+    run_job ga-job-verify-tenant '["--spring.profiles.active=cli,$(GA_PROFILE)","verify","tenant","--tenants","DEMO2","--tsa-trust","/var/run/ga-secrets/tsa/trust-anchors.pem","--operator","e2e"]' \
+      | grep -E '^VERIFY_TENANT' || true
+    printf '%s\n' "BEGIN;" "SET LOCAL session_replication_role = replica;" \
+      "UPDATE audit_log SET detail = :'detail'::jsonb WHERE tenant_id = 'DEMO2' AND seq = $seq;" "COMMIT;" \
+      | $KUBECTL -n $NS exec -i ga-postgres-0 -- psql -U postgres -d disclosure -v ON_ERROR_STOP=1 -q -v detail="$original"
+  fi
+  echo "E2E_PREP open CHAIN_BROKEN on DEMO2: $(sql "$open")"
+  mint DEMO1 demo-scheduler "$dir/scheduler.jwt" raw PT3H
+  mint DEMO1 demo-compliance "$dir/compliance.jwt" raw PT3H
+  echo "E2E_PREP tokens written (values not shown)"
 }
 
 down() {
@@ -400,6 +720,8 @@ case "$CMD" in
   verify) verify ;;
   backup) backup ;;
   restore) RUN_ARG="${3:-}" restore ;;
+  rotate) ROTATE_ARG="${3:-all}" rotate ;;
+  e2e-prep) PREP_DIR="${3:-}" e2e_prep ;;
   down) down ;;
   *) echo "unknown command $CMD" >&2; exit 2 ;;
 esac

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.11.0
+  version: 2.12.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -1056,13 +1056,18 @@ components:
     SessionIssueReceipt:
       type: object
       additionalProperties: false
-      required: [sessionId, disclosureId, channel, expiresAt, deviceToken]
+      required: [sessionId, disclosureId, channel, expiresAt, deviceToken, signUrl]
       properties:
         sessionId: { $ref: '#/components/schemas/Uuid' }
         disclosureId: { $ref: '#/components/schemas/Uuid' }
         channel: { type: string }
         expiresAt: { $ref: '#/components/schemas/NullableInstant' }
         deviceToken: { type: [string, 'null'], description: 현장 기기 채널만(원격 링크는 null) }
+        signUrl:
+          type: [string, 'null']
+          description: >-
+            (2.12.0) 현장 기기 토큰의 고객 서명 창 주소 — 서명 호스트(배포 설정 `ga.sign.link-base-url`) + `#` + 토큰. 원격 링크는 null. 서명 호스트가
+            직원 호스트와 다른 배포에서 화면은 이 주소로 창을 연다(상대 경로 `/s#`는 공개 서명 API가 없는 직원 호스트에 닿는다).
     TokenRequest:
       type: object
       additionalProperties: false

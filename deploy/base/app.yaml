@@ -11,6 +11,10 @@ metadata:
     app.kubernetes.io/part-of: ga-disclosure
 spec:
   replicas: 2
+  # 무중단 롤링(11단계 — 키 회전의 재기동): 새 파드가 준비된 뒤에만 옛 파드를 내린다
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
   selector:
     matchLabels:
       app.kubernetes.io/name: ga-app
@@ -20,6 +24,8 @@ spec:
     spec:
       serviceAccountName: ga-app
       automountServiceAccountToken: false
+      # preStop 대기(10초) + 우아한 종료(Spring 기본 30초) < 45초
+      terminationGracePeriodSeconds: 45
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -45,6 +51,11 @@ spec:
             - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
             - { name: GA_MANAGEMENT_PORT, value: "8082" }
             - { name: GA_INTERNAL_PORT, value: "8081" }
+          # 종료 신호와 엔드포인트 제거는 동시에 일어난다 — 진입점·kube-proxy가 이 파드를 빼기 전에 커넥터가 닫히면 그 사이의 요청이 502다(kind 키 회전
+          # 첫 실행에서 관찰). 먼저 10초 기다린 뒤 우아한 종료(진행 중 요청 마침)
+          lifecycle:
+            preStop:
+              exec: { command: ["sh", "-c", "sleep 10"] }
           readinessProbe:
             httpGet: { path: /actuator/health/readiness, port: management }
             periodSeconds: 10

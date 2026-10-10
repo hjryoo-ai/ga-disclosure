@@ -131,6 +131,16 @@ tasks.register<NpmTask>("e2e") {
     e2eRun()
 }
 
+// (Phase 8 11단계, G5) 같은 시험을 kind 클러스터(deploy/scripts/kind.sh up·deploy·seed 뒤)의 진입점 A·B·C로: -Pkind.cluster=<이름>. 앱·DB는 클러스터의 것이고
+// 하네스는 컨테이너를 띄우지 않는다(e2e/env.mjs GA_E2E_KIND). 키 회전 뒤 "E2E 통과"를 배포 환경에서 증명한다.
+tasks.register<NpmTask>("e2eKind") {
+    description = "Runs the E2E suite against a kind-demo cluster made by deploy/scripts/kind.sh (-Pkind.cluster=<name>)."
+    group = "verification"
+    e2eRun()
+    dependsOn(":disclosure-app:deployTools")
+    environment.put("GA_E2E_KIND", providers.gradleProperty("kind.cluster").orElse(provider { throw GradleException("-Pkind.cluster=<kind cluster name> is required") }))
+}
+
 // 지시문 6절 e2e-demo: 같은 흐름을 한 번 돌리며 화면을 build/demo/phase7/(git 무시)에 남긴다. 시험·단언은 e2e와 같다.
 tasks.register<NpmTask>("e2eDemo") {
     description = "Runs the E2E flows once and keeps screenshots in build/demo/phase7/."

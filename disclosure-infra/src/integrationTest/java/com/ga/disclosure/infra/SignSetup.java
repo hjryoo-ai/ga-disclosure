@@ -84,7 +84,7 @@ final class SignSetup implements AutoCloseable {
         this.sessions = new SignSessionRepository(w.gateway);
         this.signatures = new SignatureRepository(w.gateway);
         this.outbox = new com.ga.disclosure.infra.persistence.NotificationRepository(w.gateway);
-        this.sessionService = new SignSessionService(w.deps(clock), sessions, s.recordPort, s.cipher, s.store, tokens, outbox);
+        this.sessionService = new SignSessionService(w.deps(clock), sessions, s.recordPort, s.cipher, s.store, tokens, outbox, new com.ga.disclosure.workflow.sign.SignLinkBase(LINK_BASE));
         this.dispatcher = new com.ga.disclosure.workflow.disclosure.NotificationDispatcher(w.deps(clock), outbox, sessions,
                 new CustomerRefService(w.vault, w.audit, w.tx, clock, Callers.authz(clock)), tokens, notify, LINK_BASE);
         this.signService = signServiceWith(s.recordPort, s.store);

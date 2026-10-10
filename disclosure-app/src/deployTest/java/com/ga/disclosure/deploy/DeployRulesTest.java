@@ -190,6 +190,23 @@ class DeployRulesTest {
         assertThat(rate.path("sourceCriterion").path("ipStrategy").path("depth").asInt(-1)).as("X-Forwarded-For is not trusted").isZero();
     }
 
+    /**
+     * 무중단 롤링(11단계): 키 회전은 재기동이다 — 앱은 새 파드가 준비된 뒤에만 옛 파드를 내리고(maxUnavailable 0), 종료 신호 뒤 진입점이 파드를 뺄 때까지
+     * 기다린 다음(preStop) 우아하게 끝낸다(유예 > 대기 + Spring 우아한 종료 30초). kind 회전 첫 실행이 재기동 직후 502를 보였다 — kind.sh가 재기동마다 센다.
+     */
+    @ParameterizedTest
+    @FieldSource("OVERLAYS")
+    void theAppDrainsBeforeItStopsAndNeverDropsBelowItsReplicas(String overlay) {
+        JsonNode app = ofKind(docs(overlay), "Deployment").filter(Manifests.named("ga-app")).findFirst().orElseThrow().path("spec");
+        assertThat(app.path("strategy").path("rollingUpdate").path("maxUnavailable").asInt(-1)).isZero();
+        JsonNode pod = app.path("template").path("spec");
+        List<String> preStop = Manifests.strings(pod.path("containers").get(0).path("lifecycle").path("preStop").path("exec").path("command"));
+        assertThat(preStop).as("preStop waits before the connector closes").isNotEmpty();
+        int sleep = Integer.parseInt(preStop.getLast().replaceAll("^.*sleep\\s+(\\d+).*$", "$1"));
+        assertThat(sleep).isGreaterThanOrEqualTo(5);
+        assertThat(pod.path("terminationGracePeriodSeconds").asInt(30)).isGreaterThan(sleep + 30);
+    }
+
     @ParameterizedTest
     @FieldSource("OVERLAYS")
     void networkPoliciesAdmitEachAppPortFromItsEntryPointOnly(String overlay) {

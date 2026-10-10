@@ -131,9 +131,11 @@ jobs:
     # Phase 8 ③·G4·G8: kind 클러스터(tools.lock의 kind·노드 이미지 digest)에 kind-demo 오버레이 — 인그레스(/internal 외부 404·서명 호스트 분리·IP 한도·
     # 크기 한도·평문 무경로)·내부 진입점 mTLS(인증서 없음/다른 SNI 거부, 있음 통과)·NetworkPolicy 집행(전제: 다른 파드는 8081에 못 닿음)을 단언하고,
     # 모든 파드·Job 로그를 비밀 값·허구 개인정보 센티널로 스캔한다. 클러스터·비밀 디렉터리는 실행마다 이름을 달리하고 끝나면 지운다.
+    # (11단계, G5) 복구 뒤 키 여섯 가지를 한 번씩 회전(키마다 영향 단언·재기동 중 5xx 0·VERIFY_TENANT MATCH)하고 같은 E2E를 클러스터의 진입점으로 돈다.
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     env:
+      CI: 'true'
       CLUSTER: ga-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
@@ -166,6 +168,12 @@ jobs:
       - name: Smoke after the restore
         run: deploy/scripts/kind.sh smoke "$CLUSTER" | tee kind-smoke-after-restore.txt
 
+      - name: Key rotations (G5 — cursor, request hash, receipt, demo OIDC, tenant KEK + KEK_REWRAP, TSA anchor set)
+        run: deploy/scripts/kind.sh rotate "$CLUSTER" all | grep -vE '^SECRET .* EXISTS$' | tee kind-rotate.txt
+
+      - name: E2E against the cluster (G5 — entry points A, B and C after the rotations)
+        run: ./gradlew :disclosure-web:e2eKind -Pkind.cluster="$CLUSTER" --console=plain
+
       - name: Log scan
         run: deploy/scripts/kind.sh logscan "$CLUSTER" | tee kind-logscan.txt
 
@@ -180,7 +188,11 @@ jobs:
             kind-backup.txt
             kind-restore.txt
             kind-smoke-after-restore.txt
+            kind-rotate.txt
             kind-logscan.txt
+            disclosure-web/build/e2e/junit.xml
+            disclosure-web/build/e2e/artifact-scan.json
+            disclosure-web/build/e2e/*-summary.json
 
       - name: Delete the cluster
         if: always()

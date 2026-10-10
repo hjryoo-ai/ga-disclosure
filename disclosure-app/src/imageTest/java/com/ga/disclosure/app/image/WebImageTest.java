@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,14 +72,25 @@ class WebImageTest {
             assertThat(r.headers().firstValue("content-type")).as(c[0]).hasValue("text/html;charset=UTF-8");
             securityHeaders(r, c[0]);
         }
-        String asset;
+        // 자산 전수: 확장자마다 정해진 형식(nosniff라 틀리면 브라우저가 거부한다 — PDF.js 모듈 워커 .mjs가 octet-stream이었다, 11단계 kind E2E). 표 밖
+        // 확장자가 빌드에 생기면 실패한다(형식을 정하고 nginx 표에 더할 것)
+        java.util.Map<String, String> types = java.util.Map.of("js", "text/javascript", "mjs", "text/javascript", "css", "text/css", "ttf", "font/ttf");
+        List<Path> assets;
         try (Stream<Path> files = Files.list(dist.resolve("assets"))) {
-            asset = files.filter(p -> p.toString().endsWith(".js")).findFirst().orElseThrow().getFileName().toString();
+            assets = files.sorted().toList();
         }
-        HttpResponse<String> a = send("GET", "/assets/" + asset);
-        assertThat(a.statusCode()).isEqualTo(200);
-        assertThat(a.headers().firstValue("cache-control")).hasValue(CacheControl.maxAge(Duration.ofDays(365)).cachePublic().immutable().getHeaderValue());
-        securityHeaders(a, "asset");
+        assertThat(assets).isNotEmpty();
+        for (Path p : assets) {
+            String name = p.getFileName().toString();
+            String ext = name.substring(name.lastIndexOf('.') + 1);
+            assertThat(types).as("asset type for ." + ext).containsKey(ext);
+            HttpResponse<String> a = send("GET", "/assets/" + name);
+            assertThat(a.statusCode()).as(name).isEqualTo(200);
+            assertThat(a.headers().firstValue("content-type")).as(name).hasValue(types.get(ext));
+            assertThat(a.headers().firstValue("cache-control")).as(name)
+                    .hasValue(CacheControl.maxAge(Duration.ofDays(365)).cachePublic().immutable().getHeaderValue());
+            securityHeaders(a, name);
+        }
     }
 
     @Test

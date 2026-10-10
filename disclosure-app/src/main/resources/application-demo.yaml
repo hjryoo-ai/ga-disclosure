@@ -12,6 +12,10 @@ ga:
     dir: ${GA_SECRETS_DIR:${user.home}/.ga-disclosure/secrets}
   public-sign:
     min-response-millis: 250
+  # (Phase 8) 고객 서명 화면의 기준 주소 — 원격 링크와 현장 기기 서명 창(세션 발급 응답 signUrl)이 같이 쓴다. 로컬 데모는 같은 출처(이 앱),
+  # kind·운영은 서명 호스트(GA_SIGN_LINK_BASE_URL)
+  sign:
+    link-base-url: ${GA_SIGN_LINK_BASE_URL:http://localhost:${server.port:8080}/s#}
   # Phase 7 데모 로그인(DemoLoginController, Q6): 직원 화면의 주체 선택 폼에 보이는 계정(테넌트/주체) — 닫힌 목록, 역할은 identity_link.
   demo:
     login:

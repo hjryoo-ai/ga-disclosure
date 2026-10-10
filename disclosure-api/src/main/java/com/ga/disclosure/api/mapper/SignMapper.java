@@ -90,7 +90,8 @@ public final class SignMapper {
     public static SessionIssueReceipt issued(SignSessionService.IssueOutcome o, SignatureChannel channel) {
         reject(o.rejections());
         return new SessionIssueReceipt(o.sessionId().orElseThrow().toString(), o.id().value().toString(), channel.name(),
-                o.expiresAt().map(Object::toString).orElse(null), o.token().map(t -> t.reveal()).orElse(null));
+                o.expiresAt().map(Object::toString).orElse(null), o.token().map(t -> t.reveal()).orElse(null),
+                o.link().map(l -> l.reveal()).orElse(null));
     }
 
     public static IdentityReceipt identity(SignSessionService.IdentityOutcome o) {

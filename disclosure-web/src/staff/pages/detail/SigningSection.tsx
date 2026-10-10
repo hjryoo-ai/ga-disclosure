@@ -1,5 +1,6 @@
 // 서명(설계사): 세션 발급(채널 — 계약 enum), 현장 기기 토큰의 대면 확인·서명 창 열기, 종이 스캔 올리기, 설계사 서명(패드 — 룰이 승인 클릭이면 빈 본문).
-// 현장 기기 토큰은 이 화면의 메모리(상태)에만 있다 — 저장소·URL·로그에 두지 않는다. 서명 창은 조각(#)으로만 넘긴다(서버로 가지 않는다).
+// 현장 기기 토큰은 이 화면의 메모리(상태)에만 있다 — 저장소·URL·로그에 두지 않는다. 서명 창은 조각(#)으로만 넘긴다(서버로 가지 않는다). 창의 주소는 서버가
+// 발급 응답에 준 signUrl(서명 호스트 — Phase 8)이고 화면이 만들지 않는다(signWindow.ts).
 // 원격 링크 토큰은 화면에 오지 않는다(통지 대기열이 발송, 설계서 §6.5) — 발급 뒤 "발송 대기"만 보인다.
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import type { components } from '../../../gen/disclosure-api';
@@ -9,6 +10,7 @@ import { SignaturePad } from '../../../shared/pad';
 import { useApi, write } from '../../api/useApi';
 import { useVocabularyOutcome } from '../../api/vocabulary';
 import { Choice, formText, label, ResultLine, Section, useShown } from '../../components/ui';
+import { signWindowUrl } from './signWindow';
 
 type Detail = components['schemas']['DisclosureDetail'];
 type Channel = components['schemas']['SessionIssueRequest']['channel'];
@@ -51,7 +53,8 @@ export function SigningSection({ id, detail, reload }: { id: string; detail: Det
       .then((o) => { show(o, staff.signing.confirmed); });
   };
   const openSignWindow = () => {
-    if (token !== null) window.open(`/s#${token}`, '_blank', 'noopener');
+    const url = signWindowUrl(issued?.signUrl);
+    if (url !== null) window.open(url, '_blank', 'noopener');
   };
   const upload = (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();

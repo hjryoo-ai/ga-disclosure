@@ -59,13 +59,14 @@ public class RetentionConfiguration {
     public static final SecretName TSA_TRUST = SecretName.of("tsa/trust-anchors.pem");
 
     /**
-     * 신뢰 앵커 PEM의 출처: {@code http}는 비밀 {@code tsa/trust-anchors.pem}(없으면 null — 영수증 토큰은 TSA_UNTRUSTED), {@code stub}은 스텁이 내보낸 파일
-     * {@code ga.tsa.trust-pem}(데모·개발).
+     * 신뢰 앵커 PEM의 출처: 비밀 {@code tsa/trust-anchors.pem}(앵커 집합)이 있으면 어느 모드든 그것이다. 없으면 {@code http}는 null(영수증 토큰은
+     * TSA_UNTRUSTED), {@code stub}은 스텁이 내보낸 파일 {@code ga.tsa.trust-pem}(로컬 데모·개발 — 지금 스텁 키 하나). (11단계) 스텁만 쓰던 첫 판은 kind의
+     * 스텁 키 회전 뒤 앱 안 검증(화면의 VERIFY_TENANT)이 옛 앵커를 TSA_UNTRUSTED로 냈다 — 스텁 모드도 집합이 있으면 운영과 같이 집합을 믿는다.
      */
     @Bean
     public TsaTrust tsaTrust(@Value("${ga.tsa.mode:http}") String mode, @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String stubTrustPem,
                              SecretSource secrets) {
-        return mode.equals("stub") ? () -> readIfPresent(Path.of(stubTrustPem)) : () -> secrets.exists(TSA_TRUST) ? secrets.read(TSA_TRUST) : null;
+        return () -> secrets.exists(TSA_TRUST) ? secrets.read(TSA_TRUST) : mode.equals("stub") ? readIfPresent(Path.of(stubTrustPem)) : null;
     }
 
     /** 신뢰 앵커 PEM(없으면 null). */

@@ -1,6 +1,6 @@
 // 모든 E2E 시험에 자동으로 붙는 감시(G4·G5·G9):
 //  - CSP 위반 0: securitypolicyviolation 이벤트(초기화 스크립트가 표식 줄로 콘솔에 올림)와 Chromium의 CSP 콘솔 오류
-//  - 외부 출처 요청 0: 모든 요청의 출처 = 앱 출처(blob:·data:만 예외)
+//  - 외부 출처 요청 0: 모든 요청의 출처 = 앱 출처(클러스터는 직원·서명 호스트 둘 — blob:·data:만 예외)
 //  - 누출 0(WebLeakScanE2E): 센티널(허구 이름·전화·생년월일 + 이 시험이 만난 서명 토큰)이 콘솔·페이지 오류·요청 URL·요청/응답 헤더·
 //    페이지 URL·localStorage·sessionStorage·쿠키·IndexedDB 목록에 없다. 토큰은 `X-Sign-Token` 요청 헤더에만 있어도 된다(설계된 전달 경로).
 //    먼저 "센티널이 실제로 들어갔다"(요청 본문에 실린 횟수)를 센다(D-5). 실패 메시지는 센티널 번호·위치 종류만(D-6).
@@ -9,7 +9,7 @@ import { test as base, expect, type BrowserContext, type Page, type Request } fr
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { DEMO_SHOTS, env, OUT, RUN, sentinelForms, sentinels, type Sentinels } from './env';
+import { DEMO_SHOTS, origins, OUT, RUN, sentinelForms, sentinels, type Sentinels } from './env';
 
 export interface WriteRecord {
   url: string;
@@ -64,7 +64,7 @@ async function storageOf(page: Page): Promise<string[]> {
   }
 }
 
-function attach(context: BrowserContext, w: Watch, origin: string) {
+function attach(context: BrowserContext, w: Watch, allowed: Set<string>) {
   const onPage = (page: Page) => {
     w.pages.push(page);
     page.on('console', (m) => {
@@ -80,7 +80,7 @@ function attach(context: BrowserContext, w: Watch, origin: string) {
   context.on('request', (r: Request) => {
     const url = r.url();
     w.urls.push(url);
-    if (!url.startsWith('blob:') && !url.startsWith('data:') && new URL(url).origin !== origin) w.external.push(new URL(url).origin);
+    if (!url.startsWith('blob:') && !url.startsWith('data:') && !allowed.has(new URL(url).origin)) w.external.push(new URL(url).origin);
     r.allHeaders().then((h) => { w.headerSets.push(Object.entries(h).map(([name, value]) => ({ name, value }))); }, () => { w.lost++; });
   });
   context.on('requestfinished', (r: Request) => {
@@ -106,9 +106,8 @@ function attach(context: BrowserContext, w: Watch, origin: string) {
 
 export const test = base.extend<{ guard: Guard }>({
   guard: [async ({ context }, use, info) => {
-    const e = env();
     const s = sentinels();
-    const origin = new URL(e.baseUrl).origin;
+    const allowed = origins();                                            // 직원·서명 호스트(로컬은 같은 출처 하나)
     const secrets: string[] = [];
     const w: Watch = { consoleTexts: [], urls: [], headerSets: [], violations: [], external: [], writes: [], enteredInBodies: 0, pages: [], lost: 0 };
     await context.addInitScript(() => {
@@ -120,7 +119,7 @@ export const test = base.extend<{ guard: Guard }>({
       const body = r.postData() ?? '';
       for (const f of sentinelForms(s)) if (body.includes(f)) w.enteredInBodies++;
     });
-    attach(context, w, origin);
+    attach(context, w, allowed);
 
     const closedStorage: string[] = [];
     let shots = 0;

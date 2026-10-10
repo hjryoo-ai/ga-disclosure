@@ -63,7 +63,7 @@ public final class PostgresHarness {
                 .withDatabaseName(DATABASE)
                 .withUsername("postgres")
                 .withPassword("postgres")
-                .withCopyFileToContainer(MountableFile.forHostPath(initRoles), "/docker-entrypoint-initdb.d/00-init-roles.sql");
+                .withCopyFileToContainer(MountableFile.forHostPath(initRoles, SeaweedHarness.FILE_MODE), "/docker-entrypoint-initdb.d/00-init-roles.sql");
         container.start();
 
         superuser = dataSource("postgres", "postgres");

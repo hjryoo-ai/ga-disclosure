@@ -36,6 +36,8 @@ import com.ga.disclosure.workflow.disclosure.SignSupport.Access;
 import com.ga.disclosure.workflow.sign.IdentityInputs;
 import com.ga.disclosure.workflow.sign.IdentityResult;
 import com.ga.disclosure.workflow.sign.NotificationStore;
+import com.ga.disclosure.workflow.sign.SignLink;
+import com.ga.disclosure.workflow.sign.SignLinkBase;
 import com.ga.disclosure.workflow.sign.SignRejection;
 import com.ga.disclosure.workflow.sign.SignSession;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
@@ -72,9 +74,12 @@ import java.util.UUID;
  */
 public final class SignSessionService {
 
-    /** 발급 결과. 거부면 세션·토큰이 없다. REMOTE_LINK는 토큰이 없고 적재한 통지 ID가 있다. */
+    /**
+     * 발급 결과. 거부면 세션·토큰이 없다. REMOTE_LINK는 토큰이 없고 적재한 통지 ID가 있다. 현장 기기 토큰에는 그 토큰의 서명 창 주소({@code link} — 서명
+     * 호스트, Phase 8)가 따른다.
+     */
     public record IssueOutcome(DisclosureId id, List<SignRejection> rejections, Optional<UUID> sessionId, Optional<SignToken> token,
-                               Optional<Instant> expiresAt, Optional<UUID> notificationId) {
+                               Optional<Instant> expiresAt, Optional<UUID> notificationId, Optional<SignLink> link) {
         public IssueOutcome {
             rejections = List.copyOf(rejections);
         }
@@ -107,10 +112,12 @@ public final class SignSessionService {
     private final StoredArtifacts stored;
     private final SessionClosing closing;
     private final AuthorizationPort authz;
+    private final SignLinkBase linkBase;
 
     public SignSessionService(DisclosureServiceDeps deps, SignSessionStore sessions, DocumentRecordStore records, DocumentCryptoPort crypto,
-                              ArtifactStore storage, TokenSource tokens, NotificationStore notifications) {
+                              ArtifactStore storage, TokenSource tokens, NotificationStore notifications, SignLinkBase linkBase) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
+        this.linkBase = Objects.requireNonNull(linkBase, "linkBase");
         this.tokens = Objects.requireNonNull(tokens, "tokens");
         this.notifications = Objects.requireNonNull(notifications, "notifications");
         this.customers = deps.customers();
@@ -162,7 +169,7 @@ public final class SignSessionService {
             }
             if (!rejections.isEmpty()) {
                 support.reject(agent, d, "SIGN_SESSION_ISSUE", rejections, SignSupport.JSON.createObjectNode().put("channel", channel.name()));
-                return new IssueOutcome(id, rejections, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+                return new IssueOutcome(id, rejections, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
             }
             List<String> closed = closing.closeOpen(agent, id, SessionEvent.REISSUE, now).stream().map(UUID::toString).toList();
             boolean remote = channel == SignatureChannel.REMOTE_LINK;
@@ -189,7 +196,7 @@ public final class SignSessionService {
             }
             support.record(agent, AuditAction.SIGN_SESSION_ISSUE, id, detail);
             return new IssueOutcome(id, List.of(), Optional.of(sessionId), Optional.ofNullable(token), Optional.of(expires),
-                    Optional.ofNullable(notificationId));
+                    Optional.ofNullable(notificationId), Optional.ofNullable(token).map(linkBase::link));
         });
     }
 

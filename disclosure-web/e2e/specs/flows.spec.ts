@@ -12,7 +12,7 @@ import { axe } from '../support/axe';
 import { expect, test } from '../support/fixtures';
 import { choose, chooseCode, chooseValue, toggle, type } from '../support/keyboard';
 import { expectUnavailable, openLink, readDocument, remoteLink, signAndFinish, tokenOf, verifyBirthDate, draw } from '../support/sign';
-import { env, RUN } from '../support/env';
+import { env, RUN, signTarget } from '../support/env';
 import { expectOk, expectStatus, login, logout, nav, press, section, staff } from '../support/staff';
 
 const GROUP = 'PG-HEALTH-SIMPLE-NR';
@@ -184,7 +184,7 @@ test('agent on site with TOUCH_PAD, customer signs in the sign window, manager c
   await guard.close(manager);
 });
 
-test('remote link: identity failures raise a flag only the manager sees, and the manager acknowledges it', async ({ page, context, request, guard }) => {
+test('remote link: identity failures raise a flag only the manager sees, and the manager acknowledges it', async ({ page, context, guard }) => {
   const s = guard.sentinels;
   const customerRef = shared.customerRef ?? '';
   expect(customerRef).not.toBe('');
@@ -193,7 +193,7 @@ test('remote link: identity failures raise a flag only the manager sees, and the
   expect(await issue(page, 'REMOTE_LINK')).toBeNull();                     // 원격 링크 토큰은 화면에 오지 않는다
   await expect(section(page, 'signing').getByTestId('issued')).toContainText(staff.signing.awaitingDispatch);
 
-  const revoked = await remoteLink(request);
+  const revoked = await remoteLink();
   guard.addSecret(tokenOf(revoked));
   const customer = await context.newPage();
   await openLink(customer, revoked);
@@ -206,7 +206,7 @@ test('remote link: identity failures raise a flag only the manager sees, and the
   shared.revokedLink = revoked;
 
   await issue(page, 'REMOTE_LINK');                                        // 재발급(열린 세션을 닫는다 — REISSUE)
-  const link = await remoteLink(request);
+  const link = await remoteLink();
   guard.addSecret(tokenOf(link));
   await openLink(customer, link);
   await readDocument(customer);
@@ -257,7 +257,7 @@ test('every unusable link shows the same single screen, and public pages are not
   }
   await guard.shot(page, 'link-unavailable');
   await axe(page, 'public-unavailable', info);
-  const headers = (await request.get('/s')).headers();
+  const headers = (await request.get(signTarget('/s'))).headers();               // 서명 호스트(클러스터 — 진입점 B)의 응답
   expect(headers['cache-control']).toContain('no-store');
   expect(headers['content-security-policy']).toContain("script-src 'self'");
   expect(headers['content-security-policy']).not.toContain('unsafe');

@@ -74,7 +74,7 @@ class RestoreProofIT {
     static GenericContainer<?> environmentA() {
         GenericContainer<?> c = new GenericContainer<>(DockerImageName.parse(PostgresHarness.IMAGE))
                 .withEnv(Map.of("POSTGRES_DB", "disclosure", "POSTGRES_USER", "postgres", "POSTGRES_PASSWORD", SUPERUSER_PASSWORD))
-                .withCopyFileToContainer(MountableFile.forHostPath(ROOT.resolve("docker/postgres/init-roles.sql")), "/docker-entrypoint-initdb.d/00-init-roles.sql")
+                .withCopyFileToContainer(MountableFile.forHostPath(ROOT.resolve("docker/postgres/init-roles.sql"), SeaweedHarness.FILE_MODE), "/docker-entrypoint-initdb.d/00-init-roles.sql")
                 .withCopyToContainer(Transferable.of("echo 'host replication disclosure_backup all scram-sha-256' >> \"$PGDATA/pg_hba.conf\"\n"),
                         "/docker-entrypoint-initdb.d/01-replication.sh")
                 .withExposedPorts(5432)
@@ -87,7 +87,7 @@ class RestoreProofIT {
     /** 환경 B: 빈 볼륨에 백업 tar를 풀고 그대로 기동(initdb·초기화 스크립트 없음 — 데이터 디렉터리가 이미 있다). */
     static GenericContainer<?> environmentB(Path baseTar) {
         GenericContainer<?> c = new GenericContainer<>(DockerImageName.parse(PostgresHarness.IMAGE))
-                .withCopyFileToContainer(MountableFile.forHostPath(baseTar), "/restore/base.tar")
+                .withCopyFileToContainer(MountableFile.forHostPath(baseTar, SeaweedHarness.FILE_MODE), "/restore/base.tar")
                 .withCreateContainerCmdModifier(cmd -> cmd.withEntrypoint("sh", "-c", "set -e; mkdir -p " + PGDATA + "; tar -xf /restore/base.tar -C " + PGDATA
                         + "; chown -R postgres:postgres /var/lib/postgresql; chmod 700 " + PGDATA + "; exec docker-entrypoint.sh postgres"))
                 .withExposedPorts(5432)

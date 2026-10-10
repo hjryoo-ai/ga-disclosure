@@ -107,7 +107,7 @@ class NotificationOutboxIT {
                     throw new AssertionError();
                 }
             };
-            SignSessionService broken = new SignSessionService(x.w.deps(x.clock), x.sessions, x.s.recordPort, x.s.cipher, x.s.store, x.tokens, failing);
+            SignSessionService broken = new SignSessionService(x.w.deps(x.clock), x.sessions, x.s.recordPort, x.s.cipher, x.s.store, x.tokens, failing, new com.ga.disclosure.workflow.sign.SignLinkBase(SignSetup.LINK_BASE));
             assertThatThrownBy(() -> broken.issue(Callers.of(x.w.tenant, SignSetup.AGENT), id, SignatureChannel.REMOTE_LINK))
                     .isInstanceOf(IllegalStateException.class);
             String t = x.w.tenant.value();
