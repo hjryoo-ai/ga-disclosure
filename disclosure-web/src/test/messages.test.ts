@@ -1,5 +1,5 @@
 // Phase 7 G3 사전 커버리지(계획 ④ "Problem.code 사전"): 서버가 내는 코드 전수 ↔ messages.ko.json, 양방향(빠진 코드·남은 키 모두 실패).
-//  ① 최상위 16 = disclosure-api 계약 Problem.code enum(생성 타입에서 읽는다) ↔ problem.code
+//  ① 최상위 17(Phase 8: TENANT_RULES_NOT_ACTIVE) = disclosure-api 계약 Problem.code enum(생성 타입에서 읽는다) ↔ problem.code
 //  ② 거부 코드 = 설계서 rejection-categories 블록(Categorized enum 전수 — 6B D-3과 같은 목록) ↔ problem.rejection
 //  ③ 공개 2 = disclosure-public 계약 Problem.code ↔ sign.problem
 //  ④ 사전에 없는 코드는 코드 그대로, 문구에 치환자 0(고객 정보를 넣을 자리가 없다)
@@ -37,9 +37,9 @@ function rejectionCodes(): Set<string> {
 const sorted = (s: Iterable<string>) => [...s].sort();
 
 describe('Problem.code dictionary covers every server code both ways', () => {
-  it('has a text for each of the 16 top-level codes and no other', () => {
+  it('has a text for each of the 17 top-level codes and no other', () => {
     const contract = problemCodes('src/gen/disclosure-api.ts');
-    expect(contract.size).toBe(16);
+    expect(contract.size).toBe(17);
     expect(sorted(Object.keys(messages.problem.code))).toEqual(sorted(contract));
   });
 
