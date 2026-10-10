@@ -107,12 +107,16 @@ public final class FileSecretSource implements SecretSource {
         }
         try {
             Files.createDirectories(file.getParent());
-            if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                Files.createFile(file, PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
-            } else {
-                Files.createFile(file);
+            // 만들기·열기를 한 번에(O_CREAT|O_EXCL) — 만든 뒤 경로로 다시 열면 그 사이 심볼릭 링크로 바꿔치기된 대상에 키를 쓸 수 있다(TOCTOU)
+            java.util.Set<java.nio.file.OpenOption> options = java.util.Set.of(java.nio.file.StandardOpenOption.CREATE_NEW, java.nio.file.StandardOpenOption.WRITE);
+            try (java.nio.channels.SeekableByteChannel channel = file.getFileSystem().supportedFileAttributeViews().contains("posix")
+                    ? Files.newByteChannel(file, options, PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)))
+                    : Files.newByteChannel(file, options)) {
+                java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(content);
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
             }
-            Files.write(file, content);
         } catch (FileAlreadyExistsException e) {
             throw new IllegalStateException("secret " + name + " already exists");
         } catch (IOException e) {

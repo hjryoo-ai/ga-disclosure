@@ -124,8 +124,7 @@ public final class LocalStubTsa implements TimestampAuthorityPort {
         try {
             if (!Files.exists(keyStore)) {
                 byte[] created = newDemoKeyStore(clock);
-                createOwnerOnly(keyStore);
-                try (OutputStream out = Files.newOutputStream(keyStore)) {
+                try (OutputStream out = createOwnerOnly(keyStore)) {
                     out.write(created);
                 }
             }
@@ -200,13 +199,13 @@ public final class LocalStubTsa implements TimestampAuthorityPort {
         }
     }
 
-    private static void createOwnerOnly(Path file) throws IOException {
+    /** 만들기·열기를 한 번에(O_CREAT|O_EXCL, 소유자 전용) — 만든 뒤 경로로 다시 열면 그 사이 심볼릭 링크로 바꿔치기된 대상에 키를 쓸 수 있다(TOCTOU). */
+    private static OutputStream createOwnerOnly(Path file) throws IOException {
         Files.createDirectories(file.toAbsolutePath().getParent());
-        if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-            Files.createFile(file, PosixFilePermissions.asFileAttribute(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
-        } else {
-            Files.createFile(file);
-        }
+        java.util.Set<java.nio.file.OpenOption> options = java.util.Set.of(java.nio.file.StandardOpenOption.CREATE_NEW, java.nio.file.StandardOpenOption.WRITE);
+        return java.nio.channels.Channels.newOutputStream(file.getFileSystem().supportedFileAttributeViews().contains("posix")
+                ? Files.newByteChannel(file, options, PosixFilePermissions.asFileAttribute(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)))
+                : Files.newByteChannel(file, options));
     }
 
     private static void requireOwnerOnly(Path file) throws IOException {

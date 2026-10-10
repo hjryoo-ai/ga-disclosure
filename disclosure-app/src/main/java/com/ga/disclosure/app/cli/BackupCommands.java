@@ -148,17 +148,19 @@ final class BackupCommands {
                 env.getRequiredProperty(prefix + ".secret-access-key"), env.getProperty(prefix + ".path-style", Boolean.class, true));
     }
 
-    /** 새 파일을 소유자 전용(600)으로 — 이미 있으면 거부(백업 평문·봉투를 덮어쓰지 않는다). */
+    /**
+     * 새 파일을 소유자 전용(600)으로 <b>한 번에</b> 연다 — 만들기와 열기가 하나의 {@code O_CREAT|O_EXCL}이라 경로에 무엇이든(심볼릭 링크 포함) 이미 있으면
+     * 실패한다. 만든 뒤 경로로 다시 여는 방식은 그 사이 링크로 바꿔치기되면 평문 백업을 링크 대상에 쓴다(10단계 커밋 보안 검토 — TOCTOU).
+     */
     static OutputStream createOwnerOnly(Path file) throws IOException {
+        java.util.Set<java.nio.file.OpenOption> options = java.util.Set.of(java.nio.file.StandardOpenOption.CREATE_NEW, java.nio.file.StandardOpenOption.WRITE);
         try {
-            if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                Files.createFile(file, PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
-            } else {
-                Files.createFile(file);
-            }
+            java.nio.channels.SeekableByteChannel channel = file.getFileSystem().supportedFileAttributeViews().contains("posix")
+                    ? Files.newByteChannel(file, options, PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)))
+                    : Files.newByteChannel(file, options);
+            return java.nio.channels.Channels.newOutputStream(channel);
         } catch (FileAlreadyExistsException e) {
             throw new CliFailure("refusing to overwrite " + file.getFileName());
         }
-        return Files.newOutputStream(file);
     }
 }

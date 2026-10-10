@@ -288,6 +288,18 @@ class ArchitectureRulesTest {
                 .check(classes);
     }
 
+    /**
+     * 10단계 커밋 보안 검토(TOCTOU): 비밀·백업 평문 파일은 만들기와 열기가 하나의 {@code CREATE_NEW} 열기다 — {@code Files.createFile} 뒤 경로로 다시 열면
+     * 그 사이 심볼릭 링크로 바꿔치기된 대상에 쓴다. 운영 코드에 {@code Files.createFile} 0(소유자 전용 파일은 {@code newByteChannel(CREATE_NEW, 권한)}).
+     */
+    @Test
+    void filesAreCreatedAndOpenedInOneStep() {
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .should().callMethod(java.nio.file.Files.class, "createFile", java.nio.file.Path.class, java.nio.file.attribute.FileAttribute[].class)
+                .because("create-then-reopen lets a symlink swapped in between receive secret or backup bytes; open with CREATE_NEW and the permissions at once")
+                .check(classes);
+    }
+
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
