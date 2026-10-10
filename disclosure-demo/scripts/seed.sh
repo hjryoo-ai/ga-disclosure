@@ -42,6 +42,9 @@ tenant_kek() {
   cli crypto kek register --tenant "$1" --kek-id "$1-KEK-1" --operator "$OPERATOR"
 }
 
+# 스키마(Phase 8): 앱은 기동 때 마이그레이션하지 않는다 — 마이그레이터 롤의 db migrate가 먼저(멱등, 앱 컨텍스트 없이). 그 뒤 명령은 스키마 버전 가드를 지난다.
+# Phase 7 이전 볼륨은 init-roles.sql의 disclosure_health·disclosure_backup 두 롤과 CONNECT 한 줄을 superuser로 먼저(README "업그레이드") — 없으면 V22가 멈춘다.
+cli db migrate
 cli secrets init --secrets-dir "$GA_SECRETS_DIR" --demo yes
 cli demo seed --file disclosure-demo/src/main/resources/demo/phase1-seed.json --operator "$OPERATOR"
 # 규제 번들은 DEMO1·DEMO2에만 — DEMO3은 데모 전용 GLOBAL 번들 하나(두 GLOBAL 룰이 겹치면 해석이 Ambiguous로 실패한다)

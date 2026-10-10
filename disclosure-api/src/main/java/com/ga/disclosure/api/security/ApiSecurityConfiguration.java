@@ -153,7 +153,10 @@ public class ApiSecurityConfiguration {
         return http.build();
     }
 
-    /** 나머지 경로(계획 §5.1): {@code /actuator/health}만 열고 그 밖은 {@code denyAll} — 응답은 내부 경로의 404와 같은 본문. 세션·쿠키 없음. */
+    /**
+     * 나머지 경로(계획 §5.1): 헬스({@code /actuator/health}와 준비성·활성 그룹)만 열고 그 밖은 {@code denyAll} — 응답은 내부 경로의 404와 같은 본문.
+     * 세션·쿠키 없음. Phase 8부터 액추에이터는 관리 포트에만 있다 — 앱 포트의 같은 경로는 매핑이 없어 404다.
+     */
     @Bean
     @Order(10)
     public SecurityFilterChain otherSecurityFilterChain(HttpSecurity http) throws Exception {
@@ -164,7 +167,8 @@ public class ApiSecurityConfiguration {
                 .formLogin(f -> f.disable())
                 .httpBasic(b -> b.disable())
                 .logout(l -> l.disable())
-                .authorizeHttpRequests(a -> a.requestMatchers(HttpMethod.GET, "/actuator/health").permitAll().anyRequest().denyAll())
+                .authorizeHttpRequests(a -> a.requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/readiness", "/actuator/health/liveness")
+                        .permitAll().anyRequest().denyAll())
                 .exceptionHandling(e -> e.authenticationEntryPoint(unrouted).accessDeniedHandler(unrouted));
         return http.build();
     }

@@ -23,7 +23,7 @@ import java.util.function.Function;
  * 테넌트 KEK CLI(Phase 8, 8 계획 승인 Q2 — 런북 "KEK 회전"). 운영자 대리 실행이다.
  * <pre>
  * crypto kek init     --tenant T --kek-id T-KEK-1 --secrets-dir &lt;dir&gt; [--if-absent yes]  (로컬·kind 전용: 비밀 파일 kek/T/T-KEK-1을 소유자 전용으로 —
- *                     덮어쓰지 않는다. --if-absent yes면 이미 있을 때 그대로 둔다)
+ *                     덮어쓰지 않는다. --if-absent yes면 이미 있을 때 그대로 둔다. DB가 필요 없어 {@link OfflineCli}가 앱 컨텍스트 없이 실행한다)
  * crypto kek register --tenant T --kek-id T-KEK-1 --operator &lt;id&gt;       (키가 비밀 출처에서 감싸기·풀기 되는지 확인 → CURRENT 교체, 감사.
  *                     이미 CURRENT면 NOOP)
  * crypto kek rewrap   --tenants all|T1,T2 [--apply yes] --operator &lt;id&gt;     (작업 KEK_REWRAP — 기본 dry-run, 행마다 감사)
@@ -53,14 +53,14 @@ final class KekCommands {
 
     void run(CliArguments args) {
         switch (args.command()) {
-            case "crypto kek init" -> init(args);
             case "crypto kek register" -> register(args);
             case "crypto kek rewrap" -> rewrap(args);
             default -> throw new CliFailure("unknown command '" + args.command() + "' — see KekCommands javadoc");
         }
     }
 
-    private void init(CliArguments args) {
+    /** {@link OfflineCli}가 부른다(앱 컨텍스트·DB 없음). */
+    static void init(CliArguments args, PrintStream out) {
         TenantId tenant = TenantId.of(args.required("tenant"));
         String kekId = args.required("kek-id");
         SecretName name = TenantKeyProvider.secretName(tenant, kekId)

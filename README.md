@@ -16,6 +16,7 @@
 ./gradlew contractChecksums         # contracts/ 변경 후 contracts/CHECKSUMS 갱신
 ./gradlew resolveAndLockAll --write-locks   # 의존성 추가 후 락 파일 갱신
 docker compose up -d postgres seaweedfs   # 로컬 DB(롤 초기화 포함) + 봉인 산출물 저장소(SeaweedFS, digest 고정, 허구 S3 키)
+./gradlew -q :disclosure-app:bootRun --args="--spring.profiles.active=cli db migrate"   # (8) 스키마 적용 — 앱은 기동 때 마이그레이션하지 않는다(seed.sh도 먼저 한다)
 disclosure-demo/scripts/seed.sh    # 데모 테넌트 2개 + 규제 번들 배포·사규 승인·활성화·대사 + 카탈로그 수입 + 로컬 KEK + 가상 고객 + 데모 확인서 봉인·정정 + 서명·완료·만료(운영자 CLI, 멱등)
 disclosure-demo/scripts/http-demo.sh   # (6A) seed.sh 뒤, 같은 DB에서 HTTP 흐름 — 데모 OIDC 토큰 → 초안~봉인 → 원격 링크·NOTIFY 작업 → 고객 공개 경로 → 서명·완료 → 피드 → VERIFY_TENANT → 거부 3종 바이트 비교(curl·jq 필요, 같은 날 두 번째 실행은 전부 재생)
 ./gradlew :disclosure-web:e2e        # (7) 화면 E2E — 격리 컨테이너 + 부트 jar(demo) + Playwright Chromium(데스크톱·모바일), Docker 없으면 실패
@@ -29,6 +30,8 @@ GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest 
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
 # rules approve --tenant T1 --rule <id> | rules activate [--as-of 2027-01-01] | rules reconcile | demo seed --file <json>
 # catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | secrets init --secrets-dir <dir> [--demo yes] | crypto kek init|register|rewrap (Phase 8 테넌트 KEK)
+# (8) db migrate — 마이그레이터 롤(DISCLOSURE_MIGRATOR_USER·_PASSWORD)로 스키마 적용. db migrate·secrets init·crypto kek init은 앱 컨텍스트 없이 돈다
+#     그 밖의 명령과 웹 앱은 스키마 버전 가드를 지나야 뜬다(배포물 최고 V* ≠ DB 최고 성공 버전이면 두 버전만 담은 문장으로 실패 — 헬스 롤로 조회)
 # (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-code <CODE> [--reason-file <path>] --operator <id>
 #      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out <path> | artifacts gc|reconcile --tenants all
 # (4) sign session --tenant T1 --id <uuid> --channel TOUCH_PAD|REMOTE_LINK|PAPER_SCAN | sign open|verify|capture|scan --token <token> (입력은 --*-file)
@@ -47,7 +50,9 @@ GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest 
 
 (Phase 8) 서버 비밀은 **저장소 밖** 비밀 디렉터리(`GA_SECRETS_DIR`, 데모 기본 `~/.ga-disclosure/secrets`, 소유자 전용)에서 읽는다 — 테넌트 KEK `kek/{T}/{T}-KEK-n`, API 키, 데모 OIDC 키. 앱은 비밀을 만들지 않는다(`secrets init`·`crypto kek init`). Phase 7 이전 볼륨(전역 KEK `~/.ga-disclosure/kek.json`으로 감싼 데이터)은 이 판이 풀지 않는다 — 1a 커밋 `270e18d`의 `seed.sh`로 한 번 재래핑하거나 `down -v`(설계서 §9).
 
-`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`. Phase 6A는 작업 잠금 롤 `disclosure_job_lock`을 더했고(V12가 롤이 없으면 실패), 룰 번들 네 개를 제자리로 다시 해시했으며(6A 룰 키), 앵커 날짜를 생성 시각의 KST 날짜로 묶는 CHECK가 옛 데모의 소급 앵커("어제 날짜로 지금 머리")를 거부한다 — 5 이전 볼륨은 `down -v`(사용자 결정, 스크립트는 볼륨을 지우지 않는다). Phase 6B는 초안 폐기 롤 `disclosure_abandoner`와 멤버십을 더했다(V14가 롤이 없으면 실패) — 6A 볼륨은 `down -v` 또는 `init-roles.sql`의 그 두 문장을 superuser로 한 번 실행한다.
+(Phase 8) 헬스는 **관리 포트**(`GA_MANAGEMENT_PORT`, 기본 8082)에서만 응답한다 — 준비성 `/actuator/health/readiness`(DB·저장소 Object Lock·IdP JWKS), 활성 `/actuator/health/liveness`(프로세스만). 앱 포트의 `/actuator/**`는 없는 경로와 같은 404다. DB 헬스와 스키마 버전 가드는 전용 롤 `disclosure_health`(`DISCLOSURE_HEALTH_USER`·`_PASSWORD`)로 연결한다.
+
+`init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`. Phase 6A는 작업 잠금 롤 `disclosure_job_lock`을 더했고(V12가 롤이 없으면 실패), 룰 번들 네 개를 제자리로 다시 해시했으며(6A 룰 키), 앵커 날짜를 생성 시각의 KST 날짜로 묶는 CHECK가 옛 데모의 소급 앵커("어제 날짜로 지금 머리")를 거부한다 — 5 이전 볼륨은 `down -v`(사용자 결정, 스크립트는 볼륨을 지우지 않는다). Phase 6B는 초안 폐기 롤 `disclosure_abandoner`와 멤버십을 더했다(V14가 롤이 없으면 실패) — 6A 볼륨은 `down -v` 또는 `init-roles.sql`의 그 두 문장을 superuser로 한 번 실행한다. Phase 8은 헬스 롤 `disclosure_health`·백업 롤 `disclosure_backup`과 `GRANT CONNECT ON DATABASE disclosure TO disclosure_health`를 더했다(V22가 롤이 없으면 실패) — 7 이전 볼륨은 `down -v` 또는 그 세 문장을 superuser로 한 번 실행한 뒤 `db migrate`.
 
 ## 룰은 코드가 아니라 데이터다 (Phase 1)
 
@@ -147,7 +152,7 @@ dependencyResolutionManagement {
 | `disclosure-compliance` | 룰 거버넌스(번들 배포·사규 승인·활성화 배치·번들 대사, Phase 1), 대상 판정·징구율·큐·리포트(Phase 6) | |
 | `disclosure-api` | 내부 REST(`/api/v1` 사람 역할·`/internal/v1` 서비스 주체 — 6A): JWT 체인·테넌트 바인딩·오류 본문, 컨트롤러·DTO 매퍼 | 컨트롤러는 유스케이스 진입점만 부른다 |
 | `disclosure-infra` | Flyway(스키마·RLS·불변 트리거·배타 제약), 저장소, 컬럼 암호화(`crypto`, Phase 2), (Phase 3~) 엔진 클라이언트·S3 | app만 의존 가능 |
-| `disclosure-app` | Spring Boot 조립, `/actuator/health`, 운영자 CLI(`cli` 프로파일), 아키텍처 테스트(`archTest`) | 웹 모드는 `ga.api.jwt.issuer`·`ga.api.jwt.audience`와 `ga.api.jwt.jwk-set-uri` 또는 `ga.api.jwt.public-key-location` 중 하나, 목록 커서 키 `ga.api.cursor-key-file`(저장소 밖, 없으면 소유자 전용으로 생성), 멱등 요청 해시 키 `ga.api.request-hash-key-file`(같은 규약, 6B), 고객 등록 영수증 키 `ga.api.receipt-key-file`(같은 규약, 6B), 고객 공개 서명 응답 하한 `ga.public-sign.min-response-millis`(1 이상)가 없으면 기동하지 않는다(기본값 없음) |
+| `disclosure-app` | Spring Boot 조립, 헬스(관리 포트 — 준비성·활성, Phase 8), 운영자 CLI(`cli` 프로파일, `db migrate` 등 앱 컨텍스트 없는 명령), 아키텍처 테스트(`archTest`) | 어떤 모드든 스키마 버전 가드를 먼저 지난다(Phase 8). 웹 모드는 `ga.api.jwt.issuer`·`ga.api.jwt.audience`와 `ga.api.jwt.jwk-set-uri` 또는 `ga.api.jwt.public-key-location` 중 하나, 비밀 디렉터리(`ga.secrets.dir`)의 목록 커서 키 `api/cursor`·멱등 요청 해시 키 `api/request-hash`·고객 등록 영수증 키 `api/customer-receipt`(Phase 8 — 앱은 만들지 않는다), 고객 공개 서명 응답 하한 `ga.public-sign.min-response-millis`(1 이상)가 없으면 기동하지 않는다(기본값 없음) |
 | `disclosure-demo` | 데모 테넌트·사규 시드와 시드 스크립트(Phase 1), 가상 카탈로그 파일(Phase 2), 확인서·엔진 스텁(Phase 8) | 어떤 모듈도 의존하지 않음 |
 | `contracts/` | 엔진·내부 OpenAPI, 이벤트 스키마(v1, 포털 §4.1 Envelope), 룰·서식·번들 스키마, 규제 번들, `CHECKSUMS` | |
 | `disclosure-web` | (Phase 7) 직원 화면(React 19)·고객 공개 서명 화면(프레임워크 없음, pdf.js 워커 번들) — Node 24 빌드를 Gradle이 감싸고 산출물은 jar의 `classpath:/ga-web/`(데모 프로파일만 서빙). 계약에서 생성한 클라이언트만(수기 `fetch` 금지 린트), E2E는 Playwright | 화면은 상태·검증·게이트를 계산하지 않는다(시험) |

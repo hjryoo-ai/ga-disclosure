@@ -19,6 +19,9 @@ dependencies {
     implementation(libs.json.schema.validator)
     implementation(libs.jackson.dataformat.yaml)
     runtimeOnly(libs.postgresql)
+    // Phase 8: 마이그레이션은 운영자 CLI db migrate(SchemaMigrator)만 — 앱 기동은 Flyway를 부르지 않는다(Boot 스타터 없음)
+    implementation(libs.flyway.core)
+    runtimeOnly(libs.flyway.postgresql)
     // Phase 3B 산출물 저장: 벤더 무관 표준 S3 API(AWS SDK v2, 승인 Q12). HTTP 클라이언트는 JDK URLConnection 하나만 — Apache(4·5)·Netty 클라이언트는 제외한다.
     implementation(platform(libs.awssdk.bom))
     implementation(libs.awssdk.s3) {

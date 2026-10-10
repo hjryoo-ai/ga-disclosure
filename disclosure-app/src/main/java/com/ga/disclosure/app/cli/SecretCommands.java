@@ -37,10 +37,6 @@ final class SecretCommands {
         this.out = Objects.requireNonNull(out, "out");
     }
 
-    boolean handles(String command) {
-        return command.startsWith("secrets ");
-    }
-
     void run(CliArguments args) {
         if (!args.command().equals("secrets init")) {
             throw new CliFailure("unknown command '" + args.command() + "' — see SecretCommands javadoc");

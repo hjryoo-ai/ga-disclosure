@@ -10,12 +10,6 @@ spring:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
     username: ${DISCLOSURE_APP_USER:disclosure_app}
     password: ${DISCLOSURE_APP_PASSWORD:app_local_only}
-  # 마이그레이션: disclosure_migrator (스키마 소유자). 애플리케이션 데이터소스와 분리된 접속.
-  flyway:
-    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
-    user: ${DISCLOSURE_MIGRATOR_USER:disclosure_migrator}
-    password: ${DISCLOSURE_MIGRATOR_PASSWORD:migrator_local_only}
-    locations: classpath:db/migration
 
 # 테넌트 디렉터리(운영자 CLI --tenants all 전용): tenant.tenant_id만 읽을 수 있는 disclosure_operator 롤(V4, 설계서 §9).
 ga:
@@ -23,6 +17,17 @@ ga:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
     username: ${DISCLOSURE_OPERATOR_USER:disclosure_operator}
     password: ${DISCLOSURE_OPERATOR_PASSWORD:operator_local_only}
+  # (Phase 8) 마이그레이션: 앱은 기동 때 마이그레이션하지 않는다. 운영자 명령 db migrate만 disclosure_migrator(스키마 소유자)로 접속한다 —
+  # 운영은 마이그레이션 Job에만 이 자격 증명을 마운트한다. 앱 기동은 스키마 버전 가드(헬스 롤)를 지나야 한다.
+  migrator:
+    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
+    username: ${DISCLOSURE_MIGRATOR_USER:disclosure_migrator}
+    password: ${DISCLOSURE_MIGRATOR_PASSWORD:migrator_local_only}
+  # (Phase 8, V22) 헬스·스키마 버전 가드: flyway_schema_history (version, success)만 읽는 disclosure_health 롤로 풀 없이 연결한다.
+  health:
+    url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
+    username: ${DISCLOSURE_HEALTH_USER:disclosure_health}
+    password: ${DISCLOSURE_HEALTH_PASSWORD:health_local_only}
   # 작업 잠금(6A, 승인 Q8): 테이블 권한이 없는 disclosure_job_lock 롤로 잠금마다 풀 없이 연결한다(세션 advisory lock — 연결이 끝나면 풀린다).
   job-lock:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
@@ -68,11 +73,24 @@ logging:
     org.apache.tomcat: INFO
     org.springframework.security.web.FilterChainProxy: INFO
 
+# (Phase 8, G7) 관리 포트 분리 — 헬스는 이 포트에서만(인그레스 미노출, NetworkPolicy는 kubelet·모니터링만). 앱 포트의 /actuator/**는 없는 경로와
+# 같은 404다. 준비성 = DB(헬스 롤)·저장소(Object Lock)·IdP JWKS, 활성 = 프로세스만.
 management:
+  server:
+    port: ${GA_MANAGEMENT_PORT:8082}
   endpoints:
     web:
       exposure:
         include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,database,storage,idpJwks
+        liveness:
+          include: livenessState
   health:
     # 트랜잭션 밖 DB 접근 금지(CLAUDE.md 절대 규칙 5) — DB 헬스 지표는 테넌트 없이 커넥션을 쓰므로 끈다.
     db:

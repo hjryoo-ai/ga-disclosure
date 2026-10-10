@@ -56,7 +56,7 @@ public class SealConfiguration {
     }
 
     @Bean
-    public ArtifactStore artifactStore(S3StorageSettings settings, @Value("${ga.storage.s3.create-bucket:false}") boolean createBucket) {
+    public VerifiedArtifactStore artifactStore(S3StorageSettings settings, @Value("${ga.storage.s3.create-bucket:false}") boolean createBucket) {
         return VerifiedArtifactStore.of(settings, createBucket);
     }
 

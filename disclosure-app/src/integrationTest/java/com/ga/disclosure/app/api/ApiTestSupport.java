@@ -58,7 +58,9 @@ public final class ApiTestSupport {
         SeaweedHarness s3 = SeaweedHarness.get();
         java.util.Map<String, java.util.function.Supplier<Object>> p = new java.util.LinkedHashMap<>();
         p.put("spring.datasource.url", DB::jdbcUrl);
-        p.put("spring.flyway.url", DB::jdbcUrl);
+        p.put("ga.health.url", DB::jdbcUrl);
+        // Phase 8: 액추에이터는 관리 포트에만 — 시험 컨텍스트가 여럿 캐시되므로 임의 포트
+        p.put("management.server.port", () -> "0");
         // 웹 IT 클래스마다 컨텍스트가 캐시에 남고 각자 풀을 쥔다 — 기본 풀(최소 유휴 = 최대 10)이면 컨텍스트 14개에서 서버 연결 100개를 넘는다(53300)
         p.put("spring.datasource.hikari.maximum-pool-size", () -> "5");
         p.put("spring.datasource.hikari.minimum-idle", () -> "1");
@@ -115,7 +117,7 @@ public final class ApiTestSupport {
         java.util.List<String> all = new java.util.ArrayList<>(java.util.List.of(
                 "--spring.profiles.active=cli",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
-                "--spring.flyway.url=" + DB.jdbcUrl(),
+                "--ga.health.url=" + DB.jdbcUrl(),
                 "--ga.tenant-directory.url=" + DB.jdbcUrl(),
                 "--ga.job-lock.url=" + DB.jdbcUrl(),
                 "--ga.secrets.dir=" + SECRETS));

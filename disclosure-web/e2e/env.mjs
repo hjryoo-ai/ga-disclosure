@@ -89,6 +89,8 @@ export async function up() {
   const step = (label, f) => { const o = f(); log.push(`== ${label}\n${o}`); return o; };
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  // Phase 8: 앱은 기동 때 마이그레이션하지 않는다 — 마이그레이터 롤의 db migrate가 먼저(앱 컨텍스트 없이). 그 뒤 명령은 스키마 버전 가드를 지난다
+  step('db migrate', () => cli('db', 'migrate'));
   step('seed', () => cli('demo', 'seed', '--file', `${DEMO}/demo/phase1-seed.json`, '--operator', 'e2e'));
   step('seed 6a', () => cli('demo', 'seed', '--file', `${DEMO}/demo/phase6a-seed.json`, '--operator', 'e2e'));
   for (const b of ['rules/DISC-2026-07.bundle.json', 'rules/DISC-2027-01.bundle.json', 'templates/STANDARD-v1.bundle.json']) {
@@ -125,9 +127,12 @@ export async function up() {
   writeFileSync(resolve(out, 'seed.log'), log.join('\n'));
 
   const appPort = await freePort();
+  const managementPort = await freePort();
   env.baseUrl = `http://127.0.0.1:${appPort}`;
+  env.managementUrl = `http://127.0.0.1:${managementPort}`;
   const serverLog = openSync(resolve(out, 'server.log'), 'w', 0o600);
-  const app = spawn(java, ['-jar', jar, '--spring.profiles.active=demo', `--server.port=${appPort}`, '--server.address=127.0.0.1', ...common, ...keys,
+  const app = spawn(java, ['-jar', jar, '--spring.profiles.active=demo', `--server.port=${appPort}`, '--server.address=127.0.0.1',
+    `--management.server.port=${managementPort}`, '--management.server.address=127.0.0.1', ...common, ...keys,
     `--ga.api.jwt.public-key-location=${resolve(run, 'demo-oidc.pem')}`,
     `--ga.sign.link-base-url=${env.baseUrl}/s#`], { env: appEnv, cwd: repo, stdio: ['ignore', serverLog, serverLog], detached: true });
   closeSync(serverLog);
@@ -135,7 +140,7 @@ export async function up() {
   app.unref();
   writeFileSync(ENV, JSON.stringify(env, null, 2));
   await waitFor('web app', async () => {
-    try { return (await fetch(`${env.baseUrl}/actuator/health`)).ok; } catch { return false; }
+    try { return (await fetch(`${env.managementUrl}/actuator/health/readiness`)).ok; } catch { return false; }
   }, 180);
   return env;
 }

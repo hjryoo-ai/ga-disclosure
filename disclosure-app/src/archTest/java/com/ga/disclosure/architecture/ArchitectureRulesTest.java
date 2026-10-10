@@ -60,7 +60,15 @@ class ArchitectureRulesTest {
                             + "함수 → RESET ROLE. 테넌트 데이터를 읽지 않는다(6B 계획 Q10)"),
             new Allowed(P + "infra.jobs.JobLockGateway",
                     "작업 잠금 — 전용 롤 disclosure_job_lock(테이블·스키마 권한 0, V12 단언)으로 풀 없이 연 커넥션의 세션 advisory lock과 "
-                            + "pg_locks 보유 확인만. 테넌트 데이터를 읽지 않는다(6A 계획 §6.1, 승인 Q8·B1)"));
+                            + "pg_locks 보유 확인만. 테넌트 데이터를 읽지 않는다(6A 계획 §6.1, 승인 Q8·B1)"),
+            new Allowed(P + "app.health.DatabaseHealthIndicator",
+                    "DB 헬스·스키마 버전 가드(설계서 §9 표의 예정 항목, 지시문 G7 '다섯째 항목') — 전용 롤 disclosure_health(V22: CONNECT·스키마 USAGE와 "
+                            + "flyway_schema_history(version, success) SELECT만, 테넌트 표 권한 0 단언)로 풀 없이 연 커넥션에서 SELECT 1과 최고 성공 버전만. "
+                            + "테넌트 데이터를 읽지 않는다. 지시문의 '앱 롤'은 규칙 5 '각 항목은 전용 롤'과 충돌해 전용 롤(8 계획 승인 Q1)"));
+
+    /** Flyway({@code org.flywaydb..})를 참조할 수 있는 유일한 운영 클래스 — 마이그레이션 경로는 운영자 명령 db migrate 하나(Phase 8). */
+    static final Allowed MIGRATOR = new Allowed(P + "infra.migration.SchemaMigrator",
+            "운영자 명령 db migrate의 적용(마이그레이터 롤 — 운영은 마이그레이션 Job에만 자격 증명)·배포물 최고 버전. 앱 기동은 Flyway를 부르지 않는다(8 계획 ③)");
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(
@@ -175,6 +183,16 @@ class ArchitectureRulesTest {
         ArchRules.dbAccessOnlyVia(REPOSITORY_BASE.fqn(), DB_INFRASTRUCTURE).check(classes);
     }
 
+    // (d') Phase 8: 마이그레이션 경로는 하나 — Flyway는 SchemaMigrator만(앱 기동·다른 명령이 스키마를 바꾸지 않는다)
+    @Test
+    void flywayOnlyInTheMigrator() {
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().doNotHaveFullyQualifiedName(MIGRATOR.fqn())
+                .should().dependOnClassesThat().resideInAnyPackage("org.flywaydb..")
+                .because(MIGRATOR.reason())
+                .check(classes);
+    }
+
     // (e)① BigDecimal·BigInteger는 disclosure-infra의 ..infra.json.. 에서만
     @Test
     void bigDecimalOnlyInInfraJson() {
@@ -261,7 +279,7 @@ class ArchitectureRulesTest {
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
-        List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE), DB_INFRASTRUCTURE, ORDERING_CLASSES)
+        List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE, MIGRATOR), DB_INFRASTRUCTURE, ORDERING_CLASSES)
                 .flatMap(List::stream).toList();
         List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE),
                         BOUNCY_CASTLE_PACKAGES)

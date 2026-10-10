@@ -1,5 +1,5 @@
 # 로컬 개발용. PostgreSQL 18 + 롤 초기화(init-roles.sql), 봉인 산출물 저장소 SeaweedFS(S3 호환 + Object Lock, Phase 3B).
-# 애플리케이션은 disclosure_app(RLS 대상)으로, Flyway는 disclosure_migrator(소유자)로 접속한다(application.yaml).
+# 애플리케이션은 disclosure_app(RLS 대상)으로 접속한다. 스키마는 운영자 명령 db migrate가 disclosure_migrator(소유자)로 적용한다(Phase 8 — 앱 기동은 마이그레이션하지 않는다).
 # SeaweedFS 이미지는 태그가 아니라 digest로 고정한다(태그는 사라질 수 있다 — 3B 계획 승인 Q1). S3 인증을 켜고 허구 키를 쓴다
 # (docker/seaweedfs/s3.json = application.yaml 기본값). 버킷은 앱이 처음 쓸 때 Object Lock 활성으로 만든다(GA_S3_CREATE_BUCKET=true, 로컬 전용).
 services:

@@ -96,7 +96,8 @@ import java.util.stream.Stream;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
- * crypto kek init|register|rewrap — {@link KekCommands}(Phase 8 테넌트 KEK) · secrets init — {@link SecretCommands}(Phase 8 로컬 비밀 디렉터리)
+ * crypto kek register|rewrap — {@link KekCommands}(Phase 8 테넌트 KEK) · db migrate·secrets init·crypto kek init — {@link OfflineCli}(Phase 8, 앱 컨텍스트 없이 —
+ *                  진입점이 먼저 가로챈다. 이 컨텍스트에 닿으면(같은 프로세스 시험) 같은 구현으로 넘긴다)
  * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; (거부면 종료 코드 2와 거부 코드 목록)
  * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
  * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
@@ -144,7 +145,6 @@ public class OperatorCli implements ApplicationRunner {
     private final ContractLinkCommands contractLinks;
     private final DraftCommands drafts;
     private final KekCommands kek;
-    private final SecretCommands secretCommands;
     private final FlagCommands flagCommands;
     private final com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon;
     private final CollectionRateCommands collectionRates;
@@ -202,12 +202,15 @@ public class OperatorCli implements ApplicationRunner {
         this.collectionRates = new CollectionRateCommands(collectionRates, jobs, out);
         this.gate = new GateCommands(gate, out);
         this.kek = new KekCommands(keks, jobs, this::tenants, out);
-        this.secretCommands = new SecretCommands(out);
     }
 
     @Override
     public void run(ApplicationArguments arguments) {
         CliArguments args = CliArguments.parse(arguments.getSourceArgs());
+        if (OfflineCli.COMMANDS.contains(args.command())) {
+            OfflineCli.run(arguments.getSourceArgs(), out);
+            return;
+        }
         if (sign.handles(args.command())) {
             sign.run(args);
             return;
@@ -238,10 +241,6 @@ public class OperatorCli implements ApplicationRunner {
         }
         if (kek.handles(args.command())) {
             kek.run(args);
-            return;
-        }
-        if (secretCommands.handles(args.command())) {
-            secretCommands.run(args);
             return;
         }
         if (contractLinks.handles(args.command())) {

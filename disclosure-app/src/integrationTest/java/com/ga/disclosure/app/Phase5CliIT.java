@@ -44,7 +44,7 @@ class Phase5CliIT {
         List<String> all = new ArrayList<>(List.of(
                 "--spring.profiles.active=cli",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
-                "--spring.flyway.url=" + DB.jdbcUrl(),
+                "--ga.health.url=" + DB.jdbcUrl(),
                 "--ga.tenant-directory.url=" + DB.jdbcUrl(),
                 "--ga.job-lock.url=" + DB.jdbcUrl()));
         all.addAll(List.of(args));

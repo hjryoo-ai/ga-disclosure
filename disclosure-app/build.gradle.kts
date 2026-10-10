@@ -1,6 +1,6 @@
 // Spring Boot 조립(진입점·설정 배선·CLI + /actuator/health). 컨트롤러는 disclosure-api(6A), 업무 로직은 disclosure-workflow.
 // archTest: 전 모듈 아키텍처 규칙(ArchUnit) + disclosure-infra SQL 테넌트 조건 스캔.
-// integrationTest: Testcontainers PostgreSQL로 부팅 스모크(Flyway는 disclosure_migrator, 데이터소스는 disclosure_app)·CLI·HTTP(6A).
+// integrationTest: Testcontainers PostgreSQL로 부팅 스모크(스키마는 하네스가 disclosure_migrator로, 데이터소스는 disclosure_app — 앱은 기동 때 마이그레이션하지 않는다)·CLI·HTTP(6A).
 plugins {
     alias(libs.plugins.spring.boot)
     `jvm-test-suite`
@@ -20,7 +20,6 @@ dependencies {
     implementation(libs.spring.boot.starter.security.oauth2.resource.server)
     implementation(libs.spring.boot.starter.actuator)
     implementation(libs.spring.boot.starter.jdbc)
-    implementation(libs.spring.boot.starter.flyway)
     implementation(project(":disclosure-rules"))
     implementation(project(":disclosure-audit"))
     implementation(project(":disclosure-compliance"))
@@ -28,7 +27,6 @@ dependencies {
     implementation(project(":platform-spring"))
     // Phase 7: 화면 산출물(classpath:/ga-web/) — 데모 프로파일에서만 서빙한다(DemoWebController). 운영 분리는 Phase 8
     runtimeOnly(project(":disclosure-web"))
-    runtimeOnly(libs.flyway.postgresql)
     runtimeOnly(libs.postgresql)
 }
 
@@ -74,6 +72,8 @@ testing {
                 implementation(libs.spring.boot.starter.webmvc)
                 // Phase 7 G7: 미리보기 PDF의 쪽 텍스트(렌더러와 같은 좌표 openhtmltopdf-pdfbox — PDFBox)
                 implementation(libs.openhtmltopdf.pdfbox)
+                // Phase 8 G7: 헬스 지표를 직접 불러 상태·상세를 본다(HealthEndpointsIT)
+                implementation(libs.spring.boot.starter.actuator)
                 // 6A: 응답마다 OpenAPI 계약 스키마 검증(ApiContracts — 계약 정본 YAML을 그대로 읽는다)
                 implementation(libs.json.schema.validator)
                 implementation(libs.jackson.dataformat.yaml)

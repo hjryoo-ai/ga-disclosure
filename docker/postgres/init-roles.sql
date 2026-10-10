@@ -39,11 +39,22 @@ CREATE ROLE disclosure_job_lock LOGIN PASSWORD 'job_lock_local_only'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 GRANT disclosure_destroy_definer TO disclosure_migrator WITH INHERIT FALSE, SET TRUE;
 
+-- 헬스·스키마 버전 가드(Phase 8 V22, 승인 Q1). CONNECT·스키마 USAGE와 flyway_schema_history의 version·success 컬럼 SELECT만(V22가 주고 단언한다).
+-- 테넌트 표 권한 0. 기존 개발 볼륨에는 이 줄과 아래 백업 롤·CONNECT를 superuser로 한 번 실행한다(README "업그레이드").
+CREATE ROLE disclosure_health LOGIN PASSWORD 'health_local_only'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+
+-- 물리 백업(Phase 8 V22, 승인 Q3). pg_basebackup의 복제 프로토콜만 — CONNECT 없음(일반 세션 거부), 테이블 권한 0(V22 단언).
+-- 논리 백업(pg_dump)은 RLS 때문에 BYPASSRLS가 필요해 쓰지 않는다 — 모든 롤 NOBYPASSRLS를 지킨다.
+CREATE ROLE disclosure_backup LOGIN PASSWORD 'backup_local_only'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE REPLICATION NOBYPASSRLS NOINHERIT;
+
 ALTER DATABASE disclosure OWNER TO disclosure_migrator;
 REVOKE ALL ON DATABASE disclosure FROM PUBLIC;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_app;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_operator;
 GRANT CONNECT ON DATABASE disclosure TO disclosure_job_lock;
+GRANT CONNECT ON DATABASE disclosure TO disclosure_health;
 
 ALTER SCHEMA public OWNER TO disclosure_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
