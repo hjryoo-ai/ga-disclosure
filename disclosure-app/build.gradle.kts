@@ -128,6 +128,9 @@ testing {
                         .withPathSensitivity(PathSensitivity.RELATIVE)
                     inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-infra/src/integrationTest/resources/rule-as-data"))
                         .withPathSensitivity(PathSensitivity.RELATIVE)
+                    // GlobalKekPathScanTest(코드·설정·스크립트)·PortfolioDocsTest(README·docs)는 저장소 전체를 걷는다 — 입력을 다 열거할 수 없으므로 매번 돈다
+                    // (12단계: README에 금지어를 넣는 주입이 "최신"으로 건너뛰어 통과했다 — CI는 매번 새로 돌아 영향 없었다)
+                    outputs.upToDateWhen { false }
                 }
             }
         }

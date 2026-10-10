@@ -38,7 +38,7 @@ CREATE ROLE disclosure_destroy_definer NOLOGIN
 GRANT disclosure_destroyer TO disclosure_app WITH INHERIT FALSE, SET TRUE;
 
 -- 초안 폐기(Phase 6B V14, 계획 Q10). 폐기 함수 ga_draft_abandon의 EXECUTE만 받는다 — 파기자 롤과 같은 방식(앱은 SET LOCAL ROLE만, 권한 비상속).
--- 함수 소유자는 파기와 같은 정의자 롤이다. 기존 개발 볼륨에는 이 줄을 superuser로 한 번 실행한다(README "업그레이드").
+-- 함수 소유자는 파기와 같은 정의자 롤이다. 기존 개발 볼륨에는 이 줄을 superuser로 한 번 실행한다(docs/DEVELOPMENT.md "업그레이드").
 CREATE ROLE disclosure_abandoner NOLOGIN
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 GRANT disclosure_abandoner TO disclosure_app WITH INHERIT FALSE, SET TRUE;
@@ -50,7 +50,7 @@ CREATE ROLE disclosure_job_lock LOGIN PASSWORD :'job_lock_password'
 GRANT disclosure_destroy_definer TO disclosure_migrator WITH INHERIT FALSE, SET TRUE;
 
 -- 헬스·스키마 버전 가드(Phase 8 V22, 승인 Q1). CONNECT·스키마 USAGE와 flyway_schema_history의 version·success 컬럼 SELECT만(V22가 주고 단언한다).
--- 테넌트 표 권한 0. 기존 개발 볼륨에는 이 줄과 아래 백업 롤·CONNECT를 superuser로 한 번 실행한다(README "업그레이드").
+-- 테넌트 표 권한 0. 기존 개발 볼륨에는 이 줄과 아래 백업 롤·CONNECT를 superuser로 한 번 실행한다(docs/DEVELOPMENT.md "업그레이드").
 CREATE ROLE disclosure_health LOGIN PASSWORD :'health_password'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 

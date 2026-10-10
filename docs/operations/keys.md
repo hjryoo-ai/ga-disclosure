@@ -66,6 +66,22 @@ Phase 8 1b 이후 이미지는 전역 KEK(`~/.ga-disclosure/kek.json`, `ga.crypt
 이미지로 먼저 올려 테넌트 KEK를 등록하고 `crypto kek rewrap --tenants all --apply yes`를 두 번째 실행 0건까지 돌린 뒤(`verify tenant`에
 `KEK_UNREGISTERED` 0) 1b 이후 이미지로 올린다. 로컬 데모 볼륨은 새로 만드는 편이 빠르다.
 
+**실행 기록 (2026-10-10, 로컬 — 일회용 컨테이너, 세 데모 테넌트)**: Phase 7 판(`9b7f2f1`)의 `seed.sh`로 전역 KEK 시절 데이터를 만든 뒤 이 순서를 그대로 돌렸다.
+
+| 단계 | DEMO1 | DEMO2 | DEMO3 |
+|---|---|---|---|
+| Phase 7 시드 뒤 전역 키 `KEK-LOCAL-1`로 감싼 살아 있는 키(문서·고객·작업 보고서) | 15 (5·1·9) | 8 (1·1·6) | 6 (1·1·4) |
+| 1a: `crypto kek init` + `register` | `DEMO1-KEK-1 CURRENT` | `DEMO2-KEK-1 CURRENT` | `DEMO3-KEK-1 CURRENT` |
+| `rewrap --tenants all`(dry-run) | pending=15, 행 그대로 | pending=8 | pending=6 |
+| `--apply yes` 1회 | rewrapped=15 failed=0 | rewrapped=8 failed=0 | rewrapped=6 failed=0 |
+| `--apply yes` 2회 | rewrapped=0 pending=0 | 0 | 0 |
+| 감사 `KEK_REWRAPPED` | 15행 | 8행 | 6행 |
+| 레지스트리 밖 KEK로 감싼 살아 있는 키(세 테넌트 합) | 29 → **0** | | |
+| HEAD: 롤 두 개·CONNECT(docs/DEVELOPMENT.md "업그레이드") → `db migrate`(V22~V24) → 전역 키 파일을 치운 채 `verify tenant --tenants all` | MATCH | MATCH | MATCH |
+
+작업 보고서 키는 재래핑 작업 자체도 보고서를 남기므로 실행마다 늘어난다(새 키는 처음부터 테넌트 KEK로 감싼다). HEAD의 `verify tenant`는 살아 있는 키를 전부
+풀어 보며(검사 `KEKS`), 전역 키 ID 읽기 경로는 1b(`9857b5b`)에서 지워졌다 — 코드·설정·스크립트 스캔 `GlobalKekPathScanTest`(주입 P8-3: 설정 한 줄을 남기면 실패).
+
 ### TSA 신뢰 앵커(kind)
 
 운영(http 모드)은 비밀 `tsa/trust-anchors.pem`(집합)을 신뢰한다. 스텁 모드의 앱은 자기 인증서 하나(`/tmp/tsa-trust.pem`)만 내보내므로, kind는 운영과

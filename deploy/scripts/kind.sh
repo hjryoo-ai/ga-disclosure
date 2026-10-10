@@ -7,7 +7,8 @@
 #   deploy/scripts/kind.sh deploy  <cluster>   네임스페이스·CRD → 비밀 → 렌더 적용 → 마이그레이션 Job 완료 → 롤아웃 대기
 #   deploy/scripts/kind.sh smoke   <cluster>   인그레스·mTLS·한도·NetworkPolicy 단언(실패하면 종료 1)
 #   deploy/scripts/kind.sh logscan <cluster>   모든 파드·Job 로그를 모아 비밀 값·허구 개인정보 센티널 스캔(걸리면 종료 1)
-#   deploy/scripts/kind.sh seed    <cluster>   데모 시드(disclosure-demo/scripts/seed.sh를 포트 포워드로 — 클러스터의 DB·저장소·비밀) → 클러스터 안 VERIFY_TENANT
+#   deploy/scripts/kind.sh seed    <cluster>   데모 시드(disclosure-demo/scripts/seed.sh를 포트 포워드로 — 클러스터의 DB·저장소·비밀) + 6A 주체(준법·스케줄러·피드)
+#                                  → 클러스터 안 VERIFY_TENANT
 #   deploy/scripts/kind.sh verify  <cluster>   클러스터 안 VERIFY_TENANT 작업(CronJob에서 한 번) — 모든 테넌트 MATCH가 아니면 종료 1
 #   deploy/scripts/kind.sh backup  <cluster>   표 내용 해시를 저장한 뒤 ga-backup CronJob을 한 번 → 실행 이름 출력
 #   deploy/scripts/kind.sh restore <cluster> <실행>  DB 볼륨을 지우고 kind-restore 오버레이로 복구 → 표 해시 = 백업 때, VERIFY_TENANT MATCH
@@ -15,13 +16,15 @@
 #                                  영향 단언(회전 전에 만든 것이 회전 뒤 어떻게 되는지) + VERIFY_TENANT MATCH. 기본 all(여섯 가지를 이 순서로 한 번씩)
 #   deploy/scripts/kind.sh e2e-prep <cluster> <dir>  클러스터 대상 E2E 준비(disclosure-web e2e — GA_E2E_KIND): 6A 주체, DEMO2 CHAIN_BROKEN 사건,
 #                                  스케줄러·준법 토큰 파일(<dir>, 소유자 전용)
+#   deploy/scripts/kind.sh browse  <cluster>   화면을 손으로 둘러볼 Chrome 명령줄을 출력(실행하지 않는다): 별도 프로필, 두 호스트 → 127.0.0.1, 두 진입점
+#                                  인증서의 공개키만 허용 — /etc/hosts·시스템 신뢰 저장소를 바꾸지 않는다
 #   deploy/scripts/kind.sh down    <cluster>   클러스터와 그 비밀 디렉터리 삭제(이 스크립트가 만든 것만)
 #
 # 값은 출력하지 않는다. 비밀 값은 명령줄·환경변수에 싣지 않는다 — 파일(소유자 전용)과 --from-file·--from-env-file로만 넘긴다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-CMD="${1:?usage: kind.sh up|secrets|deploy|smoke|logscan|seed|verify|backup|restore|rotate|e2e-prep|down <cluster> [run|key|dir]}"
+CMD="${1:?usage: kind.sh up|secrets|deploy|smoke|logscan|seed|verify|backup|restore|rotate|e2e-prep|browse|down <cluster> [run|key|dir]}"
 CLUSTER="${2:?cluster name (e.g. ga-p8-$(date +%s))}"
 [[ "$CLUSTER" =~ ^ga-[a-z0-9-]{1,40}$ ]] || { echo "cluster name must match ga-[a-z0-9-]+" >&2; exit 2; }
 
@@ -389,6 +392,10 @@ sql() { $KUBECTL -n $NS exec -i ga-postgres-0 -- psql -U postgres -d disclosure 
 
 seed() {
   with_cluster disclosure-demo/scripts/seed.sh > "$STATE/seed.log" 2>&1 || { tail -n 40 "$STATE/seed.log" >&2; return 1; }
+  # 6A 주체(DEMO1·DEMO2의 준법 둘·스케줄러·피드) — 화면 둘러보기의 준법 계정(README). 멱등(같은 파일 두 번째는 NOOP)
+  jar_env
+  cluster_cli demo seed --file disclosure-demo/src/main/resources/demo/phase6a-seed.json --operator demo-seed >> "$STATE/seed.log" 2>&1 \
+    || { tail -n 40 "$STATE/seed.log" >&2; return 1; }
   grep -cE '^(SEED|DEMO_|ANCHOR_RUN|VERIFY_TENANT)' "$STATE/seed.log" | sed 's/^/SEED_LINES /'
   verify
 }
@@ -705,6 +712,21 @@ e2e_prep() {
   echo "E2E_PREP tokens written (values not shown)"
 }
 
+# 인증서 공개키(SPKI DER)의 SHA-256 base64 — Chromium --ignore-certificate-errors-spki-list 형식(E2E 하네스 env.mjs와 같은 계산)
+spki() { openssl x509 -in "$1" -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64; }
+
+browse() {
+  local staff=staff.ga.example.invalid sign=sign.ga.example.invalid chrome
+  [ -f "$STATE/pki/staff.crt" ] || { echo "no demo PKI for $CLUSTER — run up, deploy first" >&2; return 1; }
+  case "$(uname -s)" in
+    Darwin) chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ;;
+    *) chrome="google-chrome" ;;
+  esac
+  echo "BROWSE staff https://$staff:$HOST_PORT/staff  sign https://$sign:$HOST_PORT/s#<token>  (profile $STATE/browser — removed by down)"
+  printf '"%s" --user-data-dir="%s" --host-resolver-rules="MAP %s 127.0.0.1,MAP %s 127.0.0.1" --ignore-certificate-errors-spki-list="%s,%s" "https://%s:%s/staff"\n' \
+    "$chrome" "$STATE/browser" "$staff" "$sign" "$(spki "$STATE/pki/staff.crt")" "$(spki "$STATE/pki/sign.crt")" "$staff" "$HOST_PORT"
+}
+
 down() {
   "$KIND" delete cluster --name "$CLUSTER"
   rm -rf "$STATE"
@@ -722,6 +744,7 @@ case "$CMD" in
   restore) RUN_ARG="${3:-}" restore ;;
   rotate) ROTATE_ARG="${3:-all}" rotate ;;
   e2e-prep) PREP_DIR="${3:-}" e2e_prep ;;
+  browse) browse ;;
   down) down ;;
   *) echo "unknown command $CMD" >&2; exit 2 ;;
 esac
