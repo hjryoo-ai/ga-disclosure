@@ -105,6 +105,28 @@ jobs:
           name: image-test-reports
           path: disclosure-app/build/test-results/imageTest/**
 
+  deploy-lint:
+    # Phase 8 ③·G4: 배포 매니페스트 린트 — tools.lock의 도구(SHA-256 대조) → 오버레이 렌더 → kubeconform(커밋 고정 스키마, strict) → 우리 규칙
+    # (JobKind ↔ CronJob, 공개 라우트에 /internal 0, 헤더 지움, NetworkPolicy, digest, 비밀 볼륨, 운영 기동 가드를 파드 환경으로).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Deploy lint
+        run: ./gradlew :disclosure-app:deployTest --console=plain
+
+      - name: Deploy lint reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deploy-lint-reports
+          path: disclosure-app/build/test-results/deployTest/**
+
   pdfa-verify:
     # 3B S12: 골든 PDF를 veraPDF(PDF/A-2b 프로파일)로 검증한다 — 실패 규칙 1건 이상이면 잡 실패. veraPDF는 GPL-3.0/MPL-2.0이라
     # 메인 의존성에 넣지 않고 독립 빌드(verification/pdfa-verify)로 돌린다. 골든 PDF는 메인 빌드가 커밋된 골든 입력에서 렌더한다.

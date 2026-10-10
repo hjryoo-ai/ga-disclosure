@@ -34,14 +34,24 @@ public final class ProdStartupGuard implements BeanFactoryPostProcessor, Environ
             "ga.sign.link-base-url",
             "ga.tsa.url");
 
-    /** 운영에서 이 값이면 안 되는 키(키 → 금지 값, 대소문자 무시). 빈 값은 "설정돼 있으면 안 됨". */
-    public static final Map<String, List<String>> FORBIDDEN = Map.of(
-            "ga.engine.mode", List.of("stub"),
-            "ga.tsa.mode", List.of("stub"),
-            "ga.secrets.source", List.of("env"),
-            "ga.storage.s3.create-bucket", List.of("true"),
-            "ga.api.jwt.public-key-location", List.of(""),
-            "ga.sign.link-base-url", List.of("https://sign.example.invalid/s#"));
+    /**
+     * 운영에서 이 값이면 안 되는 키(키 → 금지 값, 대소문자 무시). 빈 값은 "설정돼 있으면 안 됨". Phase 8 9단계: 로컬 기본 자격 증명(init-roles.sql·
+     * application.yaml의 {@code *_local_only}·허구 S3 키)은 compose·하네스 전용 — 운영 오버레이가 그 값을 쓰면 기동하지 않는다(문장에는 키 이름만).
+     */
+    public static final Map<String, List<String>> FORBIDDEN = Map.ofEntries(
+            Map.entry("ga.engine.mode", List.of("stub")),
+            Map.entry("ga.tsa.mode", List.of("stub")),
+            Map.entry("ga.secrets.source", List.of("env")),
+            Map.entry("ga.storage.s3.create-bucket", List.of("true")),
+            Map.entry("ga.api.jwt.public-key-location", List.of("")),
+            Map.entry("ga.sign.link-base-url", List.of("https://sign.example.invalid/s#")),
+            Map.entry("spring.datasource.password", List.of("app_local_only")),
+            Map.entry("ga.health.password", List.of("health_local_only")),
+            Map.entry("ga.tenant-directory.password", List.of("operator_local_only")),
+            Map.entry("ga.job-lock.password", List.of("job_lock_local_only")),
+            Map.entry("ga.migrator.password", List.of("migrator_local_only")),
+            Map.entry("ga.storage.s3.access-key-id", List.of("ga-local-access")),
+            Map.entry("ga.storage.s3.secret-access-key", List.of("ga-local-secret-not-a-real-key")));
 
     private Environment environment;
 

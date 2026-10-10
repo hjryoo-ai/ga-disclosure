@@ -1,0 +1,8 @@
+# 운영 비밀(Phase 8 ④, 8 계획 Q12): 외부 비밀 저장소 → External Secrets Operator(v2.12.0, Apache-2.0) → 쿠버네티스 Secret → 파드(환경·파일 마운트).
+# 실 벤더 연동은 하지 않는다(지시문) — SecretStore는 예시 공급자(Vault 형식, 주소는 .invalid)이고 이 컴포넌트는 렌더·스키마 린트까지다(kind에 적용하지 않음).
+# crds/는 스키마 린트용 사본이다(리소스가 아니다 — 연산자 설치는 클러스터 운영의 몫). 원격 키 이름은 저장소 쪽 경로 예시다.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - secretstore.yaml
+  - externalsecrets.yaml

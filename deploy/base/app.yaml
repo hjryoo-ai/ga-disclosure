@@ -1,0 +1,113 @@
+# app(Phase 8 ③): 웹 프로세스 2복제. 포트 셋 — 8080 /api·/public(공개 진입점 A·B만), 8081 /internal(내부 진입점 C만 — Q5, 앱도 포트↔접두를
+# 대조한다), 8082 관리(헬스·메트릭 — 인그레스 미노출). 비루트·읽기 전용 루트(쓰기는 /tmp emptyDir만)·권한 상승 없음.
+# 설정은 오버레이의 ConfigMap ga-app-config(비밀 아님), DB 롤·S3 자격 증명은 Secret(환경), 키 재료는 Secret 볼륨(ga.secrets.dir — 파일).
+# 마이그레이터 자격 증명은 여기에 없다(db-migrate Job에만). 앱은 기동 때 마이그레이션하지 않고 스키마 버전 가드를 지난다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ga-app
+  labels: &labels
+    app.kubernetes.io/name: ga-app
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ga-app
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: ga-app
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ga-disclosure/app:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: internal, containerPort: 8081 }
+            - { name: management, containerPort: 8082 }
+          envFrom:
+            - configMapRef: { name: ga-app-config }
+            - secretRef: { name: ga-db-app }
+            - secretRef: { name: ga-s3 }
+          env:
+            - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+            # Secret 볼륨 파일은 root 소유 0440 — 비루트 파드는 fsGroup으로 읽는다(FileSecretSource의 그룹 읽기 허용)
+            - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+            - { name: GA_MANAGEMENT_PORT, value: "8082" }
+            - { name: GA_INTERNAL_PORT, value: "8081" }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: management }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 20
+            failureThreshold: 3
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 5
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { memory: 1536Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 256Mi }
+        - name: ga-secrets
+          secret:
+            secretName: ga-secrets
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-app
+spec:
+  selector: { app.kubernetes.io/name: ga-app }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+# /internal 전용 포트(Q5) — 내부 진입점 C만 닿는다(NetworkPolicy). 공개 진입점 A·B의 라우트는 이 서비스를 가리킬 수 없다(deploy 린트).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-app-internal
+spec:
+  selector: { app.kubernetes.io/name: ga-app }
+  ports:
+    - { name: internal, port: 8081, targetPort: internal }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-app-management
+spec:
+  selector: { app.kubernetes.io/name: ga-app }
+  ports:
+    - { name: management, port: 8082, targetPort: management }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ga-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: ga-app }

@@ -1,0 +1,20 @@
+# 인그레스(Phase 8 ③, 승인 Q4·Q5): Traefik v3.7.14(MIT — tools.lock에 digest·CRD 사본 해시). 진입점 셋을 컨트롤러 둘로 나눈다 —
+#   traefik-public(공개 A staff·B sign, IngressRoute 클래스 ga-public)·traefik-internal(클러스터 내부 C, mTLS, 클래스 ga-internal).
+#   둘로 나누는 이유: /internal의 3중 분리(인그레스 미노출 + NetworkPolicy + 앱 포트 분리) 중 NetworkPolicy가 "내부 진입점 파드만 8081"을
+#   파드 라벨로 가를 수 있어야 한다 — 한 컨트롤러가 셋을 다 받으면 그 겹이 사라진다.
+# ingress-nginx는 쓰지 않는다: kubernetes/ingress-nginx 저장소는 GitHub에서 보관(archived) 상태다(2026-10-10 GitHub API repos/kubernetes/ingress-nginx
+#   — archived=true, 마지막 push 2026-03-23, 마지막 릴리스 controller-v1.15.1 2026-03-19).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - traefik/kubernetes-crd-definition-v1.yml
+  - traefik/kubernetes-crd-rbac.yml
+  - controllers.yaml
+  - routes.yaml
+patches:
+  - target: { kind: ClusterRoleBinding, name: traefik-ingress-controller }
+    patch: |-
+      - op: replace
+        path: /subjects/0/namespace
+        value: ga-ingress

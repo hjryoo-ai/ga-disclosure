@@ -1,0 +1,153 @@
+# 컨트롤러 둘. 평문 HTTP 진입점은 없다(TLS만 — 평문은 리다이렉트 없이 연결 자체가 없다). 서비스 형태는 오버레이가 바꾼다(kind = NodePort, 운영 = LB).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik-ingress-controller
+  namespace: ga-ingress
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-public
+  namespace: ga-ingress
+  labels: &traefik_public
+    app.kubernetes.io/name: traefik-public
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-public
+  template:
+    metadata:
+      labels: *traefik_public
+    spec:
+      serviceAccountName: traefik-ingress-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traefik
+          image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+          args:
+            - --entrypoints.websecure.address=:8443
+            - --entrypoints.websecure.http.tls=true
+            - --providers.kubernetescrd
+            - --providers.kubernetescrd.ingressclass=ga-public
+            - --providers.kubernetescrd.namespaces=ga-disclosure
+            - --ping
+            - --entrypoints.ping.address=:8082
+            - --ping.entrypoint=ping
+            - --log.format=json
+            - --accesslog=true
+            - --accesslog.format=json
+            - --accesslog.fields.headers.defaultmode=drop
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+          ports:
+            - { name: websecure, containerPort: 8443 }
+            - { name: ping, containerPort: 8082 }
+          readinessProbe:
+            httpGet: { path: /ping, port: ping }
+          livenessProbe:
+            httpGet: { path: /ping, port: ping }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-public
+  namespace: ga-ingress
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: traefik-public }
+  ports:
+    - { name: websecure, port: 8443, targetPort: websecure, nodePort: 30443 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-internal
+  namespace: ga-ingress
+  labels: &traefik_internal
+    app.kubernetes.io/name: traefik-internal
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-internal
+  template:
+    metadata:
+      labels: *traefik_internal
+    spec:
+      serviceAccountName: traefik-ingress-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traefik
+          image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+          args:
+            - --entrypoints.internal.address=:9443
+            - --entrypoints.internal.http.tls=true
+            - --providers.kubernetescrd
+            - --providers.kubernetescrd.ingressclass=ga-internal
+            - --providers.kubernetescrd.namespaces=ga-disclosure
+            - --ping
+            - --entrypoints.ping.address=:8082
+            - --ping.entrypoint=ping
+            - --log.format=json
+            - --accesslog=true
+            - --accesslog.format=json
+            - --accesslog.fields.headers.defaultmode=drop
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+          ports:
+            - { name: internal, containerPort: 9443 }
+            - { name: ping, containerPort: 8082 }
+          readinessProbe:
+            httpGet: { path: /ping, port: ping }
+          livenessProbe:
+            httpGet: { path: /ping, port: ping }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-internal
+  namespace: ga-ingress
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: traefik-internal }
+  ports:
+    - { name: internal, port: 9443, targetPort: internal }

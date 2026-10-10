@@ -1,0 +1,14 @@
+# 배포 기반(Phase 8 ③): 네임스페이스·SA·app·web·마이그레이션 Job·CronJob(JobKind 전수)·NetworkPolicy·PDB. 설정 ConfigMap ga-app-config와
+# 비밀(ga-db-app·ga-db-migrator·ga-s3·ga-secrets·TLS)은 오버레이가 준다 — 기반에는 값이 없다. 비밀 볼륨 ga-secrets의 items(Secret 키 → 비밀 이름 경로,
+# 예: kek.DEMO1.DEMO1-KEK-1 → kek/DEMO1/DEMO1-KEK-1)도 오버레이가 준다 — Secret 키에는 '/'가 없고 비밀 이름은 경로다(FileSecretSource).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ga-disclosure
+resources:
+  - namespace.yaml
+  - serviceaccounts.yaml
+  - app.yaml
+  - web.yaml
+  - db-migrate.yaml
+  - cronjobs.yaml
+  - networkpolicies.yaml

@@ -1,0 +1,50 @@
+# 운영 오버레이(Phase 8 ③④): prod 프로파일(ProdStartupGuard — 필수 키 닫힌 목록·금지 값), 비밀은 ESO, 인그레스는 Traefik 둘(공개 LB·내부 ClusterIP).
+# 값은 전부 자리표시(.invalid 도메인 — 라우트 호스트는 기반의 예시 그대로, 0 digest)다 — 실제 배포는 이 오버레이를 복사해 조직의 값으로 바꾼다(운영 문서). 이미지는 digest로만(deploy 린트).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+components:
+  - ../../components/ingress
+  - ../../components/secrets-eso
+images:
+  # 릴리스 파이프라인이 빌드한 이미지의 digest로 바꾼다(태그 금지)
+  - name: ga-disclosure/app
+    newName: registry.example.invalid/ga-disclosure/app
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - name: ga-disclosure/web
+    newName: registry.example.invalid/ga-disclosure/web
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+configMapGenerator:
+  # 비밀이 아닌 설정만(비밀은 ESO가 만든 Secret — ga-db-app·ga-s3·ga-secrets). 키 이름 = application-prod.yaml의 자리표시
+  - name: ga-app-config
+    namespace: ga-disclosure
+    literals:
+      - SPRING_PROFILES_ACTIVE=prod
+      - DISCLOSURE_DB_URL=jdbc:postgresql://db.example.invalid:5432/disclosure?sslmode=verify-full
+      - GA_S3_ENDPOINT=https://s3.example.invalid
+      - GA_S3_REGION=ap-northeast-2
+      - GA_S3_BUCKET=ga-disclosure-prod
+      - GA_JWT_ISSUER=https://idp.example.invalid/realms/ga
+      - GA_JWT_AUDIENCE=ga-disclosure
+      - GA_JWT_JWK_SET_URI=https://idp.example.invalid/realms/ga/protocol/openid-connect/certs
+      # 진입점 C가 검증한 클라이언트 인증서 주체를 싣는 헤더. Traefik PassTLSClientCert는 주체를 URL 인코딩된 Subject="CN=…" 형식으로 다른 헤더에
+      # 싣는다 — 앱이 기대하는 맨 주체 문자열과 다르다. 이 차이를 메우는 구성 요소는 아직 없다(보고서 "알려진 한계"·질문) // TODO(confirm#23)
+      - GA_CLIENT_CERT_SUBJECT_HEADER=X-Client-Cert-Subject
+      - GA_PUBLIC_SIGN_MIN_RESPONSE_MILLIS=250
+      - GA_SIGN_LINK_BASE_URL=https://sign.ga.example.invalid/s#
+      - GA_TSA_URL=https://tsa.example.invalid/tsr
+patches:
+  # 공개 진입점은 클라우드 LB(내부 진입점은 ClusterIP 그대로)
+  - target: { kind: Service, name: traefik-public }
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: LoadBalancer
+      - op: remove
+        path: /spec/ports/0/nodePort
+  # 파일 비밀의 경로(Secret 키 → 비밀 이름) — ESO 템플릿 ga-secrets의 키 목록과 같다. 테넌트 KEK·엔진 토큰 줄은 KEK 등록 런북이 함께 늘린다.
+  - target: { kind: Deployment, name: ga-app }
+    path: secret-items-deployment.yaml
+  - target: { kind: CronJob }
+    path: secret-items-cronjob.yaml

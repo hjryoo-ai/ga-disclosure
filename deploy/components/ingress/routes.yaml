@@ -1,0 +1,111 @@
+# 라우트(IngressRoute — 네임스페이스 ga-disclosure). 호스트 이름은 오버레이 patch가 정한다(base 값은 예시 도메인).
+# deploy 린트(우리 규칙): 클래스 ga-public 라우트에 /internal 경로·ga-app-internal 서비스 0, 공개·내부 라우트 전부가 strip-client-cert 미들웨어를 단다.
+---
+# 인증서 주체 헤더(ga.api.client-cert.subject-header)는 진입점에서 언제나 지운다 — 밖에서 온 같은 이름 헤더를 앱이 믿지 않게(A·B·C 모두).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-client-cert
+  namespace: ga-disclosure
+spec:
+  headers:
+    customRequestHeaders:
+      X-Client-Cert-Subject: ""
+---
+# 공개 서명(B): IP 단위 한도(앱의 테넌트 한도와 별도 — 인증 전 경로라 IP로)와 요청 크기(앱 4 MiB보다 작게 — 서명 이미지 요청에 충분한 값, 보고서 실측)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sign-rate-limit
+  namespace: ga-disclosure
+spec:
+  rateLimit:
+    average: 30
+    period: 1m
+    burst: 30
+    sourceCriterion:
+      ipStrategy:
+        depth: 0
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sign-body-limit
+  namespace: ga-disclosure
+spec:
+  buffering:
+    maxRequestBodyBytes: 1048576
+---
+# A — 직원 화면과 사람 역할 API
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: staff
+  namespace: ga-disclosure
+  annotations:
+    kubernetes.io/ingress.class: ga-public
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`staff.ga.example.invalid`) && PathPrefix(`/api/`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }]
+      services: [{ name: ga-app, port: 8080 }]
+    - match: Host(`staff.ga.example.invalid`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }]
+      services: [{ name: ga-web, port: 8080 }]
+  tls:
+    secretName: ga-tls-staff
+---
+# B — 고객 서명(별도 호스트): 서명 화면·자산·공개 API만
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sign
+  namespace: ga-disclosure
+  annotations:
+    kubernetes.io/ingress.class: ga-public
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`sign.ga.example.invalid`) && PathPrefix(`/public/`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }, { name: sign-rate-limit }, { name: sign-body-limit }]
+      services: [{ name: ga-app, port: 8080 }]
+    - match: Host(`sign.ga.example.invalid`) && (Path(`/s`) || PathPrefix(`/assets/`))
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }, { name: sign-rate-limit }]
+      services: [{ name: ga-web, port: 8080 }]
+  tls:
+    secretName: ga-tls-sign
+---
+# C — 클러스터 내부(서비스 주체: 게이트·계약 피드·스케줄러): /internal만, mTLS(클라이언트 인증서 필수 — CA는 Secret ga-internal-client-ca)
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: internal-mtls
+  namespace: ga-disclosure
+spec:
+  minVersion: VersionTLS12
+  clientAuth:
+    secretNames: [ga-internal-client-ca]
+    clientAuthType: RequireAndVerifyClientCert
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: internal
+  namespace: ga-disclosure
+  annotations:
+    kubernetes.io/ingress.class: ga-internal
+spec:
+  entryPoints: [internal]
+  routes:
+    - match: PathPrefix(`/internal/`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }]
+      services: [{ name: ga-app-internal, port: 8081 }]
+  tls:
+    secretName: ga-tls-internal
+    options: { name: internal-mtls, namespace: ga-disclosure }

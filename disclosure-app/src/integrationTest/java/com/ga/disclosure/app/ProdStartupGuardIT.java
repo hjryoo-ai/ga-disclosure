@@ -30,25 +30,50 @@ class ProdStartupGuardIT {
     /** 문장에 나오면 안 되는 값 — 주어진 값 전부에 이 표식을 섞는다. */
     private static final String SENTINEL = "zz-sentinel-value-7Q";
 
-    /** {@code application-prod.yaml}의 자리표시(환경 이름) → 시험 값. 실제 하네스에 닿는 값이라 전부 주면 기동한다. */
+    /**
+     * 운영 기동 시험의 롤 비밀번호(실행마다 무작위 — 로컬 기본값 {@code *_local_only}은 운영 가드가 거부한다). {@link #everythingGivenStarts}가 하네스 롤의
+     * 비밀번호를 잠깐 이것으로 바꾸고 되돌린다(앱 IT는 클래스 하나씩 돈다).
+     */
+    private static final Map<String, String> PROD_PASSWORDS = Map.of(
+            PostgresHarness.APP, "prod-check-" + java.util.UUID.randomUUID(),
+            PostgresHarness.HEALTH, "prod-check-" + java.util.UUID.randomUUID(),
+            PostgresHarness.OPERATOR, "prod-check-" + java.util.UUID.randomUUID(),
+            PostgresHarness.JOB_LOCK, "prod-check-" + java.util.UUID.randomUUID());
+    private static final Map<String, String> LOCAL_PASSWORDS = Map.of(
+            PostgresHarness.APP, "app_local_only",
+            PostgresHarness.HEALTH, PostgresHarness.HEALTH_PASSWORD,
+            PostgresHarness.OPERATOR, PostgresHarness.OPERATOR_PASSWORD,
+            PostgresHarness.JOB_LOCK, PostgresHarness.JOB_LOCK_PASSWORD);
+
+    private static void passwords(Map<String, String> byRole) {
+        try (java.sql.Connection c = DB.superuserDataSource().getConnection(); java.sql.Statement s = c.createStatement()) {
+            for (var e : byRole.entrySet()) {
+                s.execute("ALTER ROLE " + e.getKey() + " PASSWORD '" + e.getValue() + "'");
+            }
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** {@code application-prod.yaml}의 자리표시(환경 이름) → 시험 값. 실제 하네스에 닿는 값이라 전부 주면 기동한다(롤 비밀번호는 {@link #PROD_PASSWORDS}). */
     private static Map<String, String> environment() {
         SeaweedHarness s3 = SeaweedHarness.get();
         Map<String, String> env = new LinkedHashMap<>();
         env.put("DISCLOSURE_DB_URL", DB.jdbcUrl() + "&ApplicationName=" + SENTINEL);
         env.put("DISCLOSURE_APP_USER", PostgresHarness.APP);
-        env.put("DISCLOSURE_APP_PASSWORD", "app_local_only");
+        env.put("DISCLOSURE_APP_PASSWORD", PROD_PASSWORDS.get(PostgresHarness.APP));
         env.put("DISCLOSURE_HEALTH_USER", PostgresHarness.HEALTH);
-        env.put("DISCLOSURE_HEALTH_PASSWORD", PostgresHarness.HEALTH_PASSWORD);
+        env.put("DISCLOSURE_HEALTH_PASSWORD", PROD_PASSWORDS.get(PostgresHarness.HEALTH));
         env.put("DISCLOSURE_OPERATOR_USER", PostgresHarness.OPERATOR);
-        env.put("DISCLOSURE_OPERATOR_PASSWORD", PostgresHarness.OPERATOR_PASSWORD);
+        env.put("DISCLOSURE_OPERATOR_PASSWORD", PROD_PASSWORDS.get(PostgresHarness.OPERATOR));
         env.put("DISCLOSURE_JOB_LOCK_USER", PostgresHarness.JOB_LOCK);
-        env.put("DISCLOSURE_JOB_LOCK_PASSWORD", PostgresHarness.JOB_LOCK_PASSWORD);
+        env.put("DISCLOSURE_JOB_LOCK_PASSWORD", PROD_PASSWORDS.get(PostgresHarness.JOB_LOCK));
         env.put("GA_SECRETS_DIR", ApiTestSupport.SECRETS.toString());
         env.put("GA_S3_ENDPOINT", s3.endpoint().toString());
         env.put("GA_S3_REGION", "us-east-1");
         env.put("GA_S3_BUCKET", s3.freshBucket());
-        env.put("GA_S3_ACCESS_KEY_ID", SeaweedHarness.ACCESS_KEY);
-        env.put("GA_S3_SECRET_ACCESS_KEY", SeaweedHarness.SECRET_KEY);
+        env.put("GA_S3_ACCESS_KEY_ID", "prod-check-access");          // 기동 시험은 저장소에 닿지 않는다(첫 사용 때) — 로컬 기본값만 아니면 된다
+        env.put("GA_S3_SECRET_ACCESS_KEY", "prod-check-secret-" + SENTINEL);
         env.put("GA_JWT_ISSUER", "https://idp." + SENTINEL + ".invalid");
         env.put("GA_JWT_AUDIENCE", "ga-disclosure");
         env.put("GA_JWT_JWK_SET_URI", "https://idp." + SENTINEL + ".invalid/jwks");
@@ -108,13 +133,35 @@ class ProdStartupGuardIT {
                 .satisfies(e -> assertThat(e.getMessage()).doesNotContain(SENTINEL));
     }
 
+    /** Phase 8: 로컬 기본 자격 증명(compose·하네스 전용)은 운영에서 거부 — 문장은 키 이름뿐. */
+    @Test
+    void localDefaultCredentialsAreRefusedInProd() {
+        Map<String, String> env = environment();
+        env.put("DISCLOSURE_APP_PASSWORD", "app_local_only");
+        env.put("DISCLOSURE_HEALTH_PASSWORD", "health_local_only");
+        env.put("DISCLOSURE_OPERATOR_PASSWORD", "operator_local_only");
+        env.put("DISCLOSURE_JOB_LOCK_PASSWORD", "job_lock_local_only");
+        env.put("GA_S3_ACCESS_KEY_ID", "ga-local-access");
+        env.put("GA_S3_SECRET_ACCESS_KEY", "ga-local-secret-not-a-real-key");
+        assertThatThrownBy(() -> start(env, List.of("--ga.migrator.password=migrator_local_only")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("prod profile cannot start — missing or forbidden settings: ga.health.password (not allowed in prod), "
+                        + "ga.job-lock.password (not allowed in prod), ga.migrator.password (not allowed in prod), "
+                        + "ga.storage.s3.access-key-id (not allowed in prod), ga.storage.s3.secret-access-key (not allowed in prod), "
+                        + "ga.tenant-directory.password (not allowed in prod), spring.datasource.password (not allowed in prod)")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("local_only", "ga-local"));
+    }
+
     @Test
     void everythingGivenStarts() {
+        passwords(PROD_PASSWORDS);
         try (ConfigurableApplicationContext app = start(environment(), List.of())) {
             assertThat(app.getEnvironment().getActiveProfiles()).containsExactly("prod");
             assertThat(ProdStartupGuard.problems(app.getEnvironment())).isEmpty();
             // 운영 로그는 구조화(JSON, Boot 내장 ECS) — 배포 전 로그 스캔이 줄 단위 JSON을 읽는다
             assertThat(app.getEnvironment().getProperty("logging.structured.format.console")).isEqualTo("ecs");
+        } finally {
+            passwords(LOCAL_PASSWORDS);
         }
     }
 

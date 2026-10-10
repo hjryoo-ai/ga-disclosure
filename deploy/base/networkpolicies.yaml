@@ -1,0 +1,81 @@
+# 네트워크 정책(Phase 8 ③, 승인 Q5 — /internal 3중 분리의 네트워크 겹): 네임스페이스 기본 거부(들어오는 연결), 허용은 포트마다 출발 파드를 이름으로.
+#   app 8080(/api·/public)  ← 공개 진입점 파드(ga-ingress/traefik-public)만
+#   app 8081(/internal)     ← 내부 진입점 파드(ga-ingress/traefik-internal)만. CronJob은 /internal을 부르지 않는다(jobs run → DB 직접 — 8 계획의
+#                             "CronJob 파드도 8081" 허용은 쓸 곳이 없어 두지 않았다)
+#   app 8082(관리 — 헬스·메트릭) ← 라벨 ga-disclosure/scrape=true인 네임스페이스(모니터링)만. kubelet 프로브는 노드에서 오는 연결이라 이 정책의
+#                             대상이 아니다(CNI 구현이 노드 출발을 허용 — kind에서 확인, 9c)
+#   web 8080                ← 공개 진입점 파드만
+# 나가는 연결은 막지 않는다(운영의 DB·S3·IdP·TSA 주소는 배포마다 다르다 — 운영 문서의 조치 목록).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ga-app-public
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ga-app }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ga-ingress }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik-public }
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ga-app-internal
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ga-app }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ga-ingress }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik-internal }
+      ports:
+        - { protocol: TCP, port: 8081 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ga-app-management
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ga-app }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { ga-disclosure/scrape: "true" }
+      ports:
+        - { protocol: TCP, port: 8082 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ga-web-public
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ga-web }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ga-ingress }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik-public }
+      ports:
+        - { protocol: TCP, port: 8080 }

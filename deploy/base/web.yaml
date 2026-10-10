@@ -1,0 +1,66 @@
+# web(Phase 8 ③): 화면 정적 파일(비루트 nginx, 헤더 = 데모 서빙 문자열 — 이미지 시험). 공개 진입점 A(/·/staff·/assets·/oidc-callback)와
+# B(/s·/assets)만 닿는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ga-web
+  labels: &labels
+    app.kubernetes.io/name: ga-web
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ga-web
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: ga-web
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ga-disclosure/web:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /staff, port: http }
+          livenessProbe:
+            httpGet: { path: /staff, port: http }
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 32Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-web
+spec:
+  selector: { app.kubernetes.io/name: ga-web }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ga-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: ga-web }

@@ -1,3 +1,6 @@
+import java.net.URI
+import java.security.MessageDigest
+
 // Spring Boot 조립(진입점·설정 배선·CLI + /actuator/health). 컨트롤러는 disclosure-api(6A), 업무 로직은 disclosure-workflow.
 // archTest: 전 모듈 아키텍처 규칙(ArchUnit) + disclosure-infra SQL 테넌트 조건 스캔.
 // integrationTest: Testcontainers PostgreSQL로 부팅 스모크(스키마는 하네스가 disclosure_migrator로, 데이터소스는 disclosure_app — 앱은 기동 때 마이그레이션하지 않는다)·CLI·HTTP(6A).
@@ -60,6 +63,47 @@ tasks.register<Exec>("webImage") {
         layout.buildDirectory.dir("image/web").get().asFile.absolutePath)
 }
 
+// Phase 8 ③: 배포 도구(kind·kubeconform·kubectl) — deploy/tools.lock에서 이 기계 플랫폼 줄만 받아 SHA-256을 대조한 뒤 build/tools에 둔다(전역 설치·brew
+// 없음). 값이 다르면 받은 파일을 지우고 실패한다. 압축(.tar.gz)은 도구 이름의 실행 파일만 꺼낸다.
+val toolsDir = rootProject.layout.buildDirectory.dir("tools")
+val deployTools = tasks.register("deployTools") {
+    group = "deploy"
+    description = "Downloads the pinned deploy tools for this platform and verifies their SHA-256 (deploy/tools.lock)."
+    val lock = rootProject.file("deploy/tools.lock")
+    inputs.file(lock)
+    outputs.dir(toolsDir)
+    doLast {
+        val os = System.getProperty("os.name").lowercase()
+        val arch = System.getProperty("os.arch")
+        val platform = (if (os.contains("mac")) "darwin" else if (os.contains("linux")) "linux" else throw GradleException("unsupported OS $os")) + "-" +
+            (when (arch) { "aarch64", "arm64" -> "arm64"; "amd64", "x86_64" -> "amd64"; else -> throw GradleException("unsupported arch $arch") })
+        val dir = toolsDir.get().asFile
+        dir.mkdirs()
+        val rows = lock.readLines().filter { it.isNotBlank() && !it.startsWith("#") }.map { it.trim().split(Regex("\\s+")) }.filter { it[2] == platform }
+        if (rows.map { it[0] }.toSet() != setOf("kind", "kubeconform", "kubectl")) {
+            throw GradleException("deploy/tools.lock has no complete tool set for $platform")
+        }
+        for ((name, _, _, url, sha) in rows) {
+            val download = File(temporaryDir, url.substringAfterLast('/'))
+            URI(url).toURL().openStream().use { input -> download.outputStream().use { input.copyTo(it) } }
+            val actual = MessageDigest.getInstance("SHA-256").digest(download.readBytes()).joinToString("") { "%02x".format(it) }
+            if (actual != sha) {
+                download.delete()
+                throw GradleException("$name: SHA-256 differs from deploy/tools.lock")
+            }
+            val target = File(dir, name)
+            if (url.endsWith(".tar.gz")) {
+                copy { from(tarTree(resources.gzip(download))) { include(name) }; into(temporaryDir) }
+                File(temporaryDir, name).copyTo(target, overwrite = true)
+            } else {
+                download.copyTo(target, overwrite = true)
+            }
+            target.setExecutable(true, true)
+            download.delete()
+        }
+    }
+}
+
 testing {
     suites {
         register<JvmTestSuite>("archTest") {
@@ -110,6 +154,30 @@ testing {
                     systemProperty("ga.image.app", appImageName)
                     systemProperty("ga.image.web", webImageName)
                     outputs.upToDateWhen { false }
+                }
+            }
+        }
+        // Phase 8 ③·G4: 배포 매니페스트 — 오버레이 렌더(kubectl kustomize) → kubeconform(쿠버네티스 스키마는 커밋 고정 URL, CRD는 저장소의 사본에서
+        // 만든 스키마) → 우리 규칙(JobKind ↔ CronJob, 공개 라우트에 /internal 0, 헤더 지움, digest, tools.lock 해시, 비밀 볼륨 items, 보안 문맥).
+        register<JvmTestSuite>("deployTest") {
+            dependencies {
+                implementation(project(":disclosure-workflow"))
+                implementation(project(":disclosure-app"))
+                implementation(platform(libs.spring.boot.bom))
+                // 운영 기동 가드를 렌더된 파드 환경으로 그대로 돌린다(ProdStartupGuard.problems — 스프링 Environment)
+                implementation(libs.spring.boot.autoconfigure)
+                implementation(libs.jackson.databind)
+                implementation(libs.jackson.dataformat.yaml)
+                implementation(libs.junit.jupiter)
+                implementation(libs.assertj.core)
+                runtimeOnly(libs.junit.platform.launcher)
+            }
+            targets.all {
+                testTask.configure {
+                    dependsOn(deployTools)
+                    systemProperty("ga.repoRoot", rootDir.absolutePath)
+                    systemProperty("ga.tools", toolsDir.get().asFile.absolutePath)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("deploy")).withPathSensitivity(PathSensitivity.RELATIVE)
                 }
             }
         }

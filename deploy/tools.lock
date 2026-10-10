@@ -1,0 +1,19 @@
+# 배포 도구 고정(Phase 8 ③ — 전역 설치·brew 없음). ./gradlew deployTools가 이 기계의 플랫폼 줄만 받아 SHA-256을 대조한 뒤 build/tools에 둔다.
+# 모든 SHA-256은 2026-10-10 이 저장소에서 직접 받아 계산했고 배포처가 낸 값과 같았다(kind *.sha256sum·kubeconform CHECKSUMS·dl.k8s.io *.sha256).
+# 형식: 이름 버전 플랫폼 URL SHA-256   (플랫폼 any = 이미지·파일 — URL 자리에 참조)
+kind         v0.33.0  darwin-arm64  https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-darwin-arm64                    0c8c7dbe5e23594a198b786c4bc13dacc101fa6196b0cb0b23a1ca44e61f4b4f
+kind         v0.33.0  linux-amd64   https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64                     aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+kubeconform  v0.8.0   darwin-arm64  https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-darwin-arm64.tar.gz         f84f4dfbebf4a6b0b230385fa065a39ea35e02608c2b50d025dcf64775a69d67
+kubeconform  v0.8.0   linux-amd64   https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz          9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+kubectl      v1.37.1  darwin-arm64  https://dl.k8s.io/release/v1.37.1/bin/darwin/arm64/kubectl                                             fd65982c97ddad3106754b69ffa196d0e543aa591930ae52aed1adfb92f8c77f
+kubectl      v1.37.1  linux-amd64   https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl                                              65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+# 클러스터·인그레스(이미지 digest = 다중 아키텍처 인덱스, 파일 = 저장소에 들인 사본의 SHA-256 — deploy 린트가 대조한다)
+kindest-node v1.37.0  any  kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5                                  -
+traefik      v3.7.14  any  traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c                                      -
+traefik-crds v3.7.14  any  deploy/components/ingress/traefik/kubernetes-crd-definition-v1.yml                                                         ecbe44ea9b011cda1b562716175b882d59cf6561fe6d3e5832df7ee072687d17
+traefik-rbac v3.7.14  any  deploy/components/ingress/traefik/kubernetes-crd-rbac.yml                                                                  01e592c73d42c225351fe41b40162fc77ec5239773e7d7be81d40bba08f65f27
+# 쿠버네티스 스키마(kubeconform -schema-location): yannh/kubernetes-json-schema의 커밋 고정 URL(2026-10-10 master 머리) — 이 커밋의 v1.37.1-standalone-strict
+k8s-schemas  v1.37.1  any  https://raw.githubusercontent.com/yannh/kubernetes-json-schema/5f1fa4f7908afc9b6641c62d282a4a22437626e1                    -
+# 운영 비밀(ESO v2.12.0 — Apache-2.0): 스키마 린트용 CRD 사본(설치하지 않는다)
+eso-crd-externalsecrets v2.12.0 any deploy/components/secrets-eso/crds/external-secrets.io_externalsecrets.yaml                                      5044be5a610ca90a075f34f03ed20b462695c43387ba9410db7f4250e47b1e2f
+eso-crd-secretstores    v2.12.0 any deploy/components/secrets-eso/crds/external-secrets.io_secretstores.yaml                                        22dd5822e3a330f79c4af32a84e6bc58c1f493a4c4c06db4ac0cf59e19b07cfe
