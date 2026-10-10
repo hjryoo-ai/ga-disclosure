@@ -7,9 +7,9 @@ ga:
       issuer: ga-demo
       audience: ga-disclosure
       public-key-location: ${ga.demo.oidc-public-pem:build/demo/demo-oidc.pem}
-    cursor-key-file: ${user.home}/.ga-disclosure/api-cursor.key
-    request-hash-key-file: ${user.home}/.ga-disclosure/api-request-hash.key
-    receipt-key-file: ${user.home}/.ga-disclosure/api-customer-receipt.key
+  # (Phase 8) 비밀 — 테넌트 KEK·API 키·데모 OIDC 서명 키 — 은 비밀 디렉터리에서 읽는다(`secrets init --demo yes`·`crypto kek init`이 만든다, 앱은 만들지 않는다)
+  secrets:
+    dir: ${GA_SECRETS_DIR:${user.home}/.ga-disclosure/secrets}
   public-sign:
     min-response-millis: 250
   # Phase 7 데모 로그인(DemoLoginController, Q6): 직원 화면의 주체 선택 폼에 보이는 계정(테넌트/주체) — 닫힌 목록, 역할은 identity_link.

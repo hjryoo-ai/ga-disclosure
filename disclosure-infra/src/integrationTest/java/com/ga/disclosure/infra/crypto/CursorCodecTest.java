@@ -3,13 +3,14 @@ package com.ga.disclosure.infra.crypto;
 import com.ga.disclosure.workflow.page.InvalidCursorException;
 import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
+import com.ga.disclosure.infra.secret.FileSecretSource;
+import com.ga.disclosure.workflow.secret.SecretMissingException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Base64;
 import java.util.List;
@@ -54,25 +55,26 @@ class CursorCodecTest {
         assertThatThrownBy(() -> CursorCodec.ephemeral().open(T1, "disclosures", cursor)).as("another key").isInstanceOf(InvalidCursorException.class);
     }
 
+    /** Phase 8: 키는 비밀 출처의 {@code api/cursor} — 없으면 기동 실패(만들지 않는다), 넓은 권한·틀린 길이도 실패. */
     @Test
-    void keyFileIsCreatedOwnerOnlyAndReused(@TempDir Path dir) throws Exception {
-        Path file = dir.resolve("keys/cursor.key");
-        CursorCodec first = CursorCodec.fromKeyFile(file);
-        assertThat(Files.getPosixFilePermissions(file)).containsExactlyInAnyOrder(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
-        assertThat(Base64.getDecoder().decode(Files.readString(file).strip())).hasSize(CursorCodec.KEY_BYTES);
-        String cursor = first.seal(T1, "jobs", "p");
-        assertThat(CursorCodec.fromKeyFile(file).open(T1, "jobs", cursor)).isEqualTo("p");
+    void theKeyComesFromTheSecretSourceAndIsNeverCreated(@TempDir Path dir) throws Exception {
+        FileSecretSource secrets = new FileSecretSource(dir, false);
+        assertThatThrownBy(() -> CursorCodec.fromSecret(secrets)).isInstanceOf(SecretMissingException.class).hasMessageContaining("api/cursor");
+        assertThat(Files.exists(dir.resolve("api/cursor"))).as("never created by the app").isFalse();
+        FileSecretSource.create(dir, CursorCodec.SECRET, Base64.getEncoder().encode(new byte[CursorCodec.KEY_BYTES]));
+        String cursor = CursorCodec.fromSecret(secrets).seal(T1, "jobs", "p");
+        assertThat(CursorCodec.fromSecret(secrets).open(T1, "jobs", cursor)).isEqualTo("p");
     }
 
     @Test
-    void looseOrMalformedKeyFilesFailStartup(@TempDir Path dir) throws Exception {
-        Path loose = dir.resolve("loose.key");
-        Files.writeString(loose, Base64.getEncoder().encodeToString(new byte[CursorCodec.KEY_BYTES]));
-        Files.setPosixFilePermissions(loose, PosixFilePermissions.fromString("rw-r--r--"));
-        assertThatThrownBy(() -> CursorCodec.fromKeyFile(loose)).isInstanceOf(IllegalStateException.class).hasMessageContaining("chmod 600");
-        Path shortKey = dir.resolve("short.key");
-        Files.writeString(shortKey, Base64.getEncoder().encodeToString(new byte[16]));
-        Files.setPosixFilePermissions(shortKey, PosixFilePermissions.fromString("rw-------"));
-        assertThatThrownBy(() -> CursorCodec.fromKeyFile(shortKey)).isInstanceOf(IllegalStateException.class).hasMessageContaining("32-byte");
+    void looseOrMalformedKeysFailStartup(@TempDir Path dir) throws Exception {
+        FileSecretSource.create(dir, CursorCodec.SECRET, Base64.getEncoder().encode(new byte[CursorCodec.KEY_BYTES]));
+        Files.setPosixFilePermissions(dir.resolve("api/cursor"), PosixFilePermissions.fromString("rw-r--r--"));
+        assertThatThrownBy(() -> CursorCodec.fromSecret(new FileSecretSource(dir, false))).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chmod 600");
+        Files.setPosixFilePermissions(dir.resolve("api/cursor"), PosixFilePermissions.fromString("rw-------"));
+        Files.writeString(dir.resolve("api/cursor"), Base64.getEncoder().encodeToString(new byte[16]));
+        assertThatThrownBy(() -> CursorCodec.fromSecret(new FileSecretSource(dir, false))).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("32-byte");
     }
 }

@@ -31,10 +31,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.util.EnumMap;
 import java.util.Map;
@@ -80,8 +76,7 @@ public class JobConfiguration {
                                    com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts,
                                    com.ga.disclosure.workflow.rate.CollectionRateService rates,
                                    com.ga.disclosure.workflow.disclosure.RetentionRecomputeService recompute,
-                                   Clock clock,
-                                   @Value("${ga.tsa.trust-pem:build/demo/tsa-trust.pem}") String trustPem) {
+                                   Clock clock, RetentionConfiguration.TsaTrust trust) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
         h.put(JobKind.EXPIRE, p -> {
             StandardJobs.only(p, Set.of("asOf", "limit"));
@@ -134,20 +129,9 @@ public class JobConfiguration {
         });
         h.put(JobKind.VERIFY_TENANT, p -> {
             StandardJobs.only(p, Set.of());
-            return StandardJobs.verifyTenant(verifier, readIfPresent(Path.of(trustPem)));
+            return StandardJobs.verifyTenant(verifier, trust.pemOrNull());
         });
         return new JobHandlers(h);
-    }
-
-    private static byte[] readIfPresent(Path pem) {
-        if (!Files.isRegularFile(pem)) {
-            return null;
-        }
-        try {
-            return Files.readAllBytes(pem);
-        } catch (IOException e) {
-            throw new UncheckedIOException("ga.tsa.trust-pem is not readable: " + pem, e);
-        }
     }
 
     @Bean

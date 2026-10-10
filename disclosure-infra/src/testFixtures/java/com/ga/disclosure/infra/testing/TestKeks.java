@@ -59,6 +59,15 @@ public final class TestKeks {
         }
     }
 
+    /** 이름의 32바이트 키(base64)가 없으면 무작위로 만든다(앱의 API 키 — {@code secrets init}과 같은 형식). */
+    public synchronized void ensureKey(SecretName name) {
+        if (!Files.exists(dir.resolve(name.value()))) {
+            byte[] key = new byte[32];
+            RANDOM.nextBytes(key);
+            FileSecretSource.create(dir, name, Base64.getEncoder().encode(key));
+        }
+    }
+
     /** 테넌트 첫 KEK를 필요할 때 만드는 출처(그 밖의 이름은 있는 그대로). */
     public SecretSource secrets() {
         FileSecretSource files = new FileSecretSource(dir, false);

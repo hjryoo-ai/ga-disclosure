@@ -11,7 +11,7 @@
 #     시계 오프셋으로 과거에 봉인·무효 → 실제 시계 재적용 → 보류 1건 → 파기 1건·HOLD 1건 → verify tenant).
 # 전제: docker compose up -d postgres seaweedfs (PostgreSQL + init-roles.sql, S3 호환 저장소). 값은 전부 예시다(설계서 부록 B·D). 몇 번을 돌려도 결과가 같다(멱등).
 # 사용: disclosure-demo/scripts/seed.sh [활성화 기준일, 기본 오늘]
-#   GA_SECRETS_DIR(기본 ~/.ga-disclosure/secrets): 저장소 밖 비밀 디렉터리(테넌트 KEK — 없으면 만든다, 권한 600).
+#   GA_SECRETS_DIR(기본 ~/.ga-disclosure/secrets): 저장소 밖 비밀 디렉터리(테넌트 KEK·API 키·데모 OIDC 서명 키·백업 키 — 없는 것만 만든다, 권한 600).
 #   Phase 2~7 시절 로컬 볼륨(전역 KEK ~/.ga-disclosure/kek.json으로 감싼 데이터)은 이 판이 풀지 않는다 — 이행 판(1a, 커밋 270e18d)의 seed.sh로
 #   한 번 재래핑하거나 볼륨을 새로 만든다(설계서 §9 "2단 업그레이드", docs/operations/keys.md).
 set -euo pipefail
@@ -42,6 +42,7 @@ tenant_kek() {
   cli crypto kek register --tenant "$1" --kek-id "$1-KEK-1" --operator "$OPERATOR"
 }
 
+cli secrets init --secrets-dir "$GA_SECRETS_DIR" --demo yes
 cli demo seed --file disclosure-demo/src/main/resources/demo/phase1-seed.json --operator "$OPERATOR"
 # 규제 번들은 DEMO1·DEMO2에만 — DEMO3은 데모 전용 GLOBAL 번들 하나(두 GLOBAL 룰이 겹치면 해석이 Ambiguous로 실패한다)
 cli rules distribute --bundle rules/DISC-2026-07.bundle.json --tenants DEMO1,DEMO2 --operator "$OPERATOR"

@@ -27,10 +27,16 @@ public final class ApiTestSupport {
     public static final Path SECRETS = com.ga.disclosure.infra.testing.TestKeks.shared().dir();
     public static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
     public static final Path DEMO = ROOT.resolve("disclosure-demo/src/main/resources");
-    /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
-    public static final Path CURSOR_KEY = tempPath("ga-api-cursor", "cursor.key");
-    public static final Path REQUEST_HASH_KEY = tempPath("ga-api-request-hash", "request-hash.key");
-    public static final Path RECEIPT_KEY = tempPath("ga-api-customer-receipt", "customer-receipt.key");
+    static {
+        // Phase 8: 앱은 비밀을 만들지 않는다 — 웹 앱의 커서·요청 해시·영수증 키를 시험 비밀 디렉터리에 먼저 둔다(secrets init과 같은 이름·형식)
+        for (String name : java.util.List.of("api/cursor", "api/request-hash", "api/customer-receipt")) {
+            com.ga.disclosure.infra.testing.TestKeks.shared().ensureKey(com.ga.disclosure.workflow.secret.SecretName.of(name));
+        }
+    }
+    /** 웹 앱이 읽는 키 파일(시험이 HMAC을 다시 계산할 때 — 비밀 디렉터리 안). */
+    public static final Path CURSOR_KEY = SECRETS.resolve("api/cursor");
+    public static final Path REQUEST_HASH_KEY = SECRETS.resolve("api/request-hash");
+    public static final Path RECEIPT_KEY = SECRETS.resolve("api/customer-receipt");
 
     private ApiTestSupport() {
     }
@@ -63,9 +69,6 @@ public final class ApiTestSupport {
         p.put("ga.api.jwt.audience", () -> TestJwts.AUDIENCE);
         p.put("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
         p.put("ga.secrets.dir", SECRETS::toString);
-        p.put("ga.api.cursor-key-file", CURSOR_KEY::toString);
-        p.put("ga.api.request-hash-key-file", REQUEST_HASH_KEY::toString);
-        p.put("ga.api.receipt-key-file", RECEIPT_KEY::toString);
         p.put("ga.public-sign.min-response-millis", () -> "30");
         p.put("ga.engine.mode", () -> "stub");
         p.put("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());

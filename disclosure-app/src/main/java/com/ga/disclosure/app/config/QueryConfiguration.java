@@ -17,43 +17,42 @@ import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.retention.LegalHoldQueryService;
 import com.ga.disclosure.workflow.retention.LegalHoldStore;
 import com.ga.disclosure.workflow.sign.PublicSignLimits;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnNotWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import com.ga.disclosure.workflow.secret.SecretSource;
 
-import java.nio.file.Path;
 import java.time.Clock;
 
 /**
- * 6A 조회 조립(계획 §4.1·§4.2): 확인서·보류·플래그 목록과 상세, 서명된 목록 커서, 이벤트 피드. 커서 키는 웹이면 {@code ga.api.cursor-key-file}(기본값 없음 — 저장소 밖, 없으면
- * 소유자 전용으로 만들고 권한이 넓으면 기동 실패), CLI면 프로세스마다 새 키(CLI는 커서를 받지 않는다).
+ * 6A 조회 조립(계획 §4.1·§4.2): 확인서·보류·플래그 목록과 상세, 서명된 목록 커서, 이벤트 피드. 커서 키는 웹이면 비밀 {@code api/cursor}(Phase 8 — 없으면 기동
+ * 실패, 만들지 않는다), CLI면 프로세스마다 새 키(CLI는 커서를 받지 않는다).
  */
 @Configuration
 public class QueryConfiguration {
 
     @Bean
     @ConditionalOnWebApplication
-    public CursorPort cursorCodec(@Value("${ga.api.cursor-key-file}") String keyFile) {
-        return CursorCodec.fromKeyFile(Path.of(keyFile));
+    public CursorPort cursorCodec(SecretSource secrets) {
+        return CursorCodec.fromSecret(secrets);
     }
 
-    /** 멱등 요청 해시 키(6B 계획 §A-2) — 웹이면 {@code ga.api.request-hash-key-file}(기본값 없음, 커서 키와 같은 규약). CLI는 멱등 키를 받지 않는다. */
+    /** 멱등 요청 해시 키(6B 계획 §A-2) — 웹이면 비밀 {@code api/request-hash}(커서 키와 같은 규약). CLI는 멱등 키를 받지 않는다. */
     @Bean
     @ConditionalOnWebApplication
-    public RequestHashPort requestHashKey(@Value("${ga.api.request-hash-key-file}") String keyFile) {
-        return RequestHashKey.fromKeyFile(Path.of(keyFile));
+    public RequestHashPort requestHashKey(SecretSource secrets) {
+        return RequestHashKey.fromSecret(secrets);
     }
 
     /**
-     * 고객 등록 영수증 키(6B §9, 10단계 회신 ②) — 웹이면 {@code ga.api.receipt-key-file}(기본값 없음, 커서 키와 같은 규약). 요청 해시 키와 따로 둔다.
+     * 고객 등록 영수증 키(6B §9, 10단계 회신 ②) — 웹이면 비밀 {@code api/customer-receipt}(커서 키와 같은 규약). 요청 해시 키와 따로 둔다.
      * CLI는 HTTP 영수증을 내지 않는다(고객 수입은 파일 경로).
      */
     @Bean
     @ConditionalOnWebApplication
-    public com.ga.disclosure.workflow.customer.CustomerReceiptPort customerReceiptKey(@Value("${ga.api.receipt-key-file}") String keyFile) {
-        return com.ga.disclosure.infra.crypto.CustomerReceiptKey.fromKeyFile(Path.of(keyFile));
+    public com.ga.disclosure.workflow.customer.CustomerReceiptPort customerReceiptKey(SecretSource secrets) {
+        return com.ga.disclosure.infra.crypto.CustomerReceiptKey.fromSecret(secrets);
     }
 
     @Bean

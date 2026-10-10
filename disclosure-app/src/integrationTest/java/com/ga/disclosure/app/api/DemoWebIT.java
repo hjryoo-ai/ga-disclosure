@@ -60,12 +60,12 @@ class DemoWebIT {
     static void boot() throws Exception {
         FlowSupport.prepare(T);
         dir = Files.createTempDirectory("ga-demo-web");
-        Path key = dir.resolve("keys").resolve("demo-oidc.key");
         Path pem = dir.resolve("demo-oidc.pem");
-        // 데모 웹 앱은 기동 때 공개키 PEM을 읽는다 — 키를 먼저 만든다(http-demo.sh와 같은 순서)
-        ApiTestSupport.cli("--spring.profiles.active=cli,demo", "--ga.demo.oidc-key-file=" + key, "--ga.demo.oidc-public-pem=" + pem,
+        // 데모 웹 앱은 기동 때 공개키 PEM을 읽는다 — 키를 먼저 만든다(http-demo.sh와 같은 순서). 서명 키는 비밀 출처(Phase 8)
+        ApiTestSupport.cli("secrets", "init", "--secrets-dir", ApiTestSupport.SECRETS.toString(), "--demo", "yes");
+        ApiTestSupport.cli("--spring.profiles.active=cli,demo", "--ga.demo.oidc-public-pem=" + pem,
                 "demo", "token", "--tenant", T, "--subject", "compliance-1");
-        List<String> args = new ArrayList<>(List.of("--server.port=0", "--spring.profiles.active=demo", "--ga.demo.oidc-key-file=" + key,
+        List<String> args = new ArrayList<>(List.of("--server.port=0", "--spring.profiles.active=demo",
                 "--ga.demo.oidc-public-pem=" + pem, "--ga.demo.login.accounts[0]=" + T + "/compliance-1", "--ga.demo.login.accounts[1]=" + T + "/agent-1"));
         for (Map.Entry<String, Supplier<Object>> e : ApiTestSupport.propertyMap().entrySet()) {
             if (!e.getKey().startsWith("ga.api.jwt.")) {

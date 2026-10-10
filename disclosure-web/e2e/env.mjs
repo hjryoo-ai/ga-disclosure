@@ -80,7 +80,7 @@ export async function up() {
     GA_S3_BUCKET: 'ga-e2e',
     GA_SECRETS_DIR: resolve(run, 'secrets'),
   };
-  const keys = [`--ga.demo.oidc-key-file=${resolve(run, 'demo-oidc.key')}`, `--ga.demo.oidc-public-pem=${resolve(run, 'demo-oidc.pem')}`];
+  const keys = [`--ga.demo.oidc-public-pem=${resolve(run, 'demo-oidc.pem')}`];
   const common = ['--ga.storage.s3.create-bucket=true', '--ga.engine.mode=stub', `--ga.engine.stub-table=${DEMO}/demo/engine-table.json`,
     '--ga.tsa.mode=stub', `--ga.tsa.stub.key-store=${resolve(run, 'tsa-stub.p12')}`, `--ga.tsa.trust-pem=${resolve(run, 'tsa-trust.pem')}`];
   const cli = (...args) => sh(java, ['-jar', jar, '--spring.profiles.active=cli', ...common, ...args], { env: appEnv, cwd: repo });
@@ -101,7 +101,8 @@ export async function up() {
       step(`catalog ${t} ${f}`, () => cli('catalog', 'import', '--tenant', t, '--file', `${DEMO}/demo/catalog/${f}`, '--operator', 'e2e'));
     }
   }
-  // 테넌트 KEK(Phase 8): 실행 디렉터리 안의 비밀 디렉터리에 만들고 레지스트리에 등록한다
+  // 비밀(Phase 8): 실행 디렉터리 안의 비밀 디렉터리 — API 키·데모 OIDC 서명 키, 테넌트 KEK(만들고 레지스트리에 등록). 앱은 비밀을 만들지 않는다
+  step('secrets', () => cli('secrets', 'init', '--secrets-dir', resolve(run, 'secrets'), '--demo', 'yes'));
   for (const t of ['DEMO1', 'DEMO2']) {
     step(`kek ${t}`, () => cli('crypto', 'kek', 'init', '--tenant', t, '--kek-id', `${t}-KEK-1`, '--secrets-dir', resolve(run, 'secrets')));
     step(`kek register ${t}`, () => cli('crypto', 'kek', 'register', '--tenant', t, '--kek-id', `${t}-KEK-1`, '--operator', 'e2e'));
@@ -127,8 +128,7 @@ export async function up() {
   env.baseUrl = `http://127.0.0.1:${appPort}`;
   const serverLog = openSync(resolve(out, 'server.log'), 'w', 0o600);
   const app = spawn(java, ['-jar', jar, '--spring.profiles.active=demo', `--server.port=${appPort}`, '--server.address=127.0.0.1', ...common, ...keys,
-    `--ga.api.jwt.public-key-location=${resolve(run, 'demo-oidc.pem')}`, `--ga.api.cursor-key-file=${resolve(run, 'cursor.key')}`,
-    `--ga.api.request-hash-key-file=${resolve(run, 'request-hash.key')}`, `--ga.api.receipt-key-file=${resolve(run, 'receipt.key')}`,
+    `--ga.api.jwt.public-key-location=${resolve(run, 'demo-oidc.pem')}`,
     `--ga.sign.link-base-url=${env.baseUrl}/s#`], { env: appEnv, cwd: repo, stdio: ['ignore', serverLog, serverLog], detached: true });
   closeSync(serverLog);
   env.app = app.pid;

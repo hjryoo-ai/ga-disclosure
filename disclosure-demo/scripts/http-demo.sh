@@ -42,6 +42,8 @@ cli() { "$JAVA" -jar "$JAR" --spring.profiles.active=cli "$@"; }
 cli_demo() { "$JAVA" -jar "$JAR" --spring.profiles.active=cli,demo "$@"; }
 
 # ------------------------------------------------------------------------------------------------ 준비
+# 비밀(Phase 8): 없는 것만 만든다 — 앱은 비밀을 만들지 않는다(seed.sh를 먼저 돌렸으면 전부 EXISTS)
+cli secrets init --secrets-dir "$GA_SECRETS_DIR" --demo yes
 cli demo seed --file "$DEMO/demo/phase6a-seed.json" --operator "$OPERATOR" | grep '^SEED '
 SEEDED_REF="$(cli customer import --tenant "$TENANT" --file "$DEMO/customers.json" --operator "$OPERATOR" \
   | sed -n "s/^CUSTOMER_IMPORT $TENANT C01 .* ref=\(.*\)$/\1/p")"

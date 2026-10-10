@@ -28,7 +28,7 @@ GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest 
 ```bash
 ./gradlew :disclosure-app:bootRun --args="--spring.profiles.active=cli rules distribute --bundle rules/DISC-2027-01.bundle.json --tenants all --operator me"
 # rules approve --tenant T1 --rule <id> | rules activate [--as-of 2027-01-01] | rules reconcile | demo seed --file <json>
-# catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | crypto init-kek --file <path> [--kek-id KEK-LOCAL-1]
+# catalog import --tenant T1 --file <json> | customer rekey --tenant T1 [--batch 500] | secrets init --secrets-dir <dir> [--demo yes] | crypto kek init|register|rewrap (Phase 8 테넌트 KEK)
 # (3B) disclosure seal|rebase --tenant T1 --id <uuid> | disclosure void|supersede --tenant T1 --id <uuid> --reason-code <CODE> [--reason-file <path>] --operator <id>
 #      artifacts get --tenant T1 --id <uuid> --kind PDF|CANONICAL_JSON|SIGNED_PDF|EVIDENCE_ZIP --out <path> | artifacts gc|reconcile --tenants all
 # (4) sign session --tenant T1 --id <uuid> --channel TOUCH_PAD|REMOTE_LINK|PAPER_SCAN | sign open|verify|capture|scan --token <token> (입력은 --*-file)
@@ -43,9 +43,9 @@ GA_TSA_URL=… GA_TSA_TRUST_PEM=… ./gradlew :disclosure-audit:tsaContractTest 
 # 업무 거부(봉인 조건 실패 등)·같은 종류 작업이 이미 도는 테넌트·FAILED 작업은 종료 코드 2, 인자·명령 오류는 1
 ```
 
-데모 웹 앱(`--spring.profiles.active=demo`, `application-demo.yaml`)은 데모 OIDC 발급자의 공개키로 JWT를 검증한다(발급자 `ga-demo`, 대상 `ga-disclosure`). 서명 키는 처음 `demo token`을 부를 때 **저장소 밖** `~/.ga-disclosure/demo-oidc.key`(PKCS#8, 권한 600)에 만들고, 공개키만 gitignore된 `build/demo/demo-oidc.pem`으로 내보낸다 — 웹 앱이 기동 때 그 PEM을 읽으므로 토큰을 먼저 만든다(`http-demo.sh`가 그렇게 한다). 운영 프로파일은 `ga.api.jwt.jwk-set-uri`(IdP)이고 `ga.demo.*` 키가 있으면 기동하지 않는다. 역할은 토큰이 아니라 `identity_link`에서 온다 — 데모 주체는 `phase6a-seed.json`(준법 2·스케줄러·피드).
+데모 웹 앱(`--spring.profiles.active=demo`, `application-demo.yaml`)은 데모 OIDC 발급자의 공개키로 JWT를 검증한다(발급자 `ga-demo`, 대상 `ga-disclosure`). 서명 키는 비밀 디렉터리의 `demo/oidc-signing`(PKCS#8, 권한 600 — `secrets init --demo yes`가 만든다, 앱은 만들지 않는다)이고, 공개키만 gitignore된 `build/demo/demo-oidc.pem`으로 내보낸다 — 웹 앱이 기동 때 그 PEM을 읽으므로 토큰을 먼저 만든다(`http-demo.sh`가 그렇게 한다). 운영 프로파일은 `ga.api.jwt.jwk-set-uri`(IdP)이고 `ga.demo.*` 키가 있으면 기동하지 않는다. 역할은 토큰이 아니라 `identity_link`에서 온다 — 데모 주체는 `phase6a-seed.json`(준법 2·스케줄러·피드).
 
-고객 필드 암호화의 로컬 KEK는 **저장소 밖** 파일이다(`GA_LOCAL_KEK_FILE`, 기본 `~/.ga-disclosure/kek.json`, 권한 600이 아니면 기동 실패). 운영 KMS 연동은 `KeyProviderPort` 구현 교체로 한다(설계서 §9).
+(Phase 8) 서버 비밀은 **저장소 밖** 비밀 디렉터리(`GA_SECRETS_DIR`, 데모 기본 `~/.ga-disclosure/secrets`, 소유자 전용)에서 읽는다 — 테넌트 KEK `kek/{T}/{T}-KEK-n`, API 키, 데모 OIDC 키. 앱은 비밀을 만들지 않는다(`secrets init`·`crypto kek init`). Phase 7 이전 볼륨(전역 KEK `~/.ga-disclosure/kek.json`으로 감싼 데이터)은 이 판이 풀지 않는다 — 1a 커밋 `270e18d`의 `seed.sh`로 한 번 재래핑하거나 `down -v`(설계서 §9).
 
 `init-roles.sql`에 롤이 추가되면(Phase 1: `disclosure_operator`) 기존 로컬 볼륨에는 반영되지 않는다 — `docker compose down -v` 후 다시 올린다. Phase 3B에서 표준 서식 `STANDARD.v1`을 제자리로 다시 해시했으므로(운영 배포 전 형식 변경) 3A 이전에 시드한 로컬 볼륨도 `down -v`가 필요하다. Phase 4도 룰 번들 `DISC-2026-07`·`DISC-2027-01`과 서식을 제자리로 다시 해시했다(서명 룰 키) — 3B 이전 볼륨은 `down -v`. Phase 5는 파기 롤 `disclosure_destroyer`·`disclosure_destroy_definer`와 멤버십을 `init-roles.sql`에 더했다 — V9가 롤이 없으면 실패하므로 4 이전 볼륨은 `down -v`. Phase 6A는 작업 잠금 롤 `disclosure_job_lock`을 더했고(V12가 롤이 없으면 실패), 룰 번들 네 개를 제자리로 다시 해시했으며(6A 룰 키), 앵커 날짜를 생성 시각의 KST 날짜로 묶는 CHECK가 옛 데모의 소급 앵커("어제 날짜로 지금 머리")를 거부한다 — 5 이전 볼륨은 `down -v`(사용자 결정, 스크립트는 볼륨을 지우지 않는다). Phase 6B는 초안 폐기 롤 `disclosure_abandoner`와 멤버십을 더했다(V14가 롤이 없으면 실패) — 6A 볼륨은 `down -v` 또는 `init-roles.sql`의 그 두 문장을 superuser로 한 번 실행한다.
 

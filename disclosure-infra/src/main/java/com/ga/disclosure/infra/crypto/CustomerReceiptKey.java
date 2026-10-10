@@ -1,5 +1,7 @@
 package com.ga.disclosure.infra.crypto;
 
+import com.ga.disclosure.workflow.secret.SecretName;
+import com.ga.disclosure.workflow.secret.SecretSource;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.workflow.customer.CustomerReceiptPort;
 import com.ga.disclosure.workflow.customer.RegistrationKey;
@@ -7,7 +9,6 @@ import com.ga.platform.core.tenant.TenantId;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.Objects;
 import java.util.UUID;
@@ -16,8 +17,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * 고객 등록 영수증 ID(6B §9, 10단계 회신 ②): HMAC-SHA256(키, "ga-customer-receipt/v1" ‖ 0x00 ‖ 테넌트 ‖ 0x00 ‖ 가명 ‖ 0x00 ‖ 등록 키)의 앞 16바이트를
- * RFC 9562 UUIDv8(사용자 정의) 모양으로. 키는 {@code ga.api.receipt-key-file}(저장소 밖, 기본값 없음 — 웹은 필수, 커서 키와 같은 규약
- * {@link OwnerOnlyKeyFile}). 요청 해시 키와 따로 둔다 — 요청 해시 키를 바꿔도 같은 등록의 영수증이 바뀌지 않는다. 이 키를 바꾸면 이후 NOOP 응답의
+ * RFC 9562 UUIDv8(사용자 정의) 모양으로. 키는 비밀 {@code api/customer-receipt}(Phase 8 {@link SecretSource} — 웹은 필수, 커서 키와 같은
+ * 규약). 요청 해시 키와 따로 둔다 — 요청 해시 키를 바꿔도 같은 등록의 영수증이 바뀌지 않는다. 이 키를 바꾸면 이후 NOOP 응답의
  * 영수증이 첫 응답과 달라진다(배포 노트).
  */
 public final class CustomerReceiptKey implements CustomerReceiptPort {
@@ -34,8 +35,10 @@ public final class CustomerReceiptKey implements CustomerReceiptPort {
         this.key = key.clone();
     }
 
-    public static CustomerReceiptKey fromKeyFile(Path file) {
-        return new CustomerReceiptKey(OwnerOnlyKeyFile.loadOrCreate(file, KEY_BYTES, "customer receipt"));
+    public static final SecretName SECRET = SecretName.of("api/customer-receipt");
+
+    public static CustomerReceiptKey fromSecret(SecretSource secrets) {
+        return new CustomerReceiptKey(secrets.key(SECRET, KEY_BYTES));
     }
 
     /** CLI: 프로세스마다 새 키(CLI는 HTTP 영수증을 내지 않는다 — 조립만 맞춘다). */

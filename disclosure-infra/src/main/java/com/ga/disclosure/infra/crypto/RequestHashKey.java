@@ -1,8 +1,9 @@
 package com.ga.disclosure.infra.crypto;
 
+import com.ga.disclosure.workflow.secret.SecretName;
+import com.ga.disclosure.workflow.secret.SecretSource;
 import com.ga.disclosure.workflow.idempotency.RequestHashPort;
 
-import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.HexFormat;
 import java.util.Objects;
@@ -10,8 +11,8 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * 멱등 요청 해시 키(6B 계획 §A-2): {@code ga.api.request-hash-key-file}(저장소 밖, 기본값 없음 — 웹은 필수)의 32바이트 키로 HMAC-SHA256. 키 파일 규약은 커서
- * 키와 같다({@link OwnerOnlyKeyFile}). 키가 바뀌면 진행 중 청구는 다른 해시가 되어 재생되지 않고 새 요청으로 처리된다(부작용은 업무 상태 가드가 막는다).
+ * 멱등 요청 해시 키(6B 계획 §A-2): 비밀 {@code api/request-hash}(Phase 8 {@link SecretSource}, base64 32바이트 — 웹은 필수)로 HMAC-SHA256. 규약은 커서
+ * 키와 같다. 키가 바뀌면 진행 중 청구는 다른 해시가 되어 재생되지 않고 새 요청으로 처리된다(부작용은 업무 상태 가드가 막는다).
  */
 public final class RequestHashKey implements RequestHashPort {
 
@@ -26,8 +27,10 @@ public final class RequestHashKey implements RequestHashPort {
         this.key = key.clone();
     }
 
-    public static RequestHashKey fromKeyFile(Path file) {
-        return new RequestHashKey(OwnerOnlyKeyFile.loadOrCreate(file, KEY_BYTES, "request hash"));
+    public static final SecretName SECRET = SecretName.of("api/request-hash");
+
+    public static RequestHashKey fromSecret(SecretSource secrets) {
+        return new RequestHashKey(secrets.key(SECRET, KEY_BYTES));
     }
 
     @Override
