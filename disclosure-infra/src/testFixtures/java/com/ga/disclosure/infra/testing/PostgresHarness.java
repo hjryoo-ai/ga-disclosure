@@ -27,7 +27,8 @@ import javax.sql.DataSource;
  */
 public final class PostgresHarness {
 
-    public static final String IMAGE = "postgres:18.6";
+    /** postgres:18.6 — digest는 2026-10-10 실측(다중 아키텍처 인덱스, Phase 8 — 태그만 쓰던 것을 SeaweedFS처럼 고정). */
+    public static final String IMAGE = "postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336";
     public static final String DATABASE = "disclosure";
     public static final String MIGRATOR = "disclosure_migrator";
     public static final String APP = "disclosure_app";
@@ -58,7 +59,7 @@ public final class PostgresHarness {
         if (!Files.isRegularFile(initRoles)) {
             throw new IllegalStateException("init-roles.sql not found: " + initRoles);
         }
-        container = new PostgreSQLContainer(DockerImageName.parse(IMAGE))
+        container = new PostgreSQLContainer(DockerImageName.parse(IMAGE).asCompatibleSubstituteFor("postgres"))
                 .withDatabaseName(DATABASE)
                 .withUsername("postgres")
                 .withPassword("postgres")

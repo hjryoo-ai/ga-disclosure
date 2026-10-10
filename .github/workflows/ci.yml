@@ -48,7 +48,8 @@ jobs:
 
   e2e:
     # Phase 7 계획 ⑦·Q12: 화면 E2E(Playwright Chromium 데스크톱·모바일) — 부트 jar + 격리 컨테이너(PostgreSQL·SeaweedFS digest 고정).
-    # Docker가 없으면 실패한다(스킵 없음). 아티팩트: HTML 리포트·JUnit·누출 스캔·재전송·axe 요약. server.log·seed.log는 올리지 않는다(데모 링크 토큰).
+    # Docker가 없으면 실패한다(스킵 없음). 아티팩트: JUnit·산출물 스캔·누출 스캔·재전송·axe 요약(Phase 8: HTML 리포트 없음 — 단계 제목이 입력값을 싣는다).
+    # server.log·seed.log는 올리지 않는다(데모 링크 토큰).
     runs-on: ubuntu-latest
     env:
       CI: 'true'
@@ -78,6 +79,31 @@ jobs:
             disclosure-web/build/e2e/*-summary.json
             disclosure-web/build/e2e/leak-scan/**
             disclosure-web/build/e2e/axe/**
+
+  images:
+    # Phase 8 ③·G3: 배포 이미지 2개(app·web)를 만들고 — 웹 헤더 = 데모 서빙 문자열, app이 비루트·읽기 전용 루트로 db migrate, 모든 레이어의 모든 파일
+    # 스캔(키 파일 이름·PEM 개인키 블록·데모 고객 센티널). 베이스는 다중 아키텍처 digest라 러너(amd64)와 로컬(arm64)이 같은 고정 값을 쓴다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Docker available
+        run: docker info --format '{{.ServerVersion}}'
+
+      - name: Images (build + header/runtime tests + layer scan)
+        run: ./gradlew :disclosure-app:imageTest --console=plain
+
+      - name: Image test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-test-reports
+          path: disclosure-app/build/test-results/imageTest/**
 
   pdfa-verify:
     # 3B S12: 골든 PDF를 veraPDF(PDF/A-2b 프로파일)로 검증한다 — 실패 규칙 1건 이상이면 잡 실패. veraPDF는 GPL-3.0/MPL-2.0이라

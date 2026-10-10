@@ -14,7 +14,7 @@ const repo = resolve(web, '..');
 const out = resolve(web, 'build/e2e');
 const run = resolve(out, 'run');
 const ENV = resolve(out, 'env.json');
-const PG_IMAGE = 'postgres:18.6';
+const PG_IMAGE = 'postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336';   // 18.6 — 하네스·카탈로그·compose와 같다(PostgresDigestIT)
 const S3_IMAGE = 'chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d';
 const DEMO = resolve(repo, 'disclosure-demo/src/main/resources');
 

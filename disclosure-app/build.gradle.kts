@@ -32,6 +32,34 @@ dependencies {
     runtimeOnly(libs.postgresql)
 }
 
+// Phase 8 ③: 이미지 2개(app·web). 빌드 문맥은 저장소 루트가 아니라 필요한 파일만 모은 디렉터리다(문맥에 비밀·node_modules가 실릴 길이 없다).
+val appImageName = "ga-disclosure/app:dev"
+val webImageName = "ga-disclosure/web:dev"
+val appImageContext = tasks.register<Sync>("appImageContext") {
+    from(tasks.named("bootJar")) { rename { "app.jar" } }
+    into(layout.buildDirectory.dir("image/app"))
+}
+val webImageContext = tasks.register<Sync>("webImageContext") {
+    dependsOn(":disclosure-web:webBuild")
+    from(rootProject.layout.projectDirectory.dir("disclosure-web/build/web/dist")) { into("dist") }
+    from(rootProject.layout.projectDirectory.file("deploy/images/web/nginx.conf"))
+    into(layout.buildDirectory.dir("image/web"))
+}
+tasks.register<Exec>("appImage") {
+    group = "build"
+    description = "Builds the app image (boot jar layers, non-root) from a staged context."
+    dependsOn(appImageContext)
+    commandLine("docker", "build", "--quiet", "-t", appImageName, "-f", rootProject.file("deploy/images/app.Dockerfile").absolutePath,
+        layout.buildDirectory.dir("image/app").get().asFile.absolutePath)
+}
+tasks.register<Exec>("webImage") {
+    group = "build"
+    description = "Builds the web image (Vite dist on non-root nginx) from a staged context."
+    dependsOn(webImageContext)
+    commandLine("docker", "build", "--quiet", "-t", webImageName, "-f", rootProject.file("deploy/images/web.Dockerfile").absolutePath,
+        layout.buildDirectory.dir("image/web").get().asFile.absolutePath)
+}
+
 testing {
     suites {
         register<JvmTestSuite>("archTest") {
@@ -56,6 +84,32 @@ testing {
                         .withPathSensitivity(PathSensitivity.RELATIVE)
                     inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-infra/src/integrationTest/resources/rule-as-data"))
                         .withPathSensitivity(PathSensitivity.RELATIVE)
+                }
+            }
+        }
+        // Phase 8 ③·G3: 이미지 시험 — 웹 이미지 헤더 = 데모 서빙 문자열, app 이미지가 비루트·읽기 전용 루트로 db migrate, 이미지 레이어 전수 스캔.
+        // 이미지를 먼저 만든다(appImage·webImage — docker CLI). check에 넣지 않는다 — CI는 별도 잡 images.
+        register<JvmTestSuite>("imageTest") {
+            dependencies {
+                implementation(project())
+                implementation(testFixtures(project(":disclosure-infra")))
+                implementation(platform(libs.spring.boot.bom))
+                implementation(libs.spring.boot.starter.webmvc)
+                implementation(libs.testcontainers)
+                implementation(libs.jackson.databind)
+                implementation(libs.junit.jupiter)
+                implementation(libs.assertj.core)
+                runtimeOnly(libs.junit.platform.launcher)
+            }
+            targets.all {
+                testTask.configure {
+                    dependsOn("appImage", "webImage")
+                    // 레이어 스캐너가 레이어 하나를 통째로 메모리에 푼다(JRE 레이어 ≈ 150MB)
+                    maxHeapSize = "1g"
+                    systemProperty("ga.repoRoot", rootDir.absolutePath)
+                    systemProperty("ga.image.app", appImageName)
+                    systemProperty("ga.image.web", webImageName)
+                    outputs.upToDateWhen { false }
                 }
             }
         }
