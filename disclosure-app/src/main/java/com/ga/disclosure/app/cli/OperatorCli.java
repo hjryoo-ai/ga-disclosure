@@ -502,11 +502,7 @@ public class OperatorCli implements ApplicationRunner {
         switch (view) {
             case ArtifactService.View.Granted g -> {
                 Path target = Path.of(args.required("out"));
-                try {
-                    Files.write(target, g.plaintext());
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
+                CliFiles.replace(target, g.plaintext());
                 out.println("ARTIFACT_GET " + tenant + " " + g.record().disclosureId() + " " + kind + " sha256=" + g.record().sha256() + " bytes="
                         + g.record().bytes() + " -> " + target);
             }

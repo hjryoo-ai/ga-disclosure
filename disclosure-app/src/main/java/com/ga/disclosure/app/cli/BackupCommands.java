@@ -16,17 +16,13 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.EnumSet;
 import java.util.Objects;
 
 /**
@@ -78,7 +74,7 @@ final class BackupCommands {
     private void seal(CliArguments args) throws IOException {
         byte[] key = key();
         try (InputStream in = new BufferedInputStream(Files.newInputStream(Path.of(args.required("in"))));
-             OutputStream o = new BufferedOutputStream(createOwnerOnly(Path.of(args.required("out"))))) {
+             OutputStream o = new BufferedOutputStream(CliFiles.createNew(Path.of(args.required("out"))))) {
             BackupEnvelope.Summary s = BackupEnvelope.seal(key, in, o);
             out.println("BACKUP_SEALED bytes=" + s.plaintextBytes() + " sha256=" + s.plaintextSha256());
         } finally {
@@ -90,7 +86,7 @@ final class BackupCommands {
         byte[] key = key();
         Path target = Path.of(args.required("out"));
         try (InputStream in = new BufferedInputStream(Files.newInputStream(Path.of(args.required("in"))));
-             OutputStream o = new BufferedOutputStream(createOwnerOnly(target))) {
+             OutputStream o = new BufferedOutputStream(CliFiles.createNew(target))) {
             BackupEnvelope.Summary s = BackupEnvelope.open(key, in, o);
             out.println("BACKUP_OPENED bytes=" + s.plaintextBytes() + " sha256=" + s.plaintextSha256());
         } catch (BackupEnvelope.NotOpenable e) {
@@ -125,7 +121,7 @@ final class BackupCommands {
     private void download(CliArguments args) throws IOException {
         Path target = Path.of(args.required("out"));
         long bytes;
-        try (BackupStore store = backupStore(); OutputStream o = new BufferedOutputStream(createOwnerOnly(target))) {
+        try (BackupStore store = backupStore(); OutputStream o = new BufferedOutputStream(CliFiles.createNew(target))) {
             bytes = store.download(args.required("run"), o);
         }
         out.println("BACKUP_DOWNLOADED bytes=" + bytes);
@@ -169,21 +165,5 @@ final class BackupCommands {
         return new S3StorageSettings(URI.create(env.getRequiredProperty(prefix + ".endpoint")), env.getProperty(prefix + ".region", "us-east-1"),
                 env.getRequiredProperty(prefix + ".bucket"), env.getRequiredProperty(prefix + ".access-key-id"),
                 env.getRequiredProperty(prefix + ".secret-access-key"), env.getProperty(prefix + ".path-style", Boolean.class, true));
-    }
-
-    /**
-     * 새 파일을 소유자 전용(600)으로 <b>한 번에</b> 연다 — 만들기와 열기가 하나의 {@code O_CREAT|O_EXCL}이라 경로에 무엇이든(심볼릭 링크 포함) 이미 있으면
-     * 실패한다. 만든 뒤 경로로 다시 여는 방식은 그 사이 링크로 바꿔치기되면 평문 백업을 링크 대상에 쓴다(10단계 커밋 보안 검토 — TOCTOU).
-     */
-    static OutputStream createOwnerOnly(Path file) throws IOException {
-        java.util.Set<java.nio.file.OpenOption> options = java.util.Set.of(java.nio.file.StandardOpenOption.CREATE_NEW, java.nio.file.StandardOpenOption.WRITE);
-        try {
-            java.nio.channels.SeekableByteChannel channel = file.getFileSystem().supportedFileAttributeViews().contains("posix")
-                    ? Files.newByteChannel(file, options, PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)))
-                    : Files.newByteChannel(file, options);
-            return java.nio.channels.Channels.newOutputStream(channel);
-        } catch (FileAlreadyExistsException e) {
-            throw new CliFailure("refusing to overwrite " + file.getFileName());
-        }
     }
 }

@@ -10,10 +10,7 @@ import com.ga.disclosure.workflow.job.JobWork;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.io.IOException;
 import java.io.PrintStream;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -192,11 +189,7 @@ final class JobCommands {
             throw new CliRejection("job report not available: " + e.status());
         }
         Path target = Path.of(args.required("out"));
-        try {
-            Files.write(target, report);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        CliFiles.replace(target, report);
         out.println("JOB_REPORT " + id + " sha256=" + com.ga.platform.canonical.Sha256.of(report) + " -> " + target);
     }
 

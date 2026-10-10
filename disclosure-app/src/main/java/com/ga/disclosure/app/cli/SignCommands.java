@@ -287,10 +287,6 @@ final class SignCommands {
     }
 
     private static void write(Path path, byte[] bytes) {
-        try {
-            Files.write(path, bytes);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        CliFiles.replace(path, bytes);
     }
 }

@@ -21,7 +21,6 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -308,13 +307,6 @@ final class RetentionCommands {
     }
 
     private static void write(Path target, byte[] bytes) {
-        try {
-            if (target.toAbsolutePath().getParent() != null) {
-                Files.createDirectories(target.toAbsolutePath().getParent());
-            }
-            Files.write(target, bytes);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        CliFiles.replace(target, bytes);
     }
 }

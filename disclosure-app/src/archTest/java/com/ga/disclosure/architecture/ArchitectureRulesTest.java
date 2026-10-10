@@ -289,21 +289,59 @@ class ArchitectureRulesTest {
     }
 
     /**
-     * 10단계 커밋 보안 검토(TOCTOU): 비밀·백업 평문 파일은 만들기와 열기가 하나의 {@code CREATE_NEW} 열기다 — {@code Files.createFile} 뒤 경로로 다시 열면
-     * 그 사이 심볼릭 링크로 바꿔치기된 대상에 쓴다. 운영 코드에 {@code Files.createFile} 0(소유자 전용 파일은 {@code newByteChannel(CREATE_NEW, 권한)}).
+     * 파일 쓰기 API를 부르는 운영 클래스(닫힌 FQN 목록 — 10단계 보안 검토 TOCTOU·수용 회신 "생성 후 열기 패턴 전반"). 비밀·백업 평문·열어 본 산출물
+     * (고객 성명이 든 PDF)·보고서는 소유자 전용으로 만들기·열기를 한 번에({@code CREATE_NEW}) 하고, 덮어쓰기는 새 파일 + 원자적 이름 바꾸기로 한다
+     * (경로에 놓인 심볼릭 링크를 따라가지 않는다). {@code Files.write} 기본 옵션은 링크를 따라가고 umask 권한(보통 0644)으로 만든다.
      */
+    static final List<Allowed> FILE_WRITERS = List.of(
+            new Allowed(P + "app.cli.CliFiles", "운영자 CLI 출력 — CREATE_NEW 소유자 전용, 덮어쓰기는 새 파일 + 원자적 이름 바꾸기"),
+            new Allowed(P + "infra.secret.FileSecretSource", "로컬·kind 비밀 파일 생성 — CREATE_NEW 소유자 전용"),
+            new Allowed(P + "audit.tsa.stub.LocalStubTsa", "스텁 TSA 키 저장소(CREATE_NEW 소유자 전용)와 신뢰 앵커 인증서 PEM(공개 — 기동마다 다시 쓴다)"),
+            new Allowed(P + "app.demo.DemoOidcIssuer", "데모 OIDC 공개키 PEM(공개 — 토큰마다 다시 쓴다, 데모 프로파일만)"),
+            new Allowed(P + "seal.renderer.RerenderMain", "골든 재렌더 도구의 출력 PDF(허구 데이터 — 개발·CI 전용 main)"));
+
+    /** 파일을 만들거나 쓰는 JDK API(대상: {@code java.nio.file.Files}의 메서드, {@code java.io} 파일 스트림 생성자). */
+    static final java.util.Set<String> FILE_WRITE_METHODS = java.util.Set.of("write", "writeString", "newOutputStream", "newBufferedWriter", "newByteChannel",
+            "createFile", "createTempFile", "copy");
+    static final java.util.Set<String> FILE_WRITE_CONSTRUCTORS = java.util.Set.of("java.io.FileOutputStream", "java.io.FileWriter", "java.io.RandomAccessFile",
+            "java.io.PrintStream", "java.io.PrintWriter");
+
     @Test
-    void filesAreCreatedAndOpenedInOneStep() {
+    void fileWritesGoThroughOwnerOnlyCreation() {
+        java.util.Set<String> allowed = FILE_WRITERS.stream().map(Allowed::fqn).collect(java.util.stream.Collectors.toSet());
+        com.tngtech.archunit.lang.ArchCondition<com.tngtech.archunit.core.domain.JavaClass> writesFiles =
+                new com.tngtech.archunit.lang.ArchCondition<>("call a file-writing API") {
+                    @Override
+                    public void check(com.tngtech.archunit.core.domain.JavaClass c, com.tngtech.archunit.lang.ConditionEvents events) {
+                        for (var call : c.getMethodCallsFromSelf()) {
+                            if (call.getTargetOwner().getName().equals("java.nio.file.Files") && FILE_WRITE_METHODS.contains(call.getName())) {
+                                events.add(com.tngtech.archunit.lang.SimpleConditionEvent.satisfied(c, call.getDescription()));
+                            }
+                        }
+                        for (var call : c.getConstructorCallsFromSelf()) {
+                            String owner = call.getTargetOwner().getName();
+                            // PrintStream·PrintWriter는 파일·경로 인자일 때만(메모리 버퍼 위의 출력은 파일이 아니다)
+                            boolean fileArg = call.getTarget().getRawParameterTypes().stream()
+                                    .anyMatch(t -> t.getName().equals("java.lang.String") || t.getName().equals("java.io.File"));
+                            if (FILE_WRITE_CONSTRUCTORS.contains(owner) && (!owner.startsWith("java.io.Print") || fileArg)) {
+                                events.add(com.tngtech.archunit.lang.SimpleConditionEvent.satisfied(c, call.getDescription()));
+                            }
+                        }
+                    }
+                };
         com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
-                .should().callMethod(java.nio.file.Files.class, "createFile", java.nio.file.Path.class, java.nio.file.attribute.FileAttribute[].class)
-                .because("create-then-reopen lets a symlink swapped in between receive secret or backup bytes; open with CREATE_NEW and the permissions at once")
+                .that(com.tngtech.archunit.base.DescribedPredicate.describe("are not file writers " + allowed, (com.tngtech.archunit.core.domain.JavaClass c) ->
+                        !allowed.contains(c.getName()) && !allowed.contains(c.getName().replaceAll("\\$.*$", ""))))
+                .should(writesFiles)
+                .because("create-then-reopen or default-option writes follow a symlink planted at the path and create umask-readable files; use CliFiles "
+                        + "(owner-only CREATE_NEW, replace by atomic rename)")
                 .check(classes);
     }
 
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
-        List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE, MIGRATOR), DB_INFRASTRUCTURE, ORDERING_CLASSES)
+        List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE, MIGRATOR), DB_INFRASTRUCTURE, ORDERING_CLASSES, FILE_WRITERS)
                 .flatMap(List::stream).toList();
         List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE),
                         BOUNCY_CASTLE_PACKAGES)
