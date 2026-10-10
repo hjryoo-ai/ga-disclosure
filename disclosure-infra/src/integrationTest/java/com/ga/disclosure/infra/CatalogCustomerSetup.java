@@ -1,7 +1,6 @@
 package com.ga.disclosure.infra;
 
 import com.ga.disclosure.audit.AuditRecord;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.persistence.TenantKekRepository;
 import com.ga.disclosure.infra.testing.TestKeks;
 import com.ga.disclosure.workflow.customer.KeyProviderPort;
@@ -75,17 +74,6 @@ final class CatalogCustomerSetup {
     /** 같은 KEK, 다른 시각. */
     CatalogCustomerSetup at(String instant) {
         return new CatalogCustomerSetup(instant, kekSecrets);
-    }
-
-    /** 전역 시절 KEK 파일(이행 시험 전용 — Phase 8 1b에서 지운다). */
-    static Path newKekFile() {
-        try {
-            Path file = Files.createTempDirectory("ga-kek").resolve("kek.json");
-            LocalFileKeyProvider.initialize(file, "KEK-TEST-1");
-            return file;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     TenantId freshTenant(String prefix) {

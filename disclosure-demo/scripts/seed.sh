@@ -12,19 +12,14 @@
 # 전제: docker compose up -d postgres seaweedfs (PostgreSQL + init-roles.sql, S3 호환 저장소). 값은 전부 예시다(설계서 부록 B·D). 몇 번을 돌려도 결과가 같다(멱등).
 # 사용: disclosure-demo/scripts/seed.sh [활성화 기준일, 기본 오늘]
 #   GA_SECRETS_DIR(기본 ~/.ga-disclosure/secrets): 저장소 밖 비밀 디렉터리(테넌트 KEK — 없으면 만든다, 권한 600).
-#   GA_LOCAL_KEK_FILE(기본 ~/.ga-disclosure/kek.json): Phase 2~7의 전역 KEK 파일. 있으면 이행 중 옛 키를 풀 때만 쓰고, 테넌트 KEK 등록 뒤
-#   KEK_REWRAP이 옛 키로 감싼 것을 테넌트 KEK로 옮긴다(Phase 8 1a — 같은 볼륨을 다시 쓰는 로컬 데모). 없으면 읽지 않는다.
+#   Phase 2~7 시절 로컬 볼륨(전역 KEK ~/.ga-disclosure/kek.json으로 감싼 데이터)은 이 판이 풀지 않는다 — 이행 판(1a, 커밋 270e18d)의 seed.sh로
+#   한 번 재래핑하거나 볼륨을 새로 만든다(설계서 §9 "2단 업그레이드", docs/operations/keys.md).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 AS_OF="${1:-$(date +%F)}"
 OPERATOR="demo-seed"
 export GA_SECRETS_DIR="${GA_SECRETS_DIR:-$HOME/.ga-disclosure/secrets}"
-if [ -f "${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}" ]; then
-  export GA_LOCAL_KEK_FILE="${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}"
-else
-  unset GA_LOCAL_KEK_FILE
-fi
 mkdir -p "$GA_SECRETS_DIR" && chmod 700 "$GA_SECRETS_DIR"
 CATALOG="disclosure-demo/src/main/resources/demo/catalog"
 DEMO="disclosure-demo/src/main/resources"
@@ -65,10 +60,6 @@ done
 for tenant in DEMO1 DEMO2; do
   tenant_kek "$tenant"
 done
-# 전역 시절 볼륨이면 옛 키로 감싼 문서·고객·보고서 키를 테넌트 KEK로 옮긴다(행마다 감사, 두 번째 실행 0건)
-if [ -n "${GA_LOCAL_KEK_FILE:-}" ]; then
-  cli crypto kek rewrap --tenants DEMO1,DEMO2 --apply yes --operator "$OPERATOR"
-fi
 
 for tenant in DEMO1 DEMO2; do
   cli customer import --tenant "$tenant" --file "$DEMO/customers.json" --operator "$OPERATOR"
@@ -122,9 +113,6 @@ DEMO_BUNDLES="disclosure-demo/src/main/resources/demo/bundles"
 PAST="--spring.profiles.active=cli,demo --ga.demo.clock-offset=-P5D"
 cli demo seed --file "$DEMO/demo/phase5-seed.json" --operator "$OPERATOR"
 tenant_kek DEMO3
-if [ -n "${GA_LOCAL_KEK_FILE:-}" ]; then
-  cli crypto kek rewrap --tenants DEMO3 --apply yes --operator "$OPERATOR"
-fi
 cli rules distribute --bundle "$DEMO_BUNDLES/rules/DISC-DEMO-SHORT.bundle.json" --tenants DEMO3 --operator "$OPERATOR"
 cli rules distribute --bundle templates/STANDARD-v1.bundle.json --tenants DEMO3 --operator "$OPERATOR"
 cli rules activate --as-of "$AS_OF" --tenants DEMO3 --operator "$OPERATOR"

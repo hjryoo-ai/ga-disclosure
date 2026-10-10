@@ -22,4 +22,7 @@ public interface KeyProviderPort {
      * 어댑터 밖으로 나가지 않는다.
      */
     byte[] rewrap(TenantId tenant, String keyId, String fromKekId, String toKekId, byte[] wrapped);
+
+    /** 감싼 키가 그 KEK로 풀리는가(verify tenant — DEK는 어댑터 밖으로 나가지 않는다). */
+    boolean unwraps(TenantId tenant, String keyId, String kekId, byte[] wrapped);
 }

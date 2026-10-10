@@ -18,7 +18,6 @@ import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.RuleVersionId;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
 import com.ga.disclosure.infra.persistence.TenantRepository;
 import com.ga.disclosure.rules.bundle.Bundle;
@@ -97,7 +96,6 @@ import java.util.stream.Stream;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
- * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]  (전역 시절 KEK — 이행 중 옛 키 풀기 전용, Phase 8 1b에서 제거)
  * crypto kek init|register|rewrap — {@link KekCommands}(Phase 8 테넌트 KEK)
  * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; (거부면 종료 코드 2와 거부 코드 목록)
  * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
@@ -256,7 +254,6 @@ public class OperatorCli implements ApplicationRunner {
             case "customer rekey" -> rekey(args);
             case "customer import" -> importCustomers(args);
             case "demo disclosures" -> demoDisclosures(args);
-            case "crypto init-kek" -> initKek(args);
             case "disclosure seal" -> sealDisclosure(args);
             case "disclosure void" -> voidDisclosure(args);
             case "disclosure supersede" -> supersede(args);
@@ -418,17 +415,6 @@ public class OperatorCli implements ApplicationRunner {
         Actor manager = new Actor(args.optional("manager").orElse("demo-manager"), "MANAGER");
         new DemoDisclosureSeeder(disclosures, lookup, customers, transactions, seal, lifecycle, draftAbandon, out)
                 .seed(tenant, agent, manager, read(Path.of(args.required("file"))));
-    }
-
-    private void initKek(CliArguments args) {
-        Path file = Path.of(args.required("file"));
-        String kekId = args.optional("kek-id").orElse("KEK-LOCAL-1");
-        try {
-            LocalFileKeyProvider.initialize(file, kekId);
-        } catch (IllegalStateException e) {
-            throw new CliFailure(e.getMessage());
-        }
-        out.println("KEK_INIT " + kekId + " " + file.toAbsolutePath() + " (owner read/write only; keep it outside the repository)");
     }
 
     /**

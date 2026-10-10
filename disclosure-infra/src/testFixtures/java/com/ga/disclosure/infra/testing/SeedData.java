@@ -375,8 +375,8 @@ public final class SeedData {
     public static void documentKey(Connection c, String tenant, UUID disclosure) throws SQLException {
         exec(c, """
                 INSERT INTO document_key (tenant_id, key_id, disclosure_id, kek_key_id, wrapped_dek, created_at)
-                VALUES (?, ?, ?, 'KEK-SEED', decode('01' || repeat('00', 28), 'hex'), TIMESTAMPTZ '2026-09-23 10:00:00+09')
-                """, tenant, documentKeyId(disclosure), disclosure);
+                VALUES (?, ?, ?, ?, decode('01' || repeat('00', 28), 'hex'), TIMESTAMPTZ '2026-09-23 10:00:00+09')
+                """, tenant, documentKeyId(disclosure), disclosure, TestKeks.firstKekId(tenant));
     }
 
     /** 산출물 행 1건(V7 형식: 평문·암호문 해시, 길이 + 29, 객체 키 = 테넌트/확인서/종류/암호문 해시). 문서 키가 없으면 만든다. */
@@ -615,8 +615,8 @@ public final class SeedData {
     public static void dataKey(Connection c, String tenant, String keyId) throws SQLException {
         exec(c, """
                 INSERT INTO customer_data_key (tenant_id, key_id, kek_id, wrapped_key, status, created_at)
-                VALUES (?, ?, 'KEK-SEED', decode(repeat('00', 32), 'hex'), 'ACTIVE', TIMESTAMPTZ '2026-09-01 00:00:00+09')
-                """, tenant, keyId);
+                VALUES (?, ?, ?, decode(repeat('00', 32), 'hex'), 'ACTIVE', TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant, keyId, TestKeks.firstKekId(tenant));
     }
 
     public static long longValue(Connection c, String sql, Object... params) throws SQLException {

@@ -100,8 +100,10 @@ public class RetentionConfiguration {
     @Bean
     public TenantVerifier tenantVerifier(AuditPort audit, SealChainReader chain, AnchorStore anchors, DocumentRecordStore records,
                                          DocumentCryptoPort crypto, ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags,
-                                         WorkflowTransactions tx, Clock clock, AuthorizationPort authz) {
-        return new TenantVerifier(audit, chain, anchors, records, crypto, storage, rules, flags, tx, clock, authz);
+                                         WorkflowTransactions tx, Clock clock, AuthorizationPort authz,
+                                         com.ga.disclosure.workflow.kek.KekRewrapStore keks,
+                                         com.ga.disclosure.workflow.customer.KeyProviderPort keyProvider) {
+        return new TenantVerifier(audit, chain, anchors, records, crypto, storage, rules, flags, tx, clock, authz, keks, keyProvider);
     }
 
     @Bean

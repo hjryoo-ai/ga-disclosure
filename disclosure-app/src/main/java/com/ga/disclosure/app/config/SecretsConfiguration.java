@@ -1,7 +1,6 @@
 package com.ga.disclosure.app.config;
 
 import com.ga.disclosure.audit.AuditPort;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.crypto.TenantKeyProvider;
 import com.ga.disclosure.infra.secret.EnvSecretSource;
 import com.ga.disclosure.infra.secret.FileSecretSource;
@@ -25,7 +24,7 @@ import java.util.function.Supplier;
 /**
  * Phase 8 비밀 출처와 테넌트 KEK 조립(8 계획 ④·승인 Q2). 출처는 {@code ga.secrets.dir}(파일 — 쿠버네티스 Secret 마운트·로컬 디렉터리,
  * {@code ga.secrets.allow-group-read}는 마운트용) 또는 {@code ga.secrets.source=env}(개발 전용). 처음 쓰일 때 연다 — 설정이 없으면 비밀이 필요한 순간
- * 명시적으로 실패한다(룰·카탈로그 명령은 비밀이 필요 없다). 전역 시절 KEK 파일({@code ga.crypto.local-kek-file})은 이행 중 옛 키를 풀 때만 쓴다(1a).
+ * 명시적으로 실패한다(룰·카탈로그 명령은 비밀이 필요 없다).
  */
 @Configuration
 public class SecretsConfiguration {
@@ -46,10 +45,8 @@ public class SecretsConfiguration {
     }
 
     @Bean
-    public KeyProviderPort keyProvider(SecretSource secrets, TenantKekStore registry, WorkflowTransactions tx,
-                                       @Value("${ga.crypto.local-kek-file:}") String legacyKekFile) {
-        LocalFileKeyProvider legacy = legacyKekFile == null || legacyKekFile.isBlank() ? null : LocalFileKeyProvider.load(Path.of(legacyKekFile));
-        return new TenantKeyProvider(secrets, tenant -> tx.inTenant(tenant, registry::current), legacy);
+    public KeyProviderPort keyProvider(SecretSource secrets, TenantKekStore registry, WorkflowTransactions tx) {
+        return new TenantKeyProvider(secrets, tenant -> tx.inTenant(tenant, registry::current));
     }
 
     @Bean

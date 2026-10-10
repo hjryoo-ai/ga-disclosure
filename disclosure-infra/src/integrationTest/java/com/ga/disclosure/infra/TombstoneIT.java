@@ -79,7 +79,8 @@ class TombstoneIT {
 
     TenantVerifier verifier() {
         return new TenantVerifier(r.x.w.audit, r.chain(), new AnchorRepository(r.x.w.gateway), r.x.s.records, r.x.s.cipher, r.x.s.bucket,
-                new RuleResolver(r.x.w.rules), r.x.w.flags, r.x.w.tx, RetentionSetup.at(RetentionSetup.AFTER), Callers.authz(RetentionSetup.at(RetentionSetup.AFTER)));
+                new RuleResolver(r.x.w.rules), r.x.w.flags, r.x.w.tx, RetentionSetup.at(RetentionSetup.AFTER), Callers.authz(RetentionSetup.at(RetentionSetup.AFTER)),
+                new com.ga.disclosure.infra.persistence.KekRewrapRepository(r.x.w.gateway), r.x.w.keys);
     }
 
     @Test

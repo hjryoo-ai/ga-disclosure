@@ -86,12 +86,12 @@ public final class TestKeks {
 
     /** DB 레지스트리를 쓰는 어댑터(앱과 같은 조립). */
     public KeyProviderPort provider(WorkflowTransactions tx, TenantKekStore registry) {
-        return new TenantKeyProvider(secrets(), tenant -> tx.inTenant(tenant, registry::current), null);
+        return new TenantKeyProvider(secrets(), tenant -> tx.inTenant(tenant, registry::current));
     }
 
     /** DB 없는 시험: CURRENT = 언제나 {@code {T}-KEK-1}. */
     public KeyProviderPort standalone() {
-        return new TenantKeyProvider(secrets(), tenant -> Optional.of(firstKekId(tenant.value())), null);
+        return new TenantKeyProvider(secrets(), tenant -> Optional.of(firstKekId(tenant.value())));
     }
 
     private static Path createDir() {

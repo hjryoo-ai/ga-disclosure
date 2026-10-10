@@ -50,6 +50,27 @@ public class KekRewrapRepository extends TenantScopedRepository implements KekRe
     }
 
     @Override
+    public List<UnregisteredUse> unregisteredUses() {
+        return query("""
+                SELECT 'DOCUMENT_KEY' AS target, d.kek_key_id AS kek_id, count(*) AS n FROM document_key d
+                 WHERE d.tenant_id = :tenantId AND d.wrapped_dek IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM tenant_kek r WHERE r.tenant_id = :tenantId AND r.kek_id = d.kek_key_id)
+                 GROUP BY d.kek_key_id
+                UNION ALL
+                SELECT 'CUSTOMER_DATA_KEY', k.kek_id, count(*) FROM customer_data_key k
+                 WHERE k.tenant_id = :tenantId AND k.status <> 'DESTROYED' AND k.wrapped_key IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM tenant_kek r WHERE r.tenant_id = :tenantId AND r.kek_id = k.kek_id)
+                 GROUP BY k.kek_id
+                UNION ALL
+                SELECT 'JOB_REPORT', j.report_kek_id, count(*) FROM async_job j
+                 WHERE j.tenant_id = :tenantId AND j.report_key_wrapped IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM tenant_kek r WHERE r.tenant_id = :tenantId AND r.kek_id = j.report_kek_id)
+                 GROUP BY j.report_kek_id
+                 ORDER BY 1, 2
+                """, Map.of(), (rs, n) -> new UnregisteredUse(Target.valueOf(rs.getString("target")), rs.getString("kek_id"), rs.getLong("n")));
+    }
+
+    @Override
     public boolean rewrap(Target target, String rowKey, String fromKekId, String toKekId, byte[] wrapped) {
         return Boolean.TRUE.equals(queryAtMostOne("""
                 SELECT ga_kek_rewrap(:tenantId, :target, :rowKey, :from, :to, :wrapped) AS moved

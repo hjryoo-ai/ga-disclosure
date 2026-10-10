@@ -39,6 +39,12 @@ public interface KekRewrapStore {
     /** {@code kekId}가 아닌 KEK로 감싼 살아 있는 행, 행 식별자 순으로 {@code after} 다음부터 {@code limit}개. */
     List<Wrapped> notUnder(Target target, String kekId, Optional<String> after, int limit);
 
+    /** 레지스트리({@code tenant_kek})에 없는 KEK ID로 감싼 살아 있는 키: 대상 표·KEK ID·행 수(verify tenant의 {@code KEK_UNREGISTERED}, Phase 8 1b). */
+    record UnregisteredUse(Target target, String kekId, long rows) {
+    }
+
+    List<UnregisteredUse> unregisteredUses();
+
     /** 한 행을 옮긴다(DB 함수). 이미 옮겨졌거나 그 사이 파기됐으면 false. */
     boolean rewrap(Target target, String rowKey, String fromKekId, String toKekId, byte[] wrapped);
 }

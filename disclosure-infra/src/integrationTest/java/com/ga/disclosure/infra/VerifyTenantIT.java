@@ -49,7 +49,8 @@ class VerifyTenantIT {
 
     TenantVerifier verifier(Clock clock) {
         return new TenantVerifier(x.w.audit, new SealChainRepository(x.w.gateway), anchors, x.s.records, x.s.cipher, x.s.bucket,
-                new RuleResolver(x.w.rules), x.w.flags, x.w.tx, clock, Callers.authz(clock));
+                new RuleResolver(x.w.rules), x.w.flags, x.w.tx, clock, Callers.authz(clock), new com.ga.disclosure.infra.persistence.KekRewrapRepository(x.w.gateway),
+                x.w.keys);
     }
 
     VerifyReport verify() {
