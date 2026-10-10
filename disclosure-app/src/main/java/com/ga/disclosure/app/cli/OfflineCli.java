@@ -8,6 +8,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 
 import java.io.PrintStream;
+import java.time.Clock;
 import java.util.Objects;
 import java.util.Set;
 
@@ -42,7 +43,7 @@ public final class OfflineCli {
         CliArguments parsed = CliArguments.parse(args);
         switch (parsed.command()) {
             case "db migrate" -> migrate(args, out);
-            case "secrets init" -> new SecretCommands(out).run(parsed);
+            case "secrets init" -> new SecretCommands(out, Clock.systemUTC()).run(parsed);
             case "crypto kek init" -> KekCommands.init(parsed, out);
             default -> throw new CliFailure("not an offline command: '" + parsed.command() + "'");
         }

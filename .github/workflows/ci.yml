@@ -127,6 +127,50 @@ jobs:
           name: deploy-lint-reports
           path: disclosure-app/build/test-results/deployTest/**
 
+  kind:
+    # Phase 8 ③·G4·G8: kind 클러스터(tools.lock의 kind·노드 이미지 digest)에 kind-demo 오버레이 — 인그레스(/internal 외부 404·서명 호스트 분리·IP 한도·
+    # 크기 한도·평문 무경로)·내부 진입점 mTLS(인증서 없음/다른 SNI 거부, 있음 통과)·NetworkPolicy 집행(전제: 다른 파드는 8081에 못 닿음)을 단언하고,
+    # 모든 파드·Job 로그를 비밀 값·허구 개인정보 센티널로 스캔한다. 클러스터·비밀 디렉터리는 실행마다 이름을 달리하고 끝나면 지운다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLUSTER: ga-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Tools (tools.lock, SHA-256 checked)
+        run: ./gradlew :disclosure-app:deployTools --console=plain
+
+      - name: Cluster and images
+        run: deploy/scripts/kind.sh up "$CLUSTER"
+
+      - name: Deploy (namespaces, CRDs, secrets, migration Job, rollouts)
+        run: deploy/scripts/kind.sh deploy "$CLUSTER"
+
+      - name: Smoke
+        run: deploy/scripts/kind.sh smoke "$CLUSTER" | tee kind-smoke.txt
+
+      - name: Log scan
+        run: deploy/scripts/kind.sh logscan "$CLUSTER" | tee kind-logscan.txt
+
+      - name: Smoke and scan results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kind-results
+          path: |
+            kind-smoke.txt
+            kind-logscan.txt
+
+      - name: Delete the cluster
+        if: always()
+        run: deploy/scripts/kind.sh down "$CLUSTER" || true
+
   pdfa-verify:
     # 3B S12: 골든 PDF를 veraPDF(PDF/A-2b 프로파일)로 검증한다 — 실패 규칙 1건 이상이면 잡 실패. veraPDF는 GPL-3.0/MPL-2.0이라
     # 메인 의존성에 넣지 않고 독립 빌드(verification/pdfa-verify)로 돌린다. 골든 PDF는 메인 빌드가 커밋된 골든 입력에서 렌더한다.

@@ -93,6 +93,10 @@ class DeployRulesTest {
                 if (pub ? match.toLowerCase(java.util.Locale.ROOT).contains("internal") : !match.equals("PathPrefix(`/internal/`)")) {
                     bad.add(name(r) + ": match " + match);
                 }
+                // 데모 로그인 경로는 kind 데모 오버레이에만(운영 렌더에 /demo 0 — 앱도 데모 프로파일 밖에서는 그 경로가 없다)
+                if (overlay.equals("prod") && match.contains("/demo")) {
+                    bad.add(name(r) + ": demo route in prod " + match);
+                }
                 for (JsonNode s : rule.path("services")) {
                     String t = target(docs, r, s);
                     Set<String> allowed = pub ? Set.of("ga-app.ga-disclosure.svc.cluster.local:8080", "ga-web.ga-disclosure.svc.cluster.local:8080")
@@ -137,13 +141,33 @@ class DeployRulesTest {
         assertThat(bad).isEmpty();
     }
 
-    /** 9b 커밋 보안 검토: 클러스터 범위 권한 0, 바인딩은 자기 네임스페이스의 SA에만, 앱 네임스페이스에는 바인딩 0(인그레스가 앱 Secret을 읽을 길 없음). */
+    /** 네임스페이스 리소스는 전부 우리 세 네임스페이스 중 하나를 명시한다(오버레이가 namespace를 정하지 않는다 — 빠지면 적용하는 문맥의 기본 네임스페이스로 간다). */
+    @ParameterizedTest
+    @FieldSource("OVERLAYS")
+    void everyNamespacedResourceNamesOneOfOurNamespaces(String overlay) {
+        Set<String> clusterScoped = Set.of("Namespace", "CustomResourceDefinition", "ClusterRole", "ClusterRoleBinding");
+        Set<String> ours = Set.of("ga-disclosure", "ga-ingress", "ga-ingress-internal");
+        assertThat(docs(overlay).stream().filter(d -> !clusterScoped.contains(d.path("kind").asString()))
+                .filter(d -> !ours.contains(namespace(d))).map(d -> d.path("kind").asString() + "/" + name(d))).isEmpty();
+    }
+
+    /**
+     * 9b 커밋 보안 검토: 인그레스가 앱 Secret을 읽을 길 없음 — 클러스터 범위 권한은 Node 읽기 하나뿐(Traefik CRD 공급자가 요구 — kind에서 확인, 없으면 라우트를
+     * 싣지 않는다)이고 두 Traefik SA에만, 그 밖의 바인딩은 자기 네임스페이스의 SA에만, 앱 네임스페이스에는 바인딩 0.
+     */
     @ParameterizedTest
     @FieldSource("OVERLAYS")
     void noControllerCanReadTheAppNamespaceSecrets(String overlay) {
         List<JsonNode> docs = docs(overlay);
-        assertThat(ofKind(docs, "ClusterRole").map(Manifests::name)).isEmpty();
-        assertThat(ofKind(docs, "ClusterRoleBinding").map(Manifests::name)).isEmpty();
+        List<JsonNode> clusterRoles = ofKind(docs, "ClusterRole").toList();
+        assertThat(clusterRoles).extracting(Manifests::name).containsExactly("ga-traefik-nodes");
+        assertThat(clusterRoles.getFirst().path("rules").toString())
+                .isEqualTo("[{\"apiGroups\":[\"\"],\"resources\":[\"nodes\"],\"verbs\":[\"get\",\"list\",\"watch\"]}]");
+        List<JsonNode> clusterBindings = ofKind(docs, "ClusterRoleBinding").toList();
+        assertThat(clusterBindings).extracting(Manifests::name).containsExactly("ga-traefik-nodes");
+        assertThat(clusterBindings.getFirst().path("roleRef").path("name").asString()).isEqualTo("ga-traefik-nodes");
+        assertThat(stream(clusterBindings.getFirst().path("subjects")).map(sub -> sub.path("kind").asString() + ":" + sub.path("namespace").asString() + "/"
+                + sub.path("name").asString())).containsExactlyInAnyOrder("ServiceAccount:ga-ingress/traefik", "ServiceAccount:ga-ingress-internal/traefik");
         List<String> bad = new ArrayList<>();
         ofKind(docs, "RoleBinding").forEach(b -> {
             if (namespace(b).equals("ga-disclosure")) {
@@ -207,16 +231,20 @@ class DeployRulesTest {
     @FieldSource("OVERLAYS")
     void everyRouteFirstStripsTheHeaderTheAppTrustsAndTheSignApiIsLimited(String overlay) {
         List<JsonNode> docs = docs(overlay);
+        // 운영은 헤더 이름을 반드시 정한다(대조 켬). 데모는 정하지 않는다(대조 꺼짐) — 그래도 진입점은 같은 이름의 헤더를 지운다(운영 오버레이의 값)
         String header = ofKind(docs, "ConfigMap").filter(c -> name(c).startsWith("ga-app-config")).findFirst().orElseThrow()
                 .path("data").path("GA_CLIENT_CERT_SUBJECT_HEADER").asString("");
-        assertThat(header).isNotBlank();
+        String prodHeader = ofKind(docs("prod"), "ConfigMap").filter(c -> name(c).startsWith("ga-app-config")).findFirst().orElseThrow()
+                .path("data").path("GA_CLIENT_CERT_SUBJECT_HEADER").asString("");
+        assertThat(prodHeader).isNotBlank();
+        assertThat(header).isIn(overlay.equals("prod") ? List.of(prodHeader) : List.of(""));
         List<String> bad = new ArrayList<>();
         for (JsonNode r : ofKind(docs, "IngressRoute").toList()) {
             // 미들웨어는 라우트의 네임스페이스에서 찾는다 — 그 네임스페이스의 지움 미들웨어가 앱이 믿는 헤더 이름을 지워야 한다
             JsonNode set = ofKind(docs, "Middleware").filter(m -> namespace(m).equals(namespace(r)) && name(m).equals(STRIP)).findFirst()
                     .map(m -> m.path("spec").path("headers").path("customRequestHeaders")).orElse(null);
-            if (set == null || !set.has(header) || !set.path(header).asString().isEmpty()) {
-                bad.add(namespace(r) + ": no " + STRIP + " middleware that removes " + header);
+            if (set == null || !set.has(prodHeader) || !set.path(prodHeader).asString().isEmpty()) {
+                bad.add(namespace(r) + ": no " + STRIP + " middleware that removes " + prodHeader);
             }
             for (JsonNode rule : r.path("spec").path("routes")) {
                 List<String> mws = stream(rule.path("middlewares")).map(m -> m.path("name").asString()).toList();
@@ -236,6 +264,10 @@ class DeployRulesTest {
                 .path("spec").path("buffering").path("maxRequestBodyBytes").asLong()).isPositive();
     }
 
+    /**
+     * 제3자 이미지는 언제나 tools.lock의 digest 그대로. 우리 이미지는 운영에서 레지스트리 + digest, kind 데모에서는 로컬 빌드 {@code ga-disclosure/*:dev}를
+     * 받지 않고(Never — kind load로 넣은 것만) 쓴다.
+     */
     @ParameterizedTest
     @FieldSource("OVERLAYS")
     void imagesArePinnedByDigestAndThirdPartyImagesAreTheLockedOnes(String overlay) {
@@ -244,14 +276,29 @@ class DeployRulesTest {
         for (Manifests.Pod pod : pods(docs(overlay))) {
             pod.containers().forEach(c -> {
                 String image = c.path("image").asString();
-                if (!image.matches("[^@]+@sha256:[0-9a-f]{64}")) {
+                boolean ours = image.startsWith("ga-disclosure/") || image.contains("/ga-disclosure/");
+                if (ours && overlay.equals("kind-demo")) {
+                    if (!Set.of("ga-disclosure/app:dev", "ga-disclosure/web:dev").contains(image) || !c.path("imagePullPolicy").asString("").equals("Never")) {
+                        bad.add(pod.label() + ": " + image + " must be the locally loaded dev image, never pulled");
+                    }
+                } else if (!image.matches("[^@]+@sha256:[0-9a-f]{64}")) {
                     bad.add(pod.label() + ": " + image + " is not pinned by digest");
-                } else if (!image.contains("/ga-disclosure/") && !locked.contains(image)) {
+                } else if (!ours && !locked.contains(image)) {
                     bad.add(pod.label() + ": " + image + " is not in deploy/tools.lock");
                 }
             });
         }
         assertThat(bad).isEmpty();
+    }
+
+    /** kind 데모의 저장소 이미지 = compose의 이미지(compose ↔ 하네스 ↔ E2E는 ImageDigestPinIT·SeaweedArtifactStoreIT가 본다). */
+    @org.junit.jupiter.api.Test
+    void theKindDataStoresUseTheSameDigestsAsComposeAndTheHarness() {
+        String compose = Manifests.read(Manifests.repoRoot().resolve("docker-compose.yml"));
+        for (String name : List.of("postgres", "seaweedfs")) {
+            String ref = ToolsLock.named(name).orElseThrow().ref();
+            assertThat(compose).as(name).contains("image: " + ref);
+        }
     }
 
     @org.junit.jupiter.api.Test
@@ -333,6 +380,52 @@ class DeployRulesTest {
         assertThat(bad).isEmpty();
     }
 
+    /**
+     * 파드가 참조하는 Secret·ConfigMap(envFrom·env valueFrom·볼륨)에는 출처가 있다 — 렌더에 있거나, 운영은 ExternalSecret의 대상, kind 데모는
+     * {@code deploy/scripts/kind.sh}가 만드는 이름(스크립트의 {@code create secret|configmap <이름>} 줄). 이름이 어긋나면 파드가 뜨지 않는다 — 클러스터
+     * 전에 잡는다.
+     */
+    @ParameterizedTest
+    @FieldSource("OVERLAYS")
+    void everyReferencedSecretAndConfigMapHasASource(String overlay) {
+        List<JsonNode> docs = docs(overlay);
+        Set<String> sources = new TreeSet<>();
+        ofKind(docs, "ConfigMap").forEach(c -> sources.add("configMap:" + namespace(c) + "/" + name(c)));
+        ofKind(docs, "ExternalSecret").forEach(e -> sources.add("secret:" + namespace(e) + "/" + e.path("spec").path("target").path("name").asString()));
+        if (overlay.equals("kind-demo")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("-n (\\$NS|ga-[a-z-]+) create (secret generic|secret tls|configmap) ([a-z0-9-]+)")
+                    .matcher(Manifests.read(Manifests.repoRoot().resolve("deploy/scripts/kind.sh")));
+            while (m.find()) {
+                sources.add((m.group(2).startsWith("secret") ? "secret:" : "configMap:") + (m.group(1).equals("$NS") ? "ga-disclosure" : m.group(1)) + "/" + m.group(3));
+            }
+        }
+        Set<String> referenced = new TreeSet<>();
+        for (Manifests.Pod pod : pods(docs)) {
+            String ns = namespace(pod.owner());
+            pod.containers().forEach(c -> {
+                stream(c.path("envFrom")).forEach(e -> {
+                    if (e.has("configMapRef")) referenced.add("configMap:" + ns + "/" + e.path("configMapRef").path("name").asString());
+                    if (e.has("secretRef")) referenced.add("secret:" + ns + "/" + e.path("secretRef").path("name").asString());
+                });
+                stream(c.path("env")).forEach(e -> {
+                    JsonNode from = e.path("valueFrom");
+                    if (from.has("configMapKeyRef")) referenced.add("configMap:" + ns + "/" + from.path("configMapKeyRef").path("name").asString());
+                    if (from.has("secretKeyRef")) referenced.add("secret:" + ns + "/" + from.path("secretKeyRef").path("name").asString());
+                });
+            });
+            stream(pod.spec().path("volumes")).forEach(v -> {
+                if (v.has("configMap")) referenced.add("configMap:" + ns + "/" + v.path("configMap").path("name").asString());
+                if (v.has("secret")) referenced.add("secret:" + ns + "/" + v.path("secret").path("secretName").asString());
+            });
+        }
+        // 인그레스의 TLS·CA Secret
+        ofKind(docs, "IngressRoute").forEach(r -> referenced.add("secret:" + namespace(r) + "/" + r.path("spec").path("tls").path("secretName").asString()));
+        ofKind(docs, "TLSOption").forEach(t -> stream(t.path("spec").path("clientAuth").path("secretNames"))
+                .forEach(n -> referenced.add("secret:" + namespace(t) + "/" + n.asString())));
+        assertThat(referenced).isNotEmpty();
+        assertThat(sources).as("every referenced Secret/ConfigMap has a source").containsAll(referenced);
+    }
+
     /** 운영 기동 가드를 파드가 받을 환경으로: ConfigMap(envFrom)·Secret(envFrom — ESO 대상 키, 값은 자리 값)·컨테이너 env. 비밀 키 이름은 ConfigMap에 없다. */
     @ParameterizedTest
     @FieldSource("OVERLAYS")
@@ -353,14 +446,13 @@ class DeployRulesTest {
         int checked = 0;
         for (Manifests.Pod pod : pods(docs)) {
             JsonNode c = pod.spec().path("containers").get(0);
-            if (!c.path("image").asString().contains("/ga-disclosure/app") || pod.owner().path("kind").asString().equals("Job")) {
+            if (!c.path("image").asString().contains("ga-disclosure/app") || pod.owner().path("kind").asString().equals("Job")) {
                 continue;
             }
             Map<String, Object> env = new LinkedHashMap<>();
             for (JsonNode from : c.path("envFrom")) {
                 String key = from.has("configMapRef") ? "configMap:" + from.path("configMapRef").path("name").asString() : "secret:" + from.path("secretRef").path("name").asString();
-                assertThat(sources).as(pod.label() + " envFrom").containsKey(key);
-                env.putAll(sources.get(key));
+                env.putAll(sources.getOrDefault(key, Map.of()));
             }
             for (JsonNode e : c.path("env")) {
                 if (e.has("value")) {
@@ -373,9 +465,14 @@ class DeployRulesTest {
             environment.getPropertySources().addLast(new MapPropertySource("pod", env));
             environment.getPropertySources().addLast(new PropertiesPropertySource("application-prod", yaml("application-prod.yaml")));
             environment.getPropertySources().addLast(new PropertiesPropertySource("application", yaml("application.yaml")));
-            environment.setActiveProfiles("prod");
-            assertThat(env).as(pod.label()).containsEntry("SPRING_PROFILES_ACTIVE", "prod");
-            assertThat(ProdStartupGuard.problems(environment)).as(pod.label()).isEmpty();
+            if (overlay.equals("prod")) {
+                environment.setActiveProfiles("prod");
+                assertThat(env).as(pod.label()).containsEntry("SPRING_PROFILES_ACTIVE", "prod");
+                assertThat(ProdStartupGuard.problems(environment)).as(pod.label()).isEmpty();
+            } else {
+                // 데모 오버레이는 운영 프로파일을 켜지 않는다(스텁·데모 키가 운영 가드에 걸리는 값이다)
+                assertThat(String.valueOf(env.get("SPRING_PROFILES_ACTIVE"))).as(pod.label()).isEqualTo("demo");
+            }
             checked++;
         }
         assertThat(checked).as("ga-app and every CronJob").isEqualTo(16);

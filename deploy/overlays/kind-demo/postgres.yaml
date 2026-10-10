@@ -1,0 +1,96 @@
+# kind 데모 PostgreSQL(compose·하네스와 같은 이미지 digest, 같은 롤 SQL). 비루트(이미지의 postgres UID 999)·읽기 전용 루트(쓰기는 데이터 PVC·소켓·/tmp).
+# 초기화는 빈 데이터 디렉터리에서 한 번 — 슈퍼유저·롤 비밀번호는 Secret ga-pg의 파일(값은 kind-secrets.sh가 만든다, 환경변수에 값 없음).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ga-postgres
+  namespace: ga-disclosure
+  labels: &labels
+    app.kubernetes.io/name: ga-postgres
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  serviceName: ga-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ga-postgres
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+          env:
+            - { name: POSTGRES_DB, value: disclosure }
+            - { name: POSTGRES_USER, value: postgres }
+            - { name: POSTGRES_PASSWORD_FILE, value: /var/run/ga-pg/superuser-password }
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-d", "disclosure"] }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql }
+            - { name: run, mountPath: /var/run/postgresql }
+            - { name: tmp, mountPath: /tmp }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d/00-roles.sql, subPath: 00-roles.sql, readOnly: true }
+            - { name: init, mountPath: /ga-init/init-roles.sql, subPath: init-roles.sql, readOnly: true }
+            - { name: passwords, mountPath: /var/run/ga-pg, readOnly: true }
+      volumes:
+        - name: run
+          emptyDir: { sizeLimit: 8Mi }
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+        - name: init
+          configMap: { name: ga-pg-init }
+        - name: passwords
+          secret: { secretName: ga-pg, defaultMode: 0440 }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 2Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-postgres
+  namespace: ga-disclosure
+spec:
+  selector: { app.kubernetes.io/name: ga-postgres }
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }
+---
+# DB에는 앱·CronJob·마이그레이션 Job 파드만
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ga-postgres
+  namespace: ga-disclosure
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ga-postgres }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [ga-app, ga-job, ga-db-migrate] }] }
+      ports:
+        - { protocol: TCP, port: 5432 }

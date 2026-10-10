@@ -1,0 +1,84 @@
+# kind 데모 S3 저장소 SeaweedFS(compose·하네스와 같은 digest·같은 인자 — S3 인증 켬, Object Lock). 접근 키는 Secret ga-seaweed의 s3.json(kind-secrets.sh).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ga-seaweedfs
+  namespace: ga-disclosure
+  labels: &labels
+    app.kubernetes.io/name: ga-seaweedfs
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  serviceName: ga-seaweedfs
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ga-seaweedfs
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+          args: ["server", "-dir=/data", "-volume.max=2000", "-master.volumeSizeLimitMB=64", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
+          ports:
+            - { name: s3, containerPort: 8333 }
+          readinessProbe:
+            tcpSocket: { port: s3 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: s3-config, mountPath: /etc/seaweedfs, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+        - name: s3-config
+          secret: { secretName: ga-seaweed, defaultMode: 0440 }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 4Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-seaweedfs
+  namespace: ga-disclosure
+spec:
+  selector: { app.kubernetes.io/name: ga-seaweedfs }
+  ports:
+    - { name: s3, port: 8333, targetPort: s3 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ga-seaweedfs
+  namespace: ga-disclosure
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ga-seaweedfs }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [ga-app, ga-job] }] }
+      ports:
+        - { protocol: TCP, port: 8333 }

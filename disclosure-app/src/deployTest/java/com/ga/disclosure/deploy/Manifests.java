@@ -22,8 +22,8 @@ import java.util.stream.Stream;
  */
 public final class Manifests {
 
-    /** 린트 대상 오버레이(kind-demo는 9c에서 더한다). */
-    public static final List<String> OVERLAYS = List.of("prod");
+    /** 린트 대상 오버레이. */
+    public static final List<String> OVERLAYS = List.of("prod", "kind-demo");
 
     static final YAMLMapper YAML = YAMLMapper.builder().build();
     private static final Map<String, String> RENDERED = new ConcurrentHashMap<>();
@@ -40,7 +40,9 @@ public final class Manifests {
     }
 
     public static String render(String overlay) {
-        return RENDERED.computeIfAbsent(overlay, o -> run(tool("kubectl").toString(), "kustomize", repoRoot().resolve("deploy/overlays/" + o).toString()));
+        // kind 데모는 저장소의 원본 파일(롤 SQL·엔진 스텁 표)을 사본 없이 쓴다 — 오버레이 밖 파일 읽기 허용(스크립트와 같은 플래그)
+        return RENDERED.computeIfAbsent(overlay, o -> run(tool("kubectl").toString(), "kustomize", "--load-restrictor", "LoadRestrictionsNone",
+                repoRoot().resolve("deploy/overlays/" + o).toString()));
     }
 
     public static List<JsonNode> docs(String overlay) {

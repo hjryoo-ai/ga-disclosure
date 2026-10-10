@@ -7,8 +7,10 @@ kubeconform  v0.8.0   darwin-arm64  https://github.com/yannh/kubeconform/release
 kubeconform  v0.8.0   linux-amd64   https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz          9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
 kubectl      v1.37.1  darwin-arm64  https://dl.k8s.io/release/v1.37.1/bin/darwin/arm64/kubectl                                             fd65982c97ddad3106754b69ffa196d0e543aa591930ae52aed1adfb92f8c77f
 kubectl      v1.37.1  linux-amd64   https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl                                              65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
-# 클러스터·인그레스(이미지 digest = 다중 아키텍처 인덱스, 파일 = 저장소에 들인 사본의 SHA-256 — deploy 린트가 대조한다)
+# 클러스터·인그레스·kind 데모 저장소(이미지 digest — postgres·seaweedfs는 compose·하네스와 같은 값, deploy 린트가 대조 = 다중 아키텍처 인덱스, 파일 = 저장소에 들인 사본의 SHA-256 — deploy 린트가 대조한다)
 kindest-node v1.37.0  any  kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5                                  -
+postgres     18.6     any  postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336                                    -
+seaweedfs    4.48     any  chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d                         -
 traefik      v3.7.14  any  traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c                                      -
 traefik-crds v3.7.14  any  deploy/components/ingress/traefik/kubernetes-crd-definition-v1.yml                                                         ecbe44ea9b011cda1b562716175b882d59cf6561fe6d3e5832df7ee072687d17
 # 쿠버네티스 스키마(kubeconform -schema-location): yannh/kubernetes-json-schema의 커밋 고정 URL(2026-10-10 master 머리) — 이 커밋의 v1.37.1-standalone-strict

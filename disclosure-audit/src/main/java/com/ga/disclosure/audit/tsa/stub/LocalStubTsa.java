@@ -97,30 +97,44 @@ public final class LocalStubTsa implements TimestampAuthorityPort {
     }
 
     /**
+     * 데모 키 저장소 바이트(PKCS#12 — 새 키·인증서, 유효 30년). {@link #loadOrCreate}가 없을 때 쓰는 것과 같다. Phase 8: kind 데모는 이 바이트를 비밀
+     * {@code demo/tsa-stub.p12}로 두고({@code secrets init --demo yes}) 모든 파드가 같은 키를 쓴다(복제본·앵커 CronJob — 파드마다 만들면 신뢰 앵커가 갈린다).
+     */
+    public static byte[] newDemoKeyStore(Clock clock) {
+        try {
+            KeyPair pair = newKeyPair();
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+            ks.load(null, null);
+            ks.setKeyEntry(P12_ALIAS, pair.getPrivate(), P12_PASSWORD, new Certificate[]{selfSigned(pair, clock.instant(), DEMO_VALIDITY)});
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            ks.store(out, P12_PASSWORD);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot create the stub TSA key store", e);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("cannot create the stub TSA key store", e);
+        }
+    }
+
+    /**
      * 데모: {@code keyStore}(PKCS#12)가 있으면 읽고(소유자 전용 권한 확인), 없으면 만든다. 신뢰 앵커 인증서는 {@code trustPem}에
      * 내보낸다(매번 덮어쓴다 — 키를 다시 만들면 신뢰 앵커도 따라간다).
      */
     public static LocalStubTsa loadOrCreate(Path keyStore, Path trustPem, Clock clock) {
         try {
-            LocalStubTsa tsa;
-            if (Files.exists(keyStore)) {
-                requireOwnerOnly(keyStore);
-                KeyStore ks = KeyStore.getInstance("PKCS12");
-                try (InputStream in = Files.newInputStream(keyStore)) {
-                    ks.load(in, P12_PASSWORD);
-                }
-                tsa = new LocalStubTsa((PrivateKey) ks.getKey(P12_ALIAS, P12_PASSWORD), (X509Certificate) ks.getCertificate(P12_ALIAS), clock);
-            } else {
-                KeyPair pair = newKeyPair();
-                tsa = new LocalStubTsa(pair.getPrivate(), selfSigned(pair, clock.instant(), DEMO_VALIDITY), clock);
-                KeyStore ks = KeyStore.getInstance("PKCS12");
-                ks.load(null, null);
-                ks.setKeyEntry(P12_ALIAS, tsa.key, P12_PASSWORD, new Certificate[]{tsa.certificate});
+            if (!Files.exists(keyStore)) {
+                byte[] created = newDemoKeyStore(clock);
                 createOwnerOnly(keyStore);
                 try (OutputStream out = Files.newOutputStream(keyStore)) {
-                    ks.store(out, P12_PASSWORD);
+                    out.write(created);
                 }
             }
+            requireOwnerOnly(keyStore);
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+            try (InputStream in = Files.newInputStream(keyStore)) {
+                ks.load(in, P12_PASSWORD);
+            }
+            LocalStubTsa tsa = new LocalStubTsa((PrivateKey) ks.getKey(P12_ALIAS, P12_PASSWORD), (X509Certificate) ks.getCertificate(P12_ALIAS), clock);
             // 매번 쓴다: 키를 다시 만들었는데 옛 인증서가 남으면 검증이 UNTRUSTED가 된다(내용은 키가 같으면 같다)
             Files.createDirectories(trustPem.toAbsolutePath().getParent());
             Files.writeString(trustPem, tsa.trustAnchors().toPem(), StandardCharsets.US_ASCII);

@@ -1,0 +1,71 @@
+# kind 데모 오버레이(Phase 8 ③, 8 계획 "kind-demo"): demo 프로파일(데모 OIDC·스텁 엔진·스텁 TSA — 운영 기동 가드 밖), 데이터 저장소는 클러스터 안
+# StatefulSet(PostgreSQL·SeaweedFS — 이미지는 compose·하네스와 같은 digest), 이미지는 로컬 빌드(kind load — 받지 않는다). 비밀(DB 롤·S3·키 재료·TLS)은
+# deploy/scripts/kind-secrets.sh가 저장소 밖 디렉터리에 만들어 kubectl create secret으로 넣는다 — 이 디렉터리에는 값이 없다.
+# 렌더에는 --load-restrictor LoadRestrictionsNone이 필요하다(롤 SQL·엔진 스텁 표를 저장소의 원본 그대로 쓴다 — 사본을 두지 않는다).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - postgres.yaml
+  - seaweedfs.yaml
+components:
+  - ../../components/ingress
+images:
+  - name: ga-disclosure/app
+    newTag: dev
+  - name: ga-disclosure/web
+    newTag: dev
+configMapGenerator:
+  - name: ga-app-config
+    namespace: ga-disclosure
+    literals:
+      - SPRING_PROFILES_ACTIVE=demo
+      - DISCLOSURE_DB_URL=jdbc:postgresql://ga-postgres:5432/disclosure
+      - GA_S3_ENDPOINT=http://ga-seaweedfs:8333
+      - GA_S3_REGION=us-east-1
+      - GA_S3_BUCKET=ga-disclosure-kind
+      # 데모 전용: 버킷이 없으면 앱이 Object Lock 활성으로 만든다(운영 금지 값 — ProdStartupGuard)
+      - GA_S3_CREATE_BUCKET=true
+      - GA_ENGINE_MODE=stub
+      - GA_ENGINE_STUB_TABLE=/etc/ga-demo/engine-table.json
+      - GA_TSA_MODE=stub
+      - GA_TSA_STUB_KEY_STORE=/var/run/ga-tsa/tsa-stub.p12
+      - GA_TSA_TRUST_PEM=/tmp/tsa-trust.pem
+      - GA_DEMO_OIDC_PUBLIC_PEM=/tmp/demo-oidc.pem
+      - GA_SIGN_LINK_BASE_URL=https://sign.ga.example.invalid:18443/s#
+  - name: ga-demo-files
+    namespace: ga-disclosure
+    files:
+      - engine-table.json=../../../disclosure-demo/src/main/resources/demo/engine-table.json
+  - name: ga-pg-init
+    namespace: ga-disclosure
+    files:
+      - 00-roles.sql=postgres/00-roles.sql
+      - init-roles.sql=../../../docker/postgres/init-roles.sql
+patches:
+  # 데모 로그인(/demo/oidc/*)은 앱이 낸다 — 직원 호스트에 그 경로만 더한다(운영 오버레이에는 없다 — deploy 린트)
+  - target: { kind: IngressRoute, name: staff }
+    patch: |-
+      - op: add
+        path: /spec/routes/0
+        value:
+          match: Host(`staff.ga.example.invalid`) && PathPrefix(`/demo/oidc/`)
+          kind: Rule
+          middlewares: [{ name: strip-client-cert }]
+          services: [{ name: ga-app, port: 8080 }]
+  - target: { kind: Deployment, name: ga-app }
+    path: patches/app.yaml
+  - target: { kind: Deployment, name: ga-app }
+    path: patches/secret-items-deployment.yaml
+  - target: { kind: CronJob }
+    path: patches/cronjob.yaml
+  - target: { kind: CronJob }
+    path: patches/secret-items-cronjob.yaml
+  - target: { kind: Deployment, name: ga-web }
+    patch: |-
+      - { op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: Never }
+  # 마이그레이션 Job은 DB StatefulSet과 함께 적용된다 — 첫 초기화(initdb)를 기다리도록 재시도를 늘린다
+  - target: { kind: Job, name: ga-db-migrate }
+    patch: |-
+      - { op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: Never }
+      - { op: replace, path: /spec/backoffLimit, value: 8 }
