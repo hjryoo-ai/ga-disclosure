@@ -26,6 +26,8 @@ dependencies {
     implementation(project(":disclosure-compliance"))
     implementation(project(":disclosure-workflow"))
     implementation(project(":platform-spring"))
+    // Phase 7: 화면 산출물(classpath:/ga-web/) — 데모 프로파일에서만 서빙한다(DemoWebController). 운영 분리는 Phase 8
+    runtimeOnly(project(":disclosure-web"))
     runtimeOnly(libs.flyway.postgresql)
     runtimeOnly(libs.postgresql)
 }
@@ -70,6 +72,8 @@ testing {
                 // 6A: 바인딩 순서 주입(TenantBindingOrderIT — 서블릿 필터를 시험 구성으로 끼운다)
                 implementation(project(":disclosure-api"))
                 implementation(libs.spring.boot.starter.webmvc)
+                // Phase 7 G7: 미리보기 PDF의 쪽 텍스트(렌더러와 같은 좌표 openhtmltopdf-pdfbox — PDFBox)
+                implementation(libs.openhtmltopdf.pdfbox)
                 // 6A: 응답마다 OpenAPI 계약 스키마 검증(ApiContracts — 계약 정본 YAML을 그대로 읽는다)
                 implementation(libs.json.schema.validator)
                 implementation(libs.jackson.dataformat.yaml)

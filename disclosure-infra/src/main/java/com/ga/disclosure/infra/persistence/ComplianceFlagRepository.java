@@ -157,6 +157,14 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
               LEFT JOIN disclosure d ON d.tenant_id = f.tenant_id AND d.tenant_id = :tenantId AND d.disclosure_id = f.disclosure_id
              WHERE f.tenant_id = :tenantId""";
 
+    /** Phase 7 승인 Q1: 설계사에게는 열릴 때 설계사 가시로 고정된 행만(V14 {@code visible_to_agent}). */
+    private static String agentVisible(FlagLookup.Audience audience) {
+        return switch (audience) {
+            case STAFF -> "";
+            case AGENT -> " AND f.visible_to_agent";
+        };
+    }
+
     private static FlagLookup.Listed listed(java.sql.ResultSet rs) throws java.sql.SQLException {
         UUID disclosureId = rs.getObject("disclosure_id", UUID.class);
         return new FlagLookup.Listed(rs.getObject("flag_id", UUID.class), rs.getString("type"),
@@ -165,19 +173,21 @@ public class ComplianceFlagRepository extends TenantScopedRepository implements 
     }
 
     @Override
-    public List<FlagLookup.Listed> forDisclosure(DisclosureId disclosureId) {
+    public List<FlagLookup.Listed> forDisclosure(DisclosureId disclosureId, FlagLookup.Audience audience) {
         return query(LISTED + """
 
-                   AND f.disclosure_id = :disclosureId
+                   AND f.disclosure_id = :disclosureId""" + agentVisible(audience) + """
+
                  ORDER BY f.raised_at, f.flag_id
                 """, Map.of("disclosureId", disclosureId.value()), (rs, n) -> listed(rs));
     }
 
     /** 범위는 대상 확인서의 사실(작성 설계사·작성 시점 조직 — 세그먼트 접두, {@code starts_with}라 LIKE 와일드카드가 없다)로 건다. */
     @Override
-    public List<FlagLookup.Listed> page(ListScope scope, FlagLookup.Filter filter, Optional<FlagLookup.Position> after, int limit) {
+    public List<FlagLookup.Listed> page(ListScope scope, FlagLookup.Filter filter, Optional<FlagLookup.Position> after, int limit,
+                                        FlagLookup.Audience audience) {
         Map<String, Object> p = new HashMap<>();
-        StringBuilder where = new StringBuilder();
+        StringBuilder where = new StringBuilder(agentVisible(audience));
         switch (scope) {
             case ListScope.WholeTenant w -> {
             }

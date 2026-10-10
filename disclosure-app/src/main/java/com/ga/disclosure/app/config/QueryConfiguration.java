@@ -86,8 +86,9 @@ public class QueryConfiguration {
 
     @Bean
     public DisclosureQueryService disclosureQueryService(DisclosureLookup lookup, AuditPort audit, WorkflowTransactions tx, Clock clock,
-                                                         AuthorizationPort authz, CursorPort cursors) {
-        return new DisclosureQueryService(lookup, audit, tx, clock, authz, cursors);
+                                                         AuthorizationPort authz, CursorPort cursors,
+                                                         com.ga.disclosure.rules.template.TemplateResolver templates) {
+        return new DisclosureQueryService(lookup, audit, tx, clock, authz, cursors, templates);
     }
 
     /** 공개 서명 경로의 테넌트 분당 한도(룰 {@code publicSign.tenantRatePerMinute}, 6A 계획 §5.4). */

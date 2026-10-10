@@ -1,0 +1,101 @@
+openapi: 3.1.0
+info:
+  title: ga-disclosure — 데모 로그인(데모 프로파일 전용)
+  version: 1.0.0
+  description: |
+    Phase 7 Q6(권장안 채택). 데모 프로파일에서만 있는 경로다 — 운영 프로파일에는 라우트도 보안 체인도 없다(404). 운영 IdP 연동은 Phase 8.
+    Authorization Code + PKCE(S256). 직원 화면은 이 계약에서 생성한 클라이언트로 토큰 교환만 부른다(주체 선택 폼은 새 창으로 연다).
+    - 클라이언트 ID `ga-disclosure-web`, 되돌아갈 주소 `/oidc-callback` 하나씩(닫힌 값).
+    - 코드는 60초·한 번만. 검증자의 SHA-256(base64url)이 챌린지와 같아야 한다. 실패는 전부 400 `invalid_grant`.
+    - 토큰은 데모 발급자(`ga-demo`)의 JWT(1시간). 화면은 메모리에만 둔다(브라우저 저장소 금지 — 새로 고침 = 다시 로그인).
+    - 응답은 `Cache-Control: no-store`. 쿠키·세션 없음.
+servers:
+  - url: https://disclosure.example
+security: []
+paths:
+  /demo/oidc/authorize:
+    get:
+      operationId: demoAuthorizeForm
+      summary: 주체 선택 폼(HTML, JS 없음). 매개변수가 틀리면 400 HTML.
+      parameters:
+        - { name: response_type, in: query, required: true, schema: { const: code } }
+        - { name: client_id, in: query, required: true, schema: { const: ga-disclosure-web } }
+        - { name: redirect_uri, in: query, required: true, schema: { const: /oidc-callback } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' } }
+        - { name: code_challenge_method, in: query, required: true, schema: { const: S256 } }
+        - { name: state, in: query, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{16,128}$' } }
+      responses:
+        '200':
+          description: 폼
+          content: { text/html: { schema: { type: string } } }
+        '400':
+          description: 틀린 요청
+          content: { text/html: { schema: { type: string } } }
+    post:
+      operationId: demoAuthorize
+      summary: 선택 제출 → 303 `/oidc-callback?code&state`(코드 60초·한 번).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [response_type, client_id, redirect_uri, code_challenge, code_challenge_method, state, account]
+              properties:
+                response_type: { const: code }
+                client_id: { const: ga-disclosure-web }
+                redirect_uri: { const: /oidc-callback }
+                code_challenge: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+                code_challenge_method: { const: S256 }
+                state: { type: string, pattern: '^[A-Za-z0-9_-]{16,128}$' }
+                account: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{0,31}/[a-z0-9][a-z0-9._-]{0,63}$', description: '테넌트/주체(설정의 닫힌 목록)' }
+      responses:
+        '303':
+          description: 콜백으로
+          headers:
+            Location: { schema: { type: string, pattern: '^/oidc-callback\?code=[A-Za-z0-9_-]{43}&state=[A-Za-z0-9_-]{16,128}$' } }
+        '400':
+          description: 틀린 요청
+          content: { text/html: { schema: { type: string } } }
+  /demo/oidc/token:
+    post:
+      operationId: demoToken
+      summary: 코드 + 검증자 → 데모 JWT.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [grant_type, code, code_verifier, client_id, redirect_uri]
+              properties:
+                grant_type: { const: authorization_code }
+                code: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+                code_verifier: { type: string, pattern: '^[A-Za-z0-9._~-]{43,128}$' }
+                client_id: { const: ga-disclosure-web }
+                redirect_uri: { const: /oidc-callback }
+      responses:
+        '200':
+          description: 토큰
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [access_token, token_type, expires_in]
+                properties:
+                  access_token: { type: string, pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' }
+                  token_type: { const: Bearer }
+                  expires_in: { type: integer, minimum: 1 }
+        '400':
+          description: 실패(사유 구분 없음)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [error]
+                properties:
+                  error: { const: invalid_grant }

@@ -103,6 +103,8 @@ testing {
                 implementation(libs.spring.jdbc)
                 // PlaintextLeakScanIT가 로그 출력(스프링 JDBC 바인드 값 TRACE 포함)을 잡아 평문을 찾는다(Phase 2 P4)
                 implementation(libs.logback.classic)
+                // TemplateVersionsIT(Phase 7 0단계)가 봉인 PDF의 본문 텍스트에서 라벨을 읽는다 — 렌더러와 같은 좌표(openhtmltopdf가 들이는 PDFBox)
+                implementation(libs.openhtmltopdf.pdfbox)
                 // Object Lock 계약 테스트의 원시 S3 호출(우회 헤더 시도 — 포트에는 그 경로가 없다)
                 implementation(platform(libs.awssdk.bom))
                 implementation(libs.awssdk.s3) {

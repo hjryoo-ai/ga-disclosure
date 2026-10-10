@@ -126,6 +126,14 @@ public class DisclosureCommandsController {
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(d.mediaType())).body(d.bytes());
     }
 
+    /** 화면 미리보기(Phase 7 계획 ⑥): 봉인 PDF에 워터마크를 얹은 새 바이트 — 저장하지 않는다. 거부는 산출물 열람과 같다. */
+    @GetMapping("/{id}/preview.pdf")
+    public ResponseEntity<byte[]> preview(Caller caller, @PathVariable("id") String id) {
+        Download d = CommandMapper.preview(artifacts.preview(caller, DisclosureMapper.id(id)));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF).cacheControl(org.springframework.http.CacheControl.noStore())
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline").body(d.bytes());
+    }
+
     @GetMapping("/{id}/anchor-receipt")
     public ResponseEntity<byte[]> anchorReceipt(Caller caller, @PathVariable("id") String id) {
         Download d = CommandMapper.anchorReceipt(receipts.export(caller, DisclosureMapper.id(id)));

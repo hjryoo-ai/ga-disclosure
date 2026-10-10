@@ -12,3 +12,15 @@ ga:
     receipt-key-file: ${user.home}/.ga-disclosure/api-customer-receipt.key
   public-sign:
     min-response-millis: 250
+  # Phase 7 데모 로그인(DemoLoginController, Q6): 직원 화면의 주체 선택 폼에 보이는 계정(테넌트/주체) — 닫힌 목록, 역할은 identity_link.
+  demo:
+    login:
+      accounts:
+        - DEMO1/demo-agent
+        - DEMO1/demo-manager
+        - DEMO1/demo-compliance
+        - DEMO1/demo-compliance-2
+        - DEMO2/demo-agent
+        - DEMO2/demo-manager
+        - DEMO2/demo-compliance
+        - DEMO2/demo-compliance-2

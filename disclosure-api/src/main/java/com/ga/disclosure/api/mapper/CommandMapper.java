@@ -210,6 +210,11 @@ public final class CommandMapper {
         };
     }
 
+    /** 미리보기(Phase 7 ⑥): 언제나 PDF. 거부는 산출물 열람과 같다. */
+    public static Download preview(ArtifactService.View view) {
+        return artifact(ArtifactKind.PDF, view);
+    }
+
     public static Download anchorReceipt(ReceiptExporter.Result result) {
         return switch (result) {
             case ReceiptExporter.Result.Exported e -> new Download(e.bytes(), "application/json");

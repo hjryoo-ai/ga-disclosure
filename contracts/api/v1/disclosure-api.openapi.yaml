@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.7.0
+  version: 2.8.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -11,6 +11,8 @@ info:
       일회용 자격을 담은 응답(세션 발급)은 재생하지 않는다 — 같은 키의 재요청은 409 `IDEMPOTENCY_NOT_REPLAYABLE`.
     - JSON 응답은 전부 JCS 바이트. 시각은 ISO-8601 UTC(`Instant`), 날짜는 `yyyy-MM-dd`. 스키마 형식 검사는 `format`이 아니라 `pattern`.
     - 목록은 서명된 불투명 커서(`after` → `next`) — 다른 테넌트·다른 목록의 커서는 400 `INVALID_CURSOR`.
+    - 2.8.0(Phase 7): 설계사의 플래그 조회 — 자기 확인서의 플래그 중 열릴 때 룰이 설계사 가시로 정한 것만(승인 Q1, 거르는 곳은 서버).
+      고정 서식의 화면 문구 `getDisclosureTemplate`(승인 Q3). 워터마크 미리보기 `getPreviewPdf`(계획 ⑥).
 servers:
   - url: https://disclosure.example
 security:
@@ -57,6 +59,24 @@ paths:
         '200':
           description: 상세
           content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureDetail' } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/template:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: getDisclosureTemplate
+      summary: (2.8.0) 그 확인서가 고정한 서식 버전의 화면 문구 — 제목·항목 라벨·필수·순서·섹션, 버전 ID·내용 해시뿐(상태·검증 없음).
+      description: |
+        Phase 7 승인 Q3. 범위는 상세(`getDisclosure`)와 같다(설계사 자기 것·관리자 조직 아래·준법 테넌트). 확인서는 초안 생성 때 서식을 고정하므로
+        `pinned`는 언제나 true다. 화면의 라벨은 이 응답에서만 온다 — 화면 코드에 라벨 문자열이 없다. 따로 감사하지 않는다(서식은 공개 문구).
+      responses:
+        '200':
+          description: 고정 서식의 화면 문구
+          headers:
+            ETag:
+              description: 큰따옴표로 감싼 `bundleHash`
+              schema: { type: string, pattern: '^"[0-9a-f]{64}"$' }
+          content: { application/json: { schema: { $ref: '#/components/schemas/DisclosureTemplate' } } }
         default: { $ref: '#/components/responses/Problem' }
   /api/v1/disclosures/{disclosureId}/items:
     parameters:
@@ -228,6 +248,24 @@ paths:
             application/json: { schema: { type: object } }
             application/zip: { schema: { type: string, contentMediaType: application/zip } }
         default: { $ref: '#/components/responses/Problem' }
+  /api/v1/disclosures/{disclosureId}/preview.pdf:
+    parameters:
+      - $ref: '#/components/parameters/DisclosureId'
+    get:
+      operationId: getPreviewPdf
+      summary: (2.8.0) 화면 미리보기 — 봉인 PDF에 워터마크(룰 preview.watermark — 열람자 역할 · 시각 KST)를 얹은 새 바이트. 저장하지 않는다.
+      description: |
+        Phase 7 계획 ⑥. 인가·거부는 `getArtifact`와 같다(행위 ARTIFACT_VIEW — 설계사 자기 것·관리자 조직·준법 테넌트, 산출물이 없거나 읽을 수 없으면 409).
+        원본은 언제나 봉인 PDF(서명본이 있어도). 감사 ARTIFACT_VIEW 목적 PREVIEW. `getArtifact`·증거 패키지·공개 서명 PDF는 바이트 그대로 — 이 경로만 워터마크.
+      responses:
+        '200':
+          description: 워터마크를 얹은 PDF(결정론 아님 — 열람 시각이 들어간다)
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            Content-Disposition: { schema: { type: string, const: inline } }
+          content:
+            application/pdf: { schema: { type: string, contentMediaType: application/pdf } }
+        default: { $ref: '#/components/responses/Problem' }
   /api/v1/disclosures/{disclosureId}/anchor-receipt:
     parameters:
       - $ref: '#/components/parameters/DisclosureId'
@@ -321,7 +359,10 @@ paths:
       - $ref: '#/components/parameters/DisclosureId'
     get:
       operationId: listDisclosureFlags
-      summary: 확인서 하나의 준법 플래그(관리자 조직 아래·준법 테넌트 — 설계사는 404). ID·유형·상태·열린 시각·대상만.
+      summary: 확인서 하나의 준법 플래그(관리자 조직 아래·준법 테넌트·설계사 자기 확인서). ID·유형·상태·열린 시각·대상만.
+      description: |
+        (2.8.0) 설계사에게는 플래그가 열릴 때 룰(`complianceQueue.types.*.visibleToAgent`)이 설계사 가시로 정한 것만 — 서버가 거른다.
+        룰 기본은 전부 비가시라 자기 확인서면 200 빈 목록, 다른 설계사의 확인서는 404.
       responses:
         '200':
           description: 플래그 전부(열림·닫힘, 열린 시각 순)
@@ -330,7 +371,7 @@ paths:
   /api/v1/flags:
     get:
       operationId: listFlags
-      summary: 준법 플래그 목록(관리자 조직 아래 — 확인서 없는 플래그는 빠진다, 준법 테넌트 전체, 설계사는 404). 최근에 열린 순.
+      summary: 준법 플래그 목록(관리자 조직 아래 — 확인서 없는 플래그는 빠진다, 준법 테넌트 전체, 설계사 자기 확인서의 설계사 가시 플래그만 — 2.8.0). 최근에 열린 순.
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/After'
@@ -729,6 +770,40 @@ components:
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/DisclosureSummary' } }
         next: { oneOf: [ { type: 'null' }, { $ref: '#/components/schemas/Cursor' } ] }
+    DisclosureTemplate:
+      type: object
+      additionalProperties: false
+      description: (2.8.0) 고정 서식의 화면 문구. 업무 판단(상태·검증 결과·게이트)은 싣지 않는다.
+      required: [templateId, version, bundleHash, pinned, title, fields, sections]
+      properties:
+        templateId: { $ref: '#/components/schemas/Code' }
+        version: { type: integer, minimum: 1 }
+        bundleHash: { $ref: '#/components/schemas/Sha256' }
+        pinned: { const: true, description: 확인서는 초안 생성 때 서식을 고정한다 — 고정 전 초안은 없다. }
+        title: { type: string, minLength: 1 }
+        fields:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, label, required, order, section, unavailableText]
+            properties:
+              code: { $ref: '#/components/schemas/Code' }
+              label: { type: string, minLength: 1 }
+              required: { type: boolean }
+              order: { type: integer, minimum: 1 }
+              section: { $ref: '#/components/schemas/Code' }
+              unavailableText: { $ref: '#/components/schemas/NullableString' }
+        sections:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, label, fields]
+            properties:
+              code: { $ref: '#/components/schemas/Code' }
+              label: { $ref: '#/components/schemas/NullableString' }
+              fields: { type: array, items: { $ref: '#/components/schemas/Code' } }
     DisclosureDetail:
       type: object
       additionalProperties: false

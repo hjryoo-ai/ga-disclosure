@@ -12,14 +12,14 @@ import java.util.UUID;
 /** 준법 플래그 읽기(설계서 §5 {@code compliance_flag}). 상태를 바꾸지 않는다. */
 public interface FlagLookup {
 
-    /** 확인서 하나에 걸린 플래그 전부(열림·닫힘), 열린 시각 순. */
-    List<Listed> forDisclosure(DisclosureId disclosureId);
+    /** 확인서 하나에 걸린 플래그 전부(열림·닫힘), 열린 시각 순 — {@code audience}가 {@link Audience#AGENT}면 열릴 때 설계사 가시로 고정된 행만. */
+    List<Listed> forDisclosure(DisclosureId disclosureId, Audience audience);
 
     /**
      * 목록: 최근에 열린 순(열린 시각 내림차순, 같은 시각은 ID 내림차순). 범위 조건은 대상 확인서의 사실로 건다 — 조직·설계사 범위에서는 확인서가 없는 플래그
      * (테넌트 수준 {@code CHAIN_BROKEN}·룰 플래그)는 없는 행이다.
      */
-    List<Listed> page(ListScope scope, Filter filter, Optional<Position> after, int limit);
+    List<Listed> page(ListScope scope, Filter filter, Optional<Position> after, int limit, Audience audience);
 
     /** 플래그 하나의 상태(배정·해소 유스케이스 — 범위 판정은 인가가 먼저 한다). 없으면 빈 값. */
     Optional<State> state(UUID flagId);
@@ -49,6 +49,14 @@ public interface FlagLookup {
             Objects.requireNonNull(raisedAt, "raisedAt");
             Objects.requireNonNull(assignedRole, "assignedRole");
         }
+    }
+
+    /**
+     * 읽는 쪽(Phase 7 승인 Q1): 설계사는 {@code compliance_flag.visible_to_agent}(열릴 때 룰 {@code complianceQueue.types.*.visibleToAgent}에서 복사)가
+     * 참인 행만 — 걸러 내는 곳은 저장소 조건 하나다(화면은 거르지 않는다).
+     */
+    enum Audience {
+        STAFF, AGENT
     }
 
     enum FlagStatus {

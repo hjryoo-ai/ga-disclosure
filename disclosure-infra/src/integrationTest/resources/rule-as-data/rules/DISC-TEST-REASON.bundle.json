@@ -1,5 +1,5 @@
 {
-  "bundleId": "DISC-TEST-REASON@f757fa180ac0",
+  "bundleId": "DISC-TEST-REASON@92579b96e5d7",
   "kind": "RULE",
   "scope": "GLOBAL",
   "ruleVersionId": "DISC-TEST-REASON",
@@ -513,6 +513,16 @@
     },
     "customers": {
       "registerPerMinute": 30
+    },
+    "preview": {
+      "watermark": {
+        "text": "열람용 · {role} · {at}",
+        "roleLabels": {
+          "AGENT": "설계사",
+          "MANAGER": "관리자",
+          "COMPLIANCE": "준법"
+        }
+      }
     }
   }
 }

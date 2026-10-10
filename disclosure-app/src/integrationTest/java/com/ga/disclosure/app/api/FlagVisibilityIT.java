@@ -24,8 +24,8 @@ import static com.ga.disclosure.app.api.ApiTestSupport.get;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * G10 ①(6A 수용심사 §2 ①): 플래그 목록은 관리자·준법 전용이다. 설계사는 자기 확인서의 플래그도 상세·목록 어디서도 못 본다 — 없는 확인서·없는 라우트와 같은
- * 404 바이트. 관리자는 작성 시점 조직 아래 확인서의 플래그만(확인서 없는 테넌트 수준 플래그는 빠진다), 준법은 테넌트 전체. 응답은 ID·유형·상태·열린 시각·대상
+ * G10 ①(6A 수용심사 §2 ①): 플래그 목록은 관리자·준법의 것이다. (Phase 7 승인 Q1) 설계사는 자기 확인서의 플래그 중 열릴 때 룰이 설계사 가시로 정한 것만 —
+ * 룰 기본은 전부 비가시라 200 빈 목록, 다른 설계사의 확인서는 404. 관리자는 작성 시점 조직 아래 확인서의 플래그만(확인서 없는 테넌트 수준 플래그는 빠진다), 준법은 테넌트 전체. 응답은 ID·유형·상태·열린 시각·대상
  * 확인서(ID·번호)뿐이고 최근에 열린 순, 상태·유형 필터와 서명된 커서.
  */
 @SpringBootTest(classes = DisclosureApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -106,23 +106,87 @@ class FlagVisibilityIT {
         return out;
     }
 
+    /**
+     * Phase 7 승인 Q1: 설계사 칸(OWN)이 열렸다 — 자기 확인서면 200, 보이는 것은 열릴 때 설계사 가시로 고정된 플래그뿐. 여기 시드 플래그는 전부 비가시(V14 기본
+     * {@code false})라 200 빈 목록이다(404가 아니다 — 칸이 있다). 다른 설계사의 확인서는 없는 확인서와 같은 404 바이트.
+     */
     @Test
-    void anAgentSeesNoFlagNotEvenOnItsOwnDisclosure() {
+    void anAgentGetsAnEmptyListNotA404ForItsOwnDisclosureWhenNoFlagIsAgentVisible() {
         ApiTestSupport.Response missingDisclosure = as(T, "agent-1", "/api/v1/disclosures/" + UUID.randomUUID() + "/flags");
-        ApiTestSupport.Response noRoute = as(T, "agent-1", "/api/v1/no-such-route");
         assertThat(missingDisclosure.status()).isEqualTo(404);
 
         ApiTestSupport.Response own = as(T, "agent-1", "/api/v1/disclosures/" + draftB1 + "/flags");
-        assertThat(own.status()).isEqualTo(404);
-        assertThat(own.fingerprint()).isEqualTo(missingDisclosure.fingerprint());
-        assertThat(own.text()).doesNotContain(proxyFlag.toString()).doesNotContain(draftB1.toString());
-        ApiTestSupport.Response list = as(T, "agent-1", "/api/v1/flags");
-        assertThat(list.status()).isEqualTo(404);
-        assertThat(list.fingerprint()).isEqualTo(noRoute.fingerprint());
-        // 확인서 상세에도 플래그가 없다 — 목록은 관리자·준법 전용 경로뿐
+        assertThat(ids(own)).isEmpty();
+        assertThat(own.text()).doesNotContain(proxyFlag.toString()).doesNotContain("SIGNATURE_DEVICE_REUSE");
+        ApiTestSupport.Response othersDisclosure = as(T, "agent-1", "/api/v1/disclosures/" + draftB9 + "/flags");
+        assertThat(othersDisclosure.status()).isEqualTo(404);
+        assertThat(othersDisclosure.fingerprint()).isEqualTo(missingDisclosure.fingerprint());
+        assertThat(othersDisclosure.text()).doesNotContain(overrideFlag.toString());
+        // 목록도 자기 확인서의 설계사 가시 플래그만 — 여기서는 없다(확인서 없는 테넌트 수준 플래그는 설계사 범위 밖)
+        assertThat(ids(as(T, "agent-1", "/api/v1/flags"))).isEmpty();
+        // 확인서 상세에는 여전히 플래그가 없다 — 플래그는 플래그 경로로만
         ApiTestSupport.Response detail = as(T, "agent-1", "/api/v1/disclosures/" + draftB1);
         assertThat(detail.status()).isEqualTo(200);
         assertThat(detail.text()).doesNotContain(proxyFlag.toString()).doesNotContain("SIGNATURE_DEVICE_REUSE");
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ga.disclosure.workflow.disclosure.DisclosureFlagPort raiser;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    com.ga.disclosure.workflow.WorkflowTransactions tx;
+
+    UUID raise(String tenant, com.ga.disclosure.workflow.disclosure.DisclosureFlagPort.Type type, UUID disclosure) {
+        return tx.inTenant(com.ga.platform.core.tenant.TenantId.of(tenant), () -> raiser.raise(type, "HIGH",
+                com.ga.disclosure.domain.vo.DisclosureId.of(disclosure), "DISCLOSURE", disclosure + "/" + type, java.time.Instant.now())).flagId();
+    }
+
+    /**
+     * Phase 7 승인 Q1 조건: 룰 변형으로 한 유형({@code VALIDATION_OVERRIDE})만 {@code visibleToAgent=true}로 바꾸면 설계사에게 그 유형만 보이고 나머지는 0.
+     * 같은 두 유형을 룰 기본 테넌트에서 열면 설계사는 200 빈 목록. 플래그는 실제 경로(열릴 때 룰 정책을 복사하는 저장소)로 연다. 관리자·준법은 그대로 전부.
+     */
+    @Test
+    void aRuleVariantMakingOneTypeAgentVisibleShowsTheAgentThatTypeOnly() {
+        String variant = SeedData.uniqueTenant("FLAGV");
+        String standard = SeedData.uniqueTenant("FLAGS");
+        java.util.Map<String, UUID[]> drafts = new java.util.HashMap<>();
+        for (String t : new String[]{variant, standard}) {
+            DB.seed(t, c -> {
+                SeedData.tenant(c, t);
+                SeedData.orgLink(c, t, "agent-1", "AGENT-1", "AGENT", "/HQ/B1");
+                SeedData.orgLink(c, t, "agent-2", "AGENT-2", "AGENT", "/HQ/B1");
+                SeedData.orgLink(c, t, "manager-1", null, "MANAGER", "/HQ/B1");
+                drafts.put(t, new UUID[]{SeedData.draftBy(c, t, "AGENT-1", "/HQ/B1", "2026-09-01"),
+                        SeedData.draftBy(c, t, "AGENT-2", "/HQ/B1", "2026-09-01")});
+            });
+        }
+        ApiTestSupport.activateRules(distribution, activation, variant, "DISC-AGVIS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+                body -> ((tools.jackson.databind.node.ObjectNode) body.at("/complianceQueue/types/VALIDATION_OVERRIDE")).put("visibleToAgent", true));
+        ApiTestSupport.activateRules(distribution, activation, standard, null, body -> {
+        });
+        var override = com.ga.disclosure.workflow.disclosure.DisclosureFlagPort.Type.VALIDATION_OVERRIDE;
+        var proxy = com.ga.disclosure.workflow.disclosure.DisclosureFlagPort.Type.SIGNATURE_DEVICE_REUSE;
+        java.util.Map<String, UUID[]> flags = new java.util.HashMap<>();
+        for (String t : new String[]{variant, standard}) {
+            UUID own = drafts.get(t)[0];
+            UUID others = drafts.get(t)[1];
+            flags.put(t, new UUID[]{raise(t, override, own), raise(t, proxy, own), raise(t, override, others)});
+        }
+
+        UUID[] v = flags.get(variant);
+        assertThat(ids(as(variant, "agent-1", "/api/v1/disclosures/" + drafts.get(variant)[0] + "/flags"))).containsExactly(v[0].toString());
+        assertThat(ids(as(variant, "agent-1", "/api/v1/flags"))).containsExactly(v[0].toString());
+        assertThat(as(variant, "agent-1", "/api/v1/disclosures/" + drafts.get(variant)[1] + "/flags").status()).isEqualTo(404);
+        assertThat(ids(as(variant, "agent-2", "/api/v1/flags"))).containsExactly(v[2].toString());
+        assertThat(ids(as(variant, "manager-1", "/api/v1/disclosures/" + drafts.get(variant)[0] + "/flags")))
+                .containsExactly(v[0].toString(), v[1].toString());
+
+        UUID[] s = flags.get(standard);
+        ApiTestSupport.Response ownStandard = as(standard, "agent-1", "/api/v1/disclosures/" + drafts.get(standard)[0] + "/flags");
+        assertThat(ids(ownStandard)).isEmpty();
+        assertThat(ownStandard.text()).isEqualTo("{\"items\":[]}");
+        assertThat(ids(as(standard, "agent-1", "/api/v1/flags"))).isEmpty();
+        assertThat(ids(as(standard, "manager-1", "/api/v1/flags"))).containsExactlyInAnyOrder(s[0].toString(), s[1].toString(), s[2].toString());
     }
 
     @Test

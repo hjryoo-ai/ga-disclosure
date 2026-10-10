@@ -5,6 +5,9 @@ import com.ga.disclosure.audit.AuditEntry;
 import com.ga.disclosure.audit.AuditPort;
 import com.ga.disclosure.domain.enums.DisclosureStatus;
 import com.ga.disclosure.domain.vo.DisclosureId;
+import com.ga.disclosure.domain.vo.TemplateRef;
+import com.ga.disclosure.rules.template.TemplateResolution;
+import com.ga.disclosure.rules.template.TemplateResolver;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.WorkflowTransactions;
 import com.ga.disclosure.workflow.authz.Action;
@@ -17,11 +20,13 @@ import com.ga.disclosure.workflow.authz.UseCaseEntry;
 import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.page.InvalidCursorException;
 import com.ga.disclosure.workflow.page.Page;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,15 +48,17 @@ public final class DisclosureQueryService {
     private final Clock clock;
     private final AuthorizationPort authz;
     private final CursorPort cursors;
+    private final TemplateResolver templates;
 
     public DisclosureQueryService(DisclosureLookup lookup, AuditPort audit, WorkflowTransactions transactions, Clock clock, AuthorizationPort authz,
-                                  CursorPort cursors) {
+                                  CursorPort cursors, TemplateResolver templates) {
         this.lookup = Objects.requireNonNull(lookup, "lookup");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.authz = Objects.requireNonNull(authz, "authz");
         this.cursors = Objects.requireNonNull(cursors, "cursors");
+        this.templates = Objects.requireNonNull(templates, "templates");
     }
 
     /** 상세: 확인서 한 건(항목·스냅샷·봉인·서명 현황), 파기 시각(묘비), 조회 시각. */
@@ -95,6 +102,69 @@ public final class DisclosureQueryService {
             recordComplianceView(actor, id, JSON.createObjectNode().put("view", "DETAIL"));
             return new Detail(record, lookup.destroyedAt(id), clock.instant());
         });
+    }
+
+    /**
+     * 화면이 쓰는 서식 문구(Phase 7 승인 Q3 — 넓힘): 그 확인서가 <b>고정한</b> 서식 버전의 제목·항목 라벨·필수·순서·섹션과 버전 ID·내용 해시뿐이다 — 상태·검증
+     * 결과·업무 판단은 싣지 않는다. 확인서는 초안 생성 때 서식을 고정하므로(설계서 §6.4 1항) 고정 전 초안은 없다 — 응답은 언제나 고정 버전이다. 서식은 개인정보도
+     * 문서 본문도 아니라 따로 감사하지 않는다(상세 조회의 {@code DISCLOSURE_VIEW}에 포함 — 승인 Q3).
+     */
+    @UseCaseEntry(Action.DISCLOSURE_READ)
+    public TemplateLabels template(Caller caller, DisclosureId id) {
+        Objects.requireNonNull(caller, "caller");
+        Objects.requireNonNull(id, "id");
+        return transactions.inTenant(caller.tenant(), () -> {
+            authz.require(caller, Action.DISCLOSURE_READ, Target.disclosure(id));
+            TemplateRef pinned = lookup.load(id).orElseThrow(() -> new DisclosureNotFoundException(id)).template();
+            return TemplateLabels.of(templates.load(caller.tenant(), pinned), templates.contentHash(caller.tenant(), pinned));
+        });
+    }
+
+    /** 고정 서식의 화면 문구. {@code contentHash} = 번들 해시(번들 출처) 또는 SHA-256(JCS(본문)). */
+    public record TemplateLabels(TemplateRef ref, String contentHash, String title, List<FieldLabel> fields, List<SectionLabel> sections) {
+        public TemplateLabels {
+            Objects.requireNonNull(ref, "ref");
+            Objects.requireNonNull(contentHash, "contentHash");
+            Objects.requireNonNull(title, "title");
+            fields = List.copyOf(fields);
+            sections = List.copyOf(sections);
+        }
+
+        static TemplateLabels of(TemplateResolution resolution, String contentHash) {
+            List<FieldLabel> fields = resolution.fields().stream().map(f -> {
+                JsonNode unavailable = f.render().path("unavailableText");
+                return new FieldLabel(f.code(), f.label(), f.required(), f.order(), f.section().name(),
+                        unavailable.isString() ? Optional.of(unavailable.asString()) : Optional.empty());
+            }).toList();
+            JsonNode layout = resolution.layout();
+            List<SectionLabel> sections = new ArrayList<>();
+            for (JsonNode s : layout.path("sections")) {
+                List<String> codes = new ArrayList<>();
+                s.path("fields").forEach(c -> codes.add(c.asString()));
+                JsonNode label = s.path("label");
+                sections.add(new SectionLabel(s.path("code").asString(), label.isString() ? Optional.of(label.asString()) : Optional.empty(), codes));
+            }
+            return new TemplateLabels(resolution.ref(), contentHash, layout.path("title").asString(), fields, sections);
+        }
+    }
+
+    /** 항목 하나의 문구: 코드·라벨·필수·순서·섹션, 산출불가 표기(있으면). 라벨 참조 표식({@code TODO(confirm#N)})은 싣지 않는다 — 데이터에만 있다. */
+    public record FieldLabel(String code, String label, boolean required, int order, String section, Optional<String> unavailableText) {
+        public FieldLabel {
+            Objects.requireNonNull(code, "code");
+            Objects.requireNonNull(label, "label");
+            Objects.requireNonNull(section, "section");
+            Objects.requireNonNull(unavailableText, "unavailableText");
+        }
+    }
+
+    /** 배치 섹션: 코드·라벨(있으면)·항목 코드 순서. */
+    public record SectionLabel(String code, Optional<String> label, List<String> fields) {
+        public SectionLabel {
+            Objects.requireNonNull(code, "code");
+            Objects.requireNonNull(label, "label");
+            fields = List.copyOf(fields);
+        }
     }
 
     private void recordComplianceView(Actor actor, DisclosureId idOrNull, tools.jackson.databind.node.ObjectNode detail) {

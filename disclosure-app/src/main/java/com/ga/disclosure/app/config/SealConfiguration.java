@@ -109,7 +109,8 @@ public class SealConfiguration {
 
     @Bean
     public ArtifactService artifactService(DocumentRecordStore records, DocumentCryptoPort crypto, ArtifactStore storage, AuditPort audit,
-                                           WorkflowTransactions tx, Clock clock, SealService seal, AuthorizationPort authz) {
-        return new ArtifactService(records, crypto, storage, audit, tx, clock, seal.transactionTimeout(), authz);
+                                           WorkflowTransactions tx, Clock clock, SealService seal, AuthorizationPort authz, RuleResolver rules) {
+        return new ArtifactService(records, crypto, storage, audit, tx, clock, seal.transactionTimeout(), authz, rules,
+                new com.ga.disclosure.seal.renderer.PreviewWatermarker());
     }
 }
