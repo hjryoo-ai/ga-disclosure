@@ -25,7 +25,12 @@ OPERATOR="http-demo"
 DEMO="disclosure-demo/src/main/resources"
 SIGN="$DEMO/demo/sign"
 OUT="build/demo/http"
-export GA_LOCAL_KEK_FILE="${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}"
+export GA_SECRETS_DIR="${GA_SECRETS_DIR:-$HOME/.ga-disclosure/secrets}"
+if [ -f "${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}" ]; then
+  export GA_LOCAL_KEK_FILE="${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}"
+else
+  unset GA_LOCAL_KEK_FILE
+fi
 ENGINE_STUB=(--ga.engine.mode=stub "--ga.engine.stub-table=$DEMO/demo/engine-table.json")
 LOCAL_BUCKET=(--ga.storage.s3.create-bucket=true)
 TSA_STUB=(--ga.tsa.mode=stub --ga.tsa.trust-pem=build/demo/tsa-trust.pem)

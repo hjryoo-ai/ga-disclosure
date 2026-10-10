@@ -97,7 +97,8 @@ import java.util.stream.Stream;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
- * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
+ * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]  (전역 시절 KEK — 이행 중 옛 키 풀기 전용, Phase 8 1b에서 제거)
+ * crypto kek init|register|rewrap — {@link KekCommands}(Phase 8 테넌트 KEK)
  * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; (거부면 종료 코드 2와 거부 코드 목록)
  * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
  * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
@@ -144,6 +145,7 @@ public class OperatorCli implements ApplicationRunner {
     private final DemoSignatureSeeder demoSignatures;
     private final ContractLinkCommands contractLinks;
     private final DraftCommands drafts;
+    private final KekCommands kek;
     private final FlagCommands flagCommands;
     private final com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon;
     private final CollectionRateCommands collectionRates;
@@ -167,7 +169,8 @@ public class OperatorCli implements ApplicationRunner {
                        com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon,
                        com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate,
                        com.ga.disclosure.workflow.disclosure.RetentionRecomputeService retentionRecompute,
-                       com.ga.disclosure.workflow.flag.FlagQueryService flagQueries, com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService) {
+                       com.ga.disclosure.workflow.flag.FlagQueryService flagQueries, com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService,
+                       com.ga.disclosure.workflow.kek.TenantKekService keks) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -199,6 +202,7 @@ public class OperatorCli implements ApplicationRunner {
         this.flagCommands = new FlagCommands(flagQueries, flagCommandService, out);
         this.collectionRates = new CollectionRateCommands(collectionRates, jobs, out);
         this.gate = new GateCommands(gate, out);
+        this.kek = new KekCommands(keks, jobs, this::tenants, out);
     }
 
     @Override
@@ -230,6 +234,10 @@ public class OperatorCli implements ApplicationRunner {
         }
         if (gate.handles(args.command())) {
             gate.run(args);
+            return;
+        }
+        if (kek.handles(args.command())) {
+            kek.run(args);
             return;
         }
         if (contractLinks.handles(args.command())) {

@@ -334,4 +334,28 @@ public final class StandardJobs {
         }
         return v.asInt();
     }
+
+    /** Phase 8 {@code KEK_REWRAP}(단일 테넌트, 운영자 CLI만): 작업 ID를 행 감사에 남긴다. 보고서는 행 식별자와 KEK ID뿐(키 바이트 0). */
+    public static JobWork<com.ga.disclosure.workflow.kek.TenantKekService.Report> kekRewrap(com.ga.disclosure.workflow.kek.TenantKekService service,
+                                                                                             boolean apply) {
+        return new JobWork<>() {
+            @Override
+            public com.ga.disclosure.workflow.kek.TenantKekService.Report run(List<Caller> acquired) {
+                throw new IllegalStateException("the KEK rewrap records its job id — run(acquired, jobIds)");
+            }
+
+            @Override
+            public com.ga.disclosure.workflow.kek.TenantKekService.Report run(List<Caller> acquired, List<UUID> jobIds) {
+                if (acquired.size() != 1 || jobIds.size() != 1) {
+                    throw new IllegalArgumentException("a single-tenant job runs with exactly one caller");
+                }
+                return service.rewrap(acquired.getFirst(), apply, jobIds.getFirst());
+            }
+
+            @Override
+            public byte[] report(com.ga.disclosure.workflow.kek.TenantKekService.Report r, TenantId tenant) {
+                return Canonicalizer.canonicalize(r.toJson());
+            }
+        };
+    }
 }

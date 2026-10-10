@@ -78,7 +78,7 @@ export async function up() {
     DISCLOSURE_DB_URL: `jdbc:postgresql://127.0.0.1:${env.pgPort}/disclosure`,
     GA_S3_ENDPOINT: `http://127.0.0.1:${env.s3Port}`,
     GA_S3_BUCKET: 'ga-e2e',
-    GA_LOCAL_KEK_FILE: resolve(run, 'kek.json'),
+    GA_SECRETS_DIR: resolve(run, 'secrets'),
   };
   const keys = [`--ga.demo.oidc-key-file=${resolve(run, 'demo-oidc.key')}`, `--ga.demo.oidc-public-pem=${resolve(run, 'demo-oidc.pem')}`];
   const common = ['--ga.storage.s3.create-bucket=true', '--ga.engine.mode=stub', `--ga.engine.stub-table=${DEMO}/demo/engine-table.json`,
@@ -101,7 +101,11 @@ export async function up() {
       step(`catalog ${t} ${f}`, () => cli('catalog', 'import', '--tenant', t, '--file', `${DEMO}/demo/catalog/${f}`, '--operator', 'e2e'));
     }
   }
-  step('kek', () => cli('crypto', 'init-kek', '--file', resolve(run, 'kek.json')));
+  // 테넌트 KEK(Phase 8): 실행 디렉터리 안의 비밀 디렉터리에 만들고 레지스트리에 등록한다
+  for (const t of ['DEMO1', 'DEMO2']) {
+    step(`kek ${t}`, () => cli('crypto', 'kek', 'init', '--tenant', t, '--kek-id', `${t}-KEK-1`, '--secrets-dir', resolve(run, 'secrets')));
+    step(`kek register ${t}`, () => cli('crypto', 'kek', 'register', '--tenant', t, '--kek-id', `${t}-KEK-1`, '--operator', 'e2e'));
+  }
   // 데모 웹 앱은 기동 때 공개키 PEM을 읽는다 — 키를 먼저 만든다. 스케줄러 토큰은 하네스의 통지 작업용(화면이 아니다 — 소유자 전용 파일)
   const jwt = (subject) => cliDemo('demo', 'token', '--tenant', 'DEMO1', '--subject', subject, '--ttl', 'PT3H').trim().split('\n')
     .filter((l) => /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(l)).pop();

@@ -90,7 +90,9 @@ public final class ScopePolicy {
         // 6B §9 고객 등록 API: 설계사(연결 있음)만 — 관리자·준법은 등록하지 않는다(계획 Q13). 카탈로그 검색은 사람 역할 셋
         grant(m, Action.CUSTOMER_REGISTER, Role.AGENT, Scope.SELF);
         grant(m, Action.CATALOG_READ, Role.COMPLIANCE, Scope.TENANT, Role.MANAGER, Scope.TENANT, Role.AGENT, Scope.TENANT);
-        for (Action a : new Action[] {Action.ARTIFACT_GC, Action.ANCHOR_RUN, Action.CATALOG_IMPORT, Action.CUSTOMER_REKEY}) {
+        // Phase 8 테넌트 KEK 등록·재래핑: 운영자 CLI만(사람·서비스 역할 칸 없음 — 8 계획 승인 Q2)
+        for (Action a : new Action[] {Action.ARTIFACT_GC, Action.ANCHOR_RUN, Action.CATALOG_IMPORT, Action.CUSTOMER_REKEY, Action.KEK_REGISTER,
+                Action.KEK_REWRAP}) {
             m.computeIfAbsent(a, k -> new EnumMap<>(Role.class));
         }
         grant(m, Action.EVENT_FEED_READ, Role.FEED_CONSUMER, Scope.TENANT);

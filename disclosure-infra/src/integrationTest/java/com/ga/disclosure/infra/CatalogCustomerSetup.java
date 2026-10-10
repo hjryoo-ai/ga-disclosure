@@ -2,6 +2,9 @@ package com.ga.disclosure.infra;
 
 import com.ga.disclosure.audit.AuditRecord;
 import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
+import com.ga.disclosure.infra.persistence.TenantKekRepository;
+import com.ga.disclosure.infra.testing.TestKeks;
+import com.ga.disclosure.workflow.customer.KeyProviderPort;
 import com.ga.disclosure.infra.persistence.AuditLogRepository;
 import com.ga.disclosure.infra.persistence.CatalogRepository;
 import com.ga.disclosure.infra.persistence.CustomerVaultRepository;
@@ -43,21 +46,22 @@ final class CatalogCustomerSetup {
     final AuditLogRepository audit = new AuditLogRepository(gateway);
     final CatalogRepository catalog = new CatalogRepository(gateway);
     final Clock clock;
-    final Path kekFile;
-    final LocalFileKeyProvider keys;
+    final TestKeks kekSecrets;
+    final KeyProviderPort keys;
     final CustomerVaultRepository vault;
     final CatalogImportService imports;
     final CustomerRefService customers;
     final CustomerRekeyService rekey;
 
     CatalogCustomerSetup(String instant) {
-        this(instant, newKekFile());
+        this(instant, TestKeks.shared());
     }
 
-    CatalogCustomerSetup(String instant, Path kekFile) {
+    /** {@code kekSecrets}: 테넌트 KEK 바이트가 있는 비밀 디렉터리(다른 디렉터리 = 같은 ID의 다른 키). */
+    CatalogCustomerSetup(String instant, TestKeks kekSecrets) {
         this.clock = Clock.fixed(Instant.parse(instant), SEOUL);
-        this.kekFile = kekFile;
-        this.keys = LocalFileKeyProvider.load(kekFile);
+        this.kekSecrets = kekSecrets;
+        this.keys = kekSecrets.provider(tx, new TenantKekRepository(gateway));
         this.vault = new CustomerVaultRepository(gateway, keys);
         this.imports = new CatalogImportService(catalog, audit, tx, clock, Callers.authz(clock));
         this.customers = new CustomerRefService(vault, audit, tx, clock, Callers.authz(clock));
@@ -68,11 +72,12 @@ final class CatalogCustomerSetup {
         this("2026-09-01T00:00:00Z");
     }
 
-    /** 같은 KEK 파일, 다른 시각. */
+    /** 같은 KEK, 다른 시각. */
     CatalogCustomerSetup at(String instant) {
-        return new CatalogCustomerSetup(instant, kekFile);
+        return new CatalogCustomerSetup(instant, kekSecrets);
     }
 
+    /** 전역 시절 KEK 파일(이행 시험 전용 — Phase 8 1b에서 지운다). */
     static Path newKekFile() {
         try {
             Path file = Files.createTempDirectory("ga-kek").resolve("kek.json");

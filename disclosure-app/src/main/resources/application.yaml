@@ -28,8 +28,12 @@ ga:
     url: ${DISCLOSURE_DB_URL:jdbc:postgresql://localhost:5432/disclosure}
     username: ${DISCLOSURE_JOB_LOCK_USER:disclosure_job_lock}
     password: ${DISCLOSURE_JOB_LOCK_PASSWORD:job_lock_local_only}
-  # 고객 개인정보 암호화의 마스터 키(KEK). 개발·테스트는 저장소 밖 로컬 키 파일(`crypto init-kek`로 생성, chmod 600),
-  # 운영은 KMS 어댑터로 교체한다(설계서 §9). 비어 있으면 고객 정보를 다루는 순간 실패한다.
+  # (Phase 8) 서버 비밀의 출처 — 테넌트 KEK(kek/{T}/{T}-KEK-n)·…. 쿠버네티스는 Secret 볼륨 마운트, 로컬은 저장소 밖 디렉터리(소유자 전용).
+  # 비어 있으면 비밀이 필요한 순간 실패한다. allow-group-read는 Secret 볼륨(fsGroup)용.
+  secrets:
+    dir: ${GA_SECRETS_DIR:}
+    allow-group-read: ${GA_SECRETS_ALLOW_GROUP_READ:false}
+  # 전역 시절 KEK 파일(Phase 2~7) — Phase 8 이행 중 옛 키를 풀 때만 읽는다(새로 감싸지 않는다). 재래핑이 끝나면 지운다(1b).
   crypto:
     local-kek-file: ${GA_LOCAL_KEK_FILE:}
   # 봉인 산출물 저장소(Phase 3B): 표준 S3 API + Object Lock. 기본값은 로컬 compose의 SeaweedFS와 허구 키(docker/seaweedfs/s3.json) —

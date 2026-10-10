@@ -28,6 +28,7 @@ public final class VerifySchemas {
     private static final Schema REPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/verify-report.schema.json"));
     private static final Schema DESTRUCTION_REPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/destruction-report.schema.json"));
     private static final Schema RECOMPUTE_REPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/retention-recompute-report.schema.json"));
+    private static final Schema KEK_REWRAP_REPORT = REGISTRY.getSchema(SchemaLocation.of(BASE + "verify/v1/kek-rewrap-report.schema.json"));
 
     private VerifySchemas() {
     }
@@ -56,6 +57,11 @@ public final class VerifySchemas {
     /** 보존 재계산 보고서(6B 계획 §8). */
     public static List<String> retentionRecomputeReport(JsonNode node) {
         return errors(RECOMPUTE_REPORT, node);
+    }
+
+    /** 테넌트 KEK 재래핑 보고서(Phase 8 승인 Q2). */
+    public static List<String> kekRewrapReport(JsonNode node) {
+        return errors(KEK_REWRAP_REPORT, node);
     }
 
     private static List<String> errors(Schema schema, JsonNode node) {

@@ -7,7 +7,7 @@ import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.ProductKey;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
+import com.ga.disclosure.infra.testing.TestKeks;
 import com.ga.disclosure.infra.engine.EngineClientSettings;
 import com.ga.disclosure.infra.engine.EngineGradeClient;
 import com.ga.disclosure.infra.engine.HttpEngineTransport;
@@ -85,7 +85,8 @@ final class WorkflowSetup implements AutoCloseable {
     final Clock clock;
     final FakeEngine engine;
     final EngineClientSettings settings;
-    final LocalFileKeyProvider keys;
+    /** 테넌트 KEK(시드 {T}-KEK-1) — 이행 시험은 {@link SwitchableKeys#use}로 바꾼다. */
+    final SwitchableKeys keys;
     final CustomerVaultRepository vault;
     final DisclosureService service;
     final TenantId tenant;
@@ -123,7 +124,7 @@ final class WorkflowSetup implements AutoCloseable {
         this.clock = Clock.fixed(Instant.parse(instant), Governance.SEOUL);
         this.settings = settings;
         this.engine = new FakeEngine(TableEngineStub.load(resource("/workflow/engine-table.json")), TOKEN, clock);
-        this.keys = LocalFileKeyProvider.load(CatalogCustomerSetup.newKekFile());
+        this.keys = new SwitchableKeys(TestKeks.shared().provider(tx, new com.ga.disclosure.infra.persistence.TenantKekRepository(gateway)));
         this.vault = new CustomerVaultRepository(gateway, keys);
         this.service = new DisclosureService(disclosures, reviews, flags, new TenantRepository(gateway),
                 new EngineGradeClient(new HttpEngineTransport(settings, t -> Optional.of(TOKEN), t -> engine.baseUrl())),

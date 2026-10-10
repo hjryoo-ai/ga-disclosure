@@ -128,10 +128,8 @@ class OperatorCliIT {
         });
         com.ga.disclosure.infra.testing.SeaweedHarness s3 = com.ga.disclosure.infra.testing.SeaweedHarness.get();
         String bucket = s3.freshBucket();
-        Path kek = java.nio.file.Files.createTempDirectory("cli-seal-kek").resolve("kek.json");
-        run("crypto", "init-kek", "--file", kek.toString());
         Path demo = ROOT.resolve("disclosure-demo/src/main/resources");
-        String[] storage = {"--ga.crypto.local-kek-file=" + kek, "--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + bucket,
+        String[] storage = {"--ga.secrets.dir=" + com.ga.disclosure.infra.testing.TestKeks.shared().dir(), "--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + bucket,
                 "--ga.storage.s3.access-key-id=" + com.ga.disclosure.infra.testing.SeaweedHarness.ACCESS_KEY,
                 "--ga.storage.s3.secret-access-key=" + com.ga.disclosure.infra.testing.SeaweedHarness.SECRET_KEY,
                 "--ga.engine.mode=stub", "--ga.engine.stub-table=" + demo.resolve("demo/engine-table.json")};
@@ -287,7 +285,7 @@ class OperatorCliIT {
     }
 
     /**
-     * Phase 2: 카탈로그 수입(상품군 → 패널 → 상품, 데모 파일) — 같은 파일 재수입은 NOOP. 로컬 KEK 파일 생성은 한 번만(덮어쓰기 거부).
+     * Phase 2: 카탈로그 수입(상품군 → 패널 → 상품, 데모 파일) — 같은 파일 재수입은 NOOP. (Phase 8) 테넌트 KEK 비밀 파일 생성은 한 번만(덮어쓰기 거부, 소유자 전용).
      * 고객 데이터 키 순환은 두 번째 실행에서 첫 키를 은퇴·파기한다(쓰는 행이 없으므로).
      */
     @Test
@@ -304,15 +302,21 @@ class OperatorCliIT {
         assertThat(column(tenant, "SELECT count(*) FROM product_catalog WHERE tenant_id = ?")).containsExactly("9");
         assertThat(column(tenant, "SELECT DISTINCT source FROM product_catalog WHERE tenant_id = ?")).containsExactly("DEMO_FILE");
 
-        Path kek = java.nio.file.Files.createTempDirectory("cli-kek").resolve("kek.json");
-        assertThat(run("crypto", "init-kek", "--file", kek.toString())).contains("KEK_INIT KEK-LOCAL-1");
-        assertThat(java.nio.file.Files.getPosixFilePermissions(kek)).extracting(Enum::name)
+        Path dir = java.nio.file.Files.createTempDirectory("cli-kek");
+        String kekId = tenant + "-KEK-2";
+        assertThat(run("crypto", "kek", "init", "--tenant", tenant, "--kek-id", kekId, "--secrets-dir", dir.toString()))
+                .contains("KEK_INIT " + tenant + " " + kekId);
+        assertThat(java.nio.file.Files.getPosixFilePermissions(dir.resolve("kek/" + tenant + "/" + kekId))).extracting(Enum::name)
                 .containsExactlyInAnyOrder("OWNER_READ", "OWNER_WRITE");
-        assertThatThrownBy(() -> run("crypto", "init-kek", "--file", kek.toString())).hasStackTraceContaining("already exists");
+        assertThatThrownBy(() -> run("crypto", "kek", "init", "--tenant", tenant, "--kek-id", kekId, "--secrets-dir", dir.toString()))
+                .hasStackTraceContaining("already exists");
+        assertThatThrownBy(() -> run("crypto", "kek", "init", "--tenant", tenant, "--kek-id", "OTHER-KEK-1", "--secrets-dir", dir.toString()))
+                .as("a KEK id names its tenant").hasStackTraceContaining("KEK id must be " + tenant + "-KEK-<n>");
 
-        String first = run("--ga.crypto.local-kek-file=" + kek, "customer", "rekey", "--tenant", tenant, "--operator", "cli-test");
+        String secrets = "--ga.secrets.dir=" + com.ga.disclosure.infra.testing.TestKeks.shared().dir();
+        String first = run(secrets, "customer", "rekey", "--tenant", tenant, "--operator", "cli-test");
         assertThat(first).contains("REKEY " + tenant + " retired=- ").contains("reencrypted=0 destroyed=[]");
-        String second = run("--ga.crypto.local-kek-file=" + kek, "customer", "rekey", "--tenant", tenant, "--operator", "cli-test");
+        String second = run(secrets, "customer", "rekey", "--tenant", tenant, "--operator", "cli-test");
         String firstKey = first.substring(first.indexOf("active=") + 7).split(" ")[0];
         assertThat(second).contains("retired=" + firstKey).contains("destroyed=[" + firstKey + "]");
         assertThat(column(tenant, "SELECT status FROM customer_data_key WHERE tenant_id = ? ORDER BY created_at, status"))

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.8.0
+  version: 2.9.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -13,6 +13,7 @@ info:
     - 목록은 서명된 불투명 커서(`after` → `next`) — 다른 테넌트·다른 목록의 커서는 400 `INVALID_CURSOR`.
     - 2.8.0(Phase 7): 설계사의 플래그 조회 — 자기 확인서의 플래그 중 열릴 때 룰이 설계사 가시로 정한 것만(승인 Q1, 거르는 곳은 서버).
       고정 서식의 화면 문구 `getDisclosureTemplate`(승인 Q3). 워터마크 미리보기 `getPreviewPdf`(계획 ⑥).
+    - 2.9.0(Phase 8): 작업 조회의 종류에 `KEK_REWRAP`(운영자 CLI 전용 작업 — 제출 경로 `JobKind`에는 없다). 추가형.
 servers:
   - url: https://disclosure.example
 security:
@@ -681,7 +682,7 @@ components:
       type: string
       enum: [EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
              COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE]
-      description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다.
+      description: ANCHOR는 CLI 전용(승인 Q7) — HTTP 경로에 없다. (2.9.0) KEK_REWRAP도 CLI 전용(조회의 `Job.kind`에만 있다).
     Problem:
       type: object
       additionalProperties: false
@@ -722,7 +723,7 @@ components:
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
         kind: { type: string, enum: [ANCHOR, EXPIRE, RECONCILE, DESTROY, DESTROY_DRY_RUN, VERIFY_TENANT, NOTIFY, IDEMPOTENCY_PURGE, FLAG_SLA_SWEEP, CONTRACT_LINK_IMPORT, CONTRACT_LINK_UNMATCHED_PURGE, ABANDON_DRAFTS,
-                                       COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE] }
+                                       COLLECTION_RATE_SNAPSHOT, RETENTION_RECOMPUTE, KEK_REWRAP] }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED] }
         channel: { type: string, enum: [HTTP, CLI] }
         requestedBy: { type: string }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 데모 시드(Phase 1~4): 데모 테넌트 2개(DEMO1 대형 GA, DEMO2), 규제 번들 배포, DEMO1 사규 승인, 활성화, 번들 대사,
-# 카탈로그 수입(상품군 → 보험사 패널 → 상품, 가상 코드 PG-…), 고객 데이터 키 준비(로컬 KEK 파일),
+# 카탈로그 수입(상품군 → 보험사 패널 → 상품, 가상 코드 PG-…), 테넌트 KEK 준비(Phase 8 — 저장소 밖 비밀 디렉터리의 kek/{T}/{T}-KEK-1 + 레지스트리 등록),
 # (3A) 가상 고객 파일 등록(customers.json — 개인정보는 파일로만, CLI 인자·환경변수 금지), 데모 확인서 흐름(엔진 스텁 고정표),
 # (3B) 데모 확인서 봉인·정정(봉인 산출물은 로컬 SeaweedFS — 버킷이 없으면 Object Lock 활성으로 만든다, 로컬 전용 설정).
 # (4) 서명: 3자 터치 서명 완료(DEMO1 A-2), 원격 링크(DEMO1 A-3-REMOTE — 콘솔 통지의 토큰을 받아 고객 본인확인·서명을 이어 실행), 만료 1건
@@ -11,13 +11,21 @@
 #     시계 오프셋으로 과거에 봉인·무효 → 실제 시계 재적용 → 보류 1건 → 파기 1건·HOLD 1건 → verify tenant).
 # 전제: docker compose up -d postgres seaweedfs (PostgreSQL + init-roles.sql, S3 호환 저장소). 값은 전부 예시다(설계서 부록 B·D). 몇 번을 돌려도 결과가 같다(멱등).
 # 사용: disclosure-demo/scripts/seed.sh [활성화 기준일, 기본 오늘]
-#   GA_LOCAL_KEK_FILE(기본 ~/.ga-disclosure/kek.json): 저장소 밖 로컬 KEK 파일. 없으면 만든다(권한 600).
+#   GA_SECRETS_DIR(기본 ~/.ga-disclosure/secrets): 저장소 밖 비밀 디렉터리(테넌트 KEK — 없으면 만든다, 권한 600).
+#   GA_LOCAL_KEK_FILE(기본 ~/.ga-disclosure/kek.json): Phase 2~7의 전역 KEK 파일. 있으면 이행 중 옛 키를 풀 때만 쓰고, 테넌트 KEK 등록 뒤
+#   KEK_REWRAP이 옛 키로 감싼 것을 테넌트 KEK로 옮긴다(Phase 8 1a — 같은 볼륨을 다시 쓰는 로컬 데모). 없으면 읽지 않는다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 AS_OF="${1:-$(date +%F)}"
 OPERATOR="demo-seed"
-export GA_LOCAL_KEK_FILE="${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}"
+export GA_SECRETS_DIR="${GA_SECRETS_DIR:-$HOME/.ga-disclosure/secrets}"
+if [ -f "${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}" ]; then
+  export GA_LOCAL_KEK_FILE="${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}"
+else
+  unset GA_LOCAL_KEK_FILE
+fi
+mkdir -p "$GA_SECRETS_DIR" && chmod 700 "$GA_SECRETS_DIR"
 CATALOG="disclosure-demo/src/main/resources/demo/catalog"
 DEMO="disclosure-demo/src/main/resources"
 # 데모 엔진: 프로세스 안 스텁(고정표, 비율에서 계산하지 않는다). 응답은 운영과 같은 계약 스키마·정합성 검증을 거친다.
@@ -31,6 +39,12 @@ OUT="build/demo/phase5"
 
 cli() {
   ./gradlew -q :disclosure-app:bootRun --args="--spring.profiles.active=cli $*"
+}
+
+# 테넌트 KEK(Phase 8): 비밀 파일이 없으면 만들고, CURRENT가 아니면 등록한다(재실행 NOOP)
+tenant_kek() {
+  cli crypto kek init --tenant "$1" --kek-id "$1-KEK-1" --secrets-dir "$GA_SECRETS_DIR" --if-absent yes
+  cli crypto kek register --tenant "$1" --kek-id "$1-KEK-1" --operator "$OPERATOR"
 }
 
 cli demo seed --file disclosure-demo/src/main/resources/demo/phase1-seed.json --operator "$OPERATOR"
@@ -48,8 +62,12 @@ for tenant in DEMO1 DEMO2; do
   cli catalog import --tenant "$tenant" --file "$CATALOG/products.json" --operator "$OPERATOR"
 done
 
-if [ ! -f "$GA_LOCAL_KEK_FILE" ]; then
-  cli crypto init-kek --file "$GA_LOCAL_KEK_FILE"
+for tenant in DEMO1 DEMO2; do
+  tenant_kek "$tenant"
+done
+# 전역 시절 볼륨이면 옛 키로 감싼 문서·고객·보고서 키를 테넌트 KEK로 옮긴다(행마다 감사, 두 번째 실행 0건)
+if [ -n "${GA_LOCAL_KEK_FILE:-}" ]; then
+  cli crypto kek rewrap --tenants DEMO1,DEMO2 --apply yes --operator "$OPERATOR"
 fi
 
 for tenant in DEMO1 DEMO2; do
@@ -103,6 +121,10 @@ cli verify package --package "$OUT/A-4-SCAN.evidence.zip" --receipt "$OUT/A-4-SC
 DEMO_BUNDLES="disclosure-demo/src/main/resources/demo/bundles"
 PAST="--spring.profiles.active=cli,demo --ga.demo.clock-offset=-P5D"
 cli demo seed --file "$DEMO/demo/phase5-seed.json" --operator "$OPERATOR"
+tenant_kek DEMO3
+if [ -n "${GA_LOCAL_KEK_FILE:-}" ]; then
+  cli crypto kek rewrap --tenants DEMO3 --apply yes --operator "$OPERATOR"
+fi
 cli rules distribute --bundle "$DEMO_BUNDLES/rules/DISC-DEMO-SHORT.bundle.json" --tenants DEMO3 --operator "$OPERATOR"
 cli rules distribute --bundle templates/STANDARD-v1.bundle.json --tenants DEMO3 --operator "$OPERATOR"
 cli rules activate --as-of "$AS_OF" --tenants DEMO3 --operator "$OPERATOR"

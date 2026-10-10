@@ -23,8 +23,8 @@ import java.util.stream.Collectors;
 public final class ApiTestSupport {
 
     public static final PostgresHarness DB = PostgresHarness.get();
-    /** 앱과 CLI가 같이 쓰는 시험 KEK 파일(고객 수입은 CLI, 봉인은 웹 — 같은 키여야 한다). */
-    public static final Path KEK = kek();
+    /** 앱과 CLI가 같이 쓰는 시험 비밀 디렉터리(테넌트 KEK — 시드 테넌트마다 {@code {T}-KEK-1}, 고객 수입은 CLI·봉인은 웹이라 같은 키여야 한다). */
+    public static final Path SECRETS = com.ga.disclosure.infra.testing.TestKeks.shared().dir();
     public static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
     public static final Path DEMO = ROOT.resolve("disclosure-demo/src/main/resources");
     /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
@@ -33,16 +33,6 @@ public final class ApiTestSupport {
     public static final Path RECEIPT_KEY = tempPath("ga-api-customer-receipt", "customer-receipt.key");
 
     private ApiTestSupport() {
-    }
-
-    private static Path kek() {
-        try {
-            Path file = Files.createTempDirectory("ga-api-kek").resolve("kek.json");
-            com.ga.disclosure.infra.crypto.LocalFileKeyProvider.initialize(file, "KEK-API-TEST");
-            return file;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     private static Path tempPath(String prefix, String name) {
@@ -72,7 +62,7 @@ public final class ApiTestSupport {
         p.put("ga.api.jwt.issuer", () -> TestJwts.ISSUER);
         p.put("ga.api.jwt.audience", () -> TestJwts.AUDIENCE);
         p.put("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
-        p.put("ga.crypto.local-kek-file", KEK::toString);
+        p.put("ga.secrets.dir", SECRETS::toString);
         p.put("ga.api.cursor-key-file", CURSOR_KEY::toString);
         p.put("ga.api.request-hash-key-file", REQUEST_HASH_KEY::toString);
         p.put("ga.api.receipt-key-file", RECEIPT_KEY::toString);
@@ -125,7 +115,7 @@ public final class ApiTestSupport {
                 "--spring.flyway.url=" + DB.jdbcUrl(),
                 "--ga.tenant-directory.url=" + DB.jdbcUrl(),
                 "--ga.job-lock.url=" + DB.jdbcUrl(),
-                "--ga.crypto.local-kek-file=" + KEK));
+                "--ga.secrets.dir=" + SECRETS));
         all.addAll(java.util.List.of(args));
         java.io.PrintStream original = System.out;
         java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();

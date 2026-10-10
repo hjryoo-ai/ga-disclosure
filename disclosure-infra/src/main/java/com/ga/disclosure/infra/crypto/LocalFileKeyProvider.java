@@ -1,7 +1,5 @@
 package com.ga.disclosure.infra.crypto;
 
-import com.ga.disclosure.workflow.customer.KeyProviderPort;
-import com.ga.platform.canonical.Canonicalizer;
 import com.ga.platform.core.tenant.TenantId;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -21,12 +19,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 개발·테스트용 KEK 어댑터: 저장소 밖의 로컬 키 파일 {@code {"current": "KEK-…", "keys": {"KEK-…": "<base64 32바이트>"}}}.
+ * <b>전역 시절 KEK</b>(Phase 2~7 — 8 계획 승인 Q2 이전): 테넌트와 무관한 KEK 하나. Phase 8 1a에서는 {@link TenantKeyProvider}가 이행 중 옛 키를 풀 때만
+ * 쓴다(새로 감싸지 않는다). 재래핑이 끝나면 지운다(1b). 형식: 저장소 밖의 로컬 키 파일 {@code {"current": "KEK-…", "keys": {"KEK-…": "<base64 32바이트>"}}}.
  * 파일은 소유자만 읽을 수 있어야 한다(POSIX 파일 시스템에서 그룹·기타 권한이 있으면 거부). 감싸기는 AES-256-GCM이고 AAD =
  * JCS {@code {"kekId","keyId","tenantId","v":1}} — 감싼 DEK를 다른 테넌트·키 ID로 옮기면 풀리지 않는다.
  * 운영은 KMS 어댑터로 교체한다(같은 컨텍스트를 KMS 암호화 컨텍스트로).
  */
-public final class LocalFileKeyProvider implements KeyProviderPort {
+public final class LocalFileKeyProvider {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -93,19 +92,16 @@ public final class LocalFileKeyProvider implements KeyProviderPort {
         }
     }
 
-    @Override
     public String currentKekId() {
         return current;
     }
 
-    @Override
     public byte[] wrap(TenantId tenant, String keyId, String kekId, byte[] dataKey) {
-        return AesGcm.encrypt(kek(kekId), dataKey, context(tenant, keyId, kekId));
+        return AesGcm.encrypt(kek(kekId), dataKey, KekContext.aad(tenant, keyId, kekId));
     }
 
-    @Override
     public byte[] unwrap(TenantId tenant, String keyId, String kekId, byte[] wrapped) {
-        return AesGcm.decrypt(kek(kekId), wrapped, context(tenant, keyId, kekId));
+        return AesGcm.decrypt(kek(kekId), wrapped, KekContext.aad(tenant, keyId, kekId));
     }
 
     private byte[] kek(String kekId) {
@@ -114,10 +110,5 @@ public final class LocalFileKeyProvider implements KeyProviderPort {
             throw new CiphertextRejectedException("KEK " + kekId + " is not available in the local key file");
         }
         return key;
-    }
-
-    private static byte[] context(TenantId tenant, String keyId, String kekId) {
-        ObjectNode aad = JSON.createObjectNode().put("kekId", kekId).put("keyId", keyId).put("tenantId", tenant.value()).put("v", 1);
-        return Canonicalizer.canonicalize(aad);
     }
 }

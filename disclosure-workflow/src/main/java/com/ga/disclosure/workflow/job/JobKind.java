@@ -24,7 +24,9 @@ public enum JobKind {
     /** 6B: 끝난 달(기본 전월, KST)의 징구율 스냅샷(내부 지표 — 규제 정의 없음). 같은 (달, 룰 버전)은 거부. */
     COLLECTION_RATE_SNAPSHOT,
     /** 6B: 지정 GLOBAL 룰 버전의 보존기간으로 봉인 이후 확인서의 보존기한을 다시 계산한다 — 연장만, 기본 dry-run. */
-    RETENTION_RECOMPUTE;
+    RETENTION_RECOMPUTE,
+    /** Phase 8: CURRENT가 아닌 KEK로 감싼 살아 있는 문서·고객·보고서 키를 테넌트의 CURRENT KEK로 다시 감싼다(운영자 CLI만, 기본 dry-run). */
+    KEK_REWRAP;
 
     public JobKind lockKind() {
         return this == DESTROY_DRY_RUN ? DESTROY : this;

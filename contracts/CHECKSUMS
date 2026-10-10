@@ -1,5 +1,5 @@
 0b54dec789b198373b92f1327deef95fcd212e365293e45d34e15badf1c1b10b  api/v1/demo-oidc.openapi.yaml
-1d4493a57b0fca6a8a70dcfdd3a98d9115ccea64fd49b247a8db98236edb6b3e  api/v1/disclosure-api.openapi.yaml
+b771813cce43024f8eae0f0d2114663a7f3fe167a0262ffb2d6d36621eb47bc2  api/v1/disclosure-api.openapi.yaml
 6711214b601536985138a78a05ccf6f94ffb5cae48b8c165a94668f26ad6fda2  api/v1/disclosure-internal.openapi.yaml
 cd097046267baf109a678149b1fb7c25738bb93fa3b28ff7d64b1ea1d847bcee  api/v1/disclosure-public.openapi.yaml
 f58d74b0cabeeb614491047d8dc38bfc32936f3b70d99615bd449940ad107ea8  api/v1/engine-disclosure.openapi.yaml
@@ -41,5 +41,6 @@ fad86c179b1a5b43789d2a19cccd086fb3bcd0bf8fbe465687275cd8777b5506  rules/v1/rule-
 45d5868893deff4a403cf3b71445271cfd0fa82e78e5f2e901f6d68fd7efabaf  seal/v1/evidence-manifest.schema.json
 cfe306f2675dbb00a99e86c289502fda7802dfc585afd32ac4890b91dff8b7be  verify/v1/anchor-receipt-export.schema.json
 168e2ed1cbf197dda3944bd5c48c20e4b8a33afce4a3b2fdebc56cd331311ee6  verify/v1/destruction-report.schema.json
+8ecb448aa20c3755d86c0c61055f3306d870c0ae2d42772f2f9852e8cd1f0611  verify/v1/kek-rewrap-report.schema.json
 92b41cad4b2ddd26fb96ad833c1dfe8bd0ef342474543343726ac5e37ebadabc  verify/v1/retention-recompute-report.schema.json
 6374c976012d94ec7a3c2e24196941441cbdb5566fbf200f4ad19b60c3eeeb9d  verify/v1/verify-report.schema.json

@@ -106,9 +106,7 @@ class Phase5CliIT {
             SeedData.identityLink(c, tenant, "demo-manager", "DEMO-MGR-1", "MANAGER");
         });
         SeaweedHarness s3 = SeaweedHarness.get();
-        Path kek = tmp.resolve("kek.json");
-        run("crypto", "init-kek", "--file", kek.toString());
-        String[] env = {"--ga.crypto.local-kek-file=" + kek, "--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + s3.freshBucket(),
+        String[] env = {"--ga.secrets.dir=" + com.ga.disclosure.infra.testing.TestKeks.shared().dir(), "--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + s3.freshBucket(),
                 "--ga.storage.s3.access-key-id=" + SeaweedHarness.ACCESS_KEY, "--ga.storage.s3.secret-access-key=" + SeaweedHarness.SECRET_KEY,
                 "--ga.engine.mode=stub", "--ga.engine.stub-table=" + DEMO.resolve("demo/engine-table.json"),
                 "--ga.tsa.mode=stub", "--ga.tsa.stub.key-store=" + tmp.resolve("home/tsa-stub.p12"), "--ga.tsa.trust-pem=" + tmp.resolve("tsa-trust.pem")};
@@ -243,9 +241,7 @@ class Phase5CliIT {
         SeaweedHarness s3 = SeaweedHarness.get();
         String[] noKek = {"--ga.storage.s3.endpoint=" + s3.endpoint(), "--ga.storage.s3.bucket=" + s3.freshBucket(),
                 "--ga.storage.s3.access-key-id=" + SeaweedHarness.ACCESS_KEY, "--ga.storage.s3.secret-access-key=" + SeaweedHarness.SECRET_KEY};
-        Path kek = Files.createTempDirectory("cli-busy").resolve("kek.json");
-        run("crypto", "init-kek", "--file", kek.toString());
-        String[] storage = with(noKek, "--ga.crypto.local-kek-file=" + kek);
+        String[] storage = with(noKek, "--ga.secrets.dir=" + com.ga.disclosure.infra.testing.TestKeks.shared().dir());
         com.ga.disclosure.infra.jobs.JobLockGateway locks = new com.ga.disclosure.infra.jobs.JobLockGateway(DB.jdbcUrl(), PostgresHarness.JOB_LOCK,
                 PostgresHarness.JOB_LOCK_PASSWORD);
         try (var held = locks.tryAcquire(com.ga.platform.core.tenant.TenantId.of(busy), com.ga.disclosure.workflow.job.JobKind.RECONCILE).orElseThrow()) {
@@ -257,7 +253,7 @@ class Phase5CliIT {
         assertThat(column(free, "SELECT status || ':' || kind || ':' || channel FROM async_job WHERE tenant_id = ?"))
                 .containsExactly("SUCCEEDED:RECONCILE:CLI");
 
-        // 본체는 끝났지만 보고서를 저장하지 못한 작업(여기서는 KEK 없음)도 종료 코드 2 — 작업은 FAILED이고 보고서가 없다
+        // 본체는 끝났지만 보고서를 저장하지 못한 작업(여기서는 비밀 출처 없음 — KEK를 읽을 수 없다)도 종료 코드 2 — 작업은 FAILED이고 보고서가 없다
         assertThatThrownBy(() -> run(with(noKek, "artifacts", "reconcile", "--tenants", free, "--operator", "cli-test")))
                 .hasStackTraceContaining("REPORT_STORE_FAILED").satisfies(e -> assertThat(exitCode(e)).isEqualTo(2));
         assertThat(column(free, "SELECT status || ':' || coalesce(error_code, '-') FROM async_job WHERE tenant_id = ? ORDER BY requested_at, status"))

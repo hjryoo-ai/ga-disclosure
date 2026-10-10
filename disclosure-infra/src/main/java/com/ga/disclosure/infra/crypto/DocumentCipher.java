@@ -41,7 +41,7 @@ public final class DocumentCipher implements DocumentCryptoPort {
         byte[] id = new byte[16];
         RANDOM.nextBytes(id);
         String keyId = "DOC-" + HexFormat.of().formatHex(id);
-        String kekId = keys.currentKekId();
+        String kekId = keys.currentKekId(tenant);
         byte[] dek = AesGcm.newKey();
         try {
             Map<ArtifactKind, byte[]> out = new EnumMap<>(ArtifactKind.class);

@@ -81,6 +81,14 @@ public final class SeedData {
     public static void tenant(Connection c, String tenant) throws SQLException {
         exec(c, "INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga) VALUES (?, ?, ?, 'ACTIVE', true)",
                 tenant, "GA " + tenant, "http://engine.invalid/" + tenant);
+        // Phase 8 테넌트 KEK(V21): 첫 KEK {tenant}-KEK-1을 CURRENT로 등록하고 그 키 바이트를 공유 시험 비밀 디렉터리에 만든다(앱·CLI 시험은
+        // ga.secrets.dir = TestKeks.shared().dir())
+        // (V21 이전 판을 시험하는 마이그레이션 IT에는 표가 없다 — 있을 때만)
+        if (longValue(c, "SELECT count(*) FROM pg_class WHERE relname = 'tenant_kek' AND relnamespace = 'public'::regnamespace") == 1) {
+            exec(c, "INSERT INTO tenant_kek (tenant_id, kek_id, status, registered_at, registered_by) VALUES (?, ?, 'CURRENT', now(), 'seed')",
+                    tenant, TestKeks.firstKekId(tenant));
+        }
+        TestKeks.shared().ensure(com.ga.platform.core.tenant.TenantId.of(tenant), TestKeks.firstKekId(tenant));
     }
 
     /** 산출 전 상태(스냅샷 헤더가 없어야 한다, V6 {@code ck_disclosure_snapshot_state}). */

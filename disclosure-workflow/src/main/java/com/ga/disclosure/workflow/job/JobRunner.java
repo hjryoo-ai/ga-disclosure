@@ -111,7 +111,7 @@ public final class JobRunner {
      */
     @UseCaseEntry({Action.ANCHOR_RUN, Action.DISCLOSURE_EXPIRE, Action.ARTIFACT_RECONCILE, Action.DESTROY, Action.DESTROY_DRY_RUN,
             Action.VERIFY_TENANT, Action.NOTIFY_DISPATCH, Action.IDEMPOTENCY_PURGE, Action.FLAG_SLA_SWEEP, Action.CONTRACT_LINK_IMPORT,
-            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS, Action.COLLECTION_RATE_SNAPSHOT, Action.RETENTION_RECOMPUTE})
+            Action.CONTRACT_LINK_UNMATCHED_PURGE, Action.ABANDON_DRAFTS, Action.COLLECTION_RATE_SNAPSHOT, Action.RETENTION_RECOMPUTE, Action.KEK_REWRAP})
     public <R> Run<R> run(List<Caller> callers, JobKind kind, ObjectNode params, JobWork<R> work) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(params, "params");
@@ -131,6 +131,7 @@ public final class JobRunner {
             case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
             case COLLECTION_RATE_SNAPSHOT -> Action.COLLECTION_RATE_SNAPSHOT;
             case RETENTION_RECOMPUTE -> Action.RETENTION_RECOMPUTE;
+            case KEK_REWRAP -> Action.KEK_REWRAP;
         };
         List<Caller> sorted = callers.stream().sorted(Comparator.comparing(c -> c.tenant().value())).toList();
         if (sorted.stream().map(Caller::tenant).distinct().count() != sorted.size()) {
@@ -185,6 +186,7 @@ public final class JobRunner {
             case ABANDON_DRAFTS -> Action.ABANDON_DRAFTS;
             case COLLECTION_RATE_SNAPSHOT -> Action.COLLECTION_RATE_SNAPSHOT;
             case RETENTION_RECOMPUTE -> Action.RETENTION_RECOMPUTE;
+            case KEK_REWRAP -> throw new IllegalArgumentException("KEK_REWRAP runs only from the operator CLI (Phase 8 approval Q2)");
         };
         Actor actor = transactions.inTenant(caller.tenant(), () -> authz.require(caller, action, Target.none()));
         JobWork<?> work = handlers.work(kind, params)

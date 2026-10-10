@@ -62,5 +62,7 @@ public enum Action {
     GATE_CHECK,
     RETENTION_RECOMPUTE,
     EVENT_FEED_READ,
-    EVENT_FEED_ACK
+    EVENT_FEED_ACK,
+    KEK_REGISTER,
+    KEK_REWRAP
 }
