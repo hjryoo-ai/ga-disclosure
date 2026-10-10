@@ -1,0 +1,108 @@
+package com.ga.disclosure.infra.storage;
+
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ObjectLockRetention;
+import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Objects;
+
+/**
+ * 백업 저장소(Phase 8 ⑤, 승인 Q3): Object Lock 버킷(산출물 저장소와 다른 버킷·자격 증명). 백업 한 번 = 실행 이름 하나 — DB 백업 봉투는
+ * {@code runs/<실행>/db.gabk}, 산출물 버전 복제는 {@code runs/<실행>/objects/}(실행마다 빈 접두 — 정기 백업이 서로 겹치지 않는다. 증분 복제는 하지 않는다 —
+ * 운영 문서의 비용 항목). DB 백업의 보존 기한은 같은 실행 {@code objects/}의 가장 늦은 보존 기한보다 이를 수 없다 — 산출물 보존 기한은 룰의 보존기간에서
+ * 나오므로 DB 백업이 그것이 가리키는 문서보다 먼저 풀리지 않는다.
+ */
+public final class BackupStore implements AutoCloseable {
+
+    private static final java.util.regex.Pattern RUN = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
+
+    /** 실행의 산출물 복제 접두. */
+    public static String objects(String run) {
+        return "runs/" + checked(run) + "/objects/";
+    }
+
+    /** 실행의 DB 백업 봉투 키. */
+    public static String database(String run) {
+        return "runs/" + checked(run) + "/db.gabk";
+    }
+
+    private static String checked(String run) {
+        if (run == null || !RUN.matcher(run).matches()) {
+            throw new IllegalArgumentException("backup run name must be [A-Za-z0-9._-], 1..64");
+        }
+        return run;
+    }
+
+    /** 보존 기한 하한보다 이른 업로드. */
+    public static final class RetentionTooShort extends RuntimeException {
+        private final Instant floor;
+
+        RetentionTooShort(Instant floor) {
+            super("retain-until is earlier than the latest artifact retention in the backup (" + floor + ")");
+            this.floor = floor;
+        }
+
+        public Instant floor() {
+            return floor;
+        }
+    }
+
+    private final S3Client s3;
+    private final String bucket;
+
+    public BackupStore(S3StorageSettings settings) {
+        this.s3 = S3ArtifactStore.client(Objects.requireNonNull(settings, "settings"));
+        this.bucket = settings.bucket();
+        new ArtifactStoreBootstrap(s3, bucket).verify();
+    }
+
+    /** 산출물 저장소 → 실행의 {@code objects/}(비어 있어야 한다 — 같은 실행 이름을 두 번 쓰지 않는다). */
+    public ObjectVersionCopier.Report exportObjects(S3StorageSettings artifacts, String run) {
+        try (S3Client a = S3ArtifactStore.client(artifacts)) {
+            new ArtifactStoreBootstrap(a, artifacts.bucket()).verify();
+            return ObjectVersionCopier.copy(a, artifacts.bucket(), "", s3, bucket, objects(run));
+        }
+    }
+
+    /** 실행의 {@code objects/} → 산출물 저장소(비어 있어야 한다 — 복구 환경). */
+    public ObjectVersionCopier.Report importObjects(S3StorageSettings artifacts, String run) {
+        try (S3Client a = S3ArtifactStore.client(artifacts)) {
+            new ArtifactStoreBootstrap(a, artifacts.bucket()).verify();
+            return ObjectVersionCopier.copy(s3, bucket, objects(run), a, artifacts.bucket(), "");
+        }
+    }
+
+    public Instant retentionFloor(String run) {
+        return ObjectVersionCopier.describe(s3, bucket, objects(run)).maxRetainUntil().orElse(Instant.EPOCH);
+    }
+
+    /** 실행의 DB 백업 봉투를 COMPLIANCE 보존으로. 같은 실행의 산출물 보존 하한보다 이르면 올리지 않는다(산출물을 먼저 복제해야 한다). */
+    public Instant upload(Path file, String run, Instant retainUntil) {
+        Instant floor = retentionFloor(run);
+        if (retainUntil.isBefore(floor)) {
+            throw new RetentionTooShort(floor);
+        }
+        String key = database(run);
+        String version = s3.putObject(b -> b.bucket(bucket).key(key).contentType("application/octet-stream"), RequestBody.fromFile(file)).versionId();
+        s3.putObjectRetention(b -> b.bucket(bucket).key(key).versionId(version)
+                .retention(ObjectLockRetention.builder().mode(ObjectLockRetentionMode.COMPLIANCE).retainUntilDate(retainUntil).build()));
+        return floor;
+    }
+
+    public long download(String run, OutputStream out) throws IOException {
+        try (InputStream in = s3.getObject(b -> b.bucket(bucket).key(database(run)))) {
+            return in.transferTo(out);
+        }
+    }
+
+    @Override
+    public void close() {
+        s3.close();
+    }
+}

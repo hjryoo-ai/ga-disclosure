@@ -19,13 +19,15 @@ import java.util.Set;
  * db migrate                                          (마이그레이터 롤 ga.migrator.* — 운영은 마이그레이션 Job에만 그 자격 증명)
  * secrets init --secrets-dir &lt;dir&gt; [--demo yes]       ({@link SecretCommands})
  * crypto kek init --tenant T --kek-id T-KEK-1 --secrets-dir &lt;dir&gt; [--if-absent yes]   ({@link KekCommands#init})
+ * backup seal|open|upload|download, backup objects export|import                      ({@link BackupCommands})
  * </pre>
  * 설정 해석(환경변수·{@code application.yaml}·{@code --name=value})만을 위해 자동 구성 없는 빈 컨텍스트를 잠깐 띄운다 — 이 클래스는 컴포넌트가 아니라
  * 앱의 컴포넌트 스캔에 걸리지 않는다. 실패는 {@link CliFailure}로 던지고 진입점이 종료 코드 1로 바꾼다.
  */
 public final class OfflineCli {
 
-    static final Set<String> COMMANDS = Set.of("db migrate", "secrets init", "crypto kek init");
+    static final Set<String> COMMANDS = Set.of("db migrate", "secrets init", "crypto kek init",
+            "backup seal", "backup open", "backup upload", "backup download", "backup objects export", "backup objects import");
 
     private OfflineCli() {
     }
@@ -45,6 +47,11 @@ public final class OfflineCli {
             case "db migrate" -> migrate(args, out);
             case "secrets init" -> new SecretCommands(out, Clock.systemUTC()).run(parsed);
             case "crypto kek init" -> KekCommands.init(parsed, out);
+            case "backup seal", "backup open", "backup upload", "backup download", "backup objects export", "backup objects import" -> {
+                try (ConfigurableApplicationContext settings = settings(args)) {
+                    new BackupCommands(settings.getEnvironment(), out).run(parsed);
+                }
+            }
             default -> throw new CliFailure("not an offline command: '" + parsed.command() + "'");
         }
     }
@@ -53,8 +60,7 @@ public final class OfflineCli {
         String url;
         String username;
         String password;
-        try (ConfigurableApplicationContext settings = new SpringApplicationBuilder(Settings.class).web(WebApplicationType.NONE)
-                .bannerMode(Banner.Mode.OFF).logStartupInfo(false).run(args)) {
+        try (ConfigurableApplicationContext settings = settings(args)) {
             Environment env = settings.getEnvironment();
             url = env.getRequiredProperty("ga.migrator.url");
             username = env.getRequiredProperty("ga.migrator.username");
@@ -63,6 +69,10 @@ public final class OfflineCli {
         SchemaMigrator.Applied applied = SchemaMigrator.migrate(url, username, password);
         out.println("DB_MIGRATE applied=" + applied.migrationsExecuted() + " version="
                 + (applied.targetVersion() == null ? SchemaMigrator.bundledVersion() : applied.targetVersion()));
+    }
+
+    private static ConfigurableApplicationContext settings(String[] args) {
+        return new SpringApplicationBuilder(Settings.class).web(WebApplicationType.NONE).bannerMode(Banner.Mode.OFF).logStartupInfo(false).run(args);
     }
 
     /** 설정 해석용 빈 컨텍스트의 원천(빈 없음). */
