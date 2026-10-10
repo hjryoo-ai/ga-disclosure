@@ -44,9 +44,12 @@
 
 빈 kind 클러스터에 배포 → 데모 데이터 → 화면 → `verify tenant`. 사용자 환경의 다른 것(compose 볼륨·다른 클러스터)은 건드리지 않고, 끝나면 `down`이 이 클러스터와 그 비밀 디렉터리만 지운다.
 
-**필요한 것**: Docker(메모리 8GB 이상 권장), JDK 17 이상(Gradle 실행용 — Java 25 툴체인은 Gradle이 받는다), `curl`·`jq`·`openssl`, 화면을 볼 때 Chrome. kind·kubectl·kubeconform은 `deploy/tools.lock`의 고정판을 Gradle이 `build/tools`에 받는다(전역 설치 없음). macOS·Linux.
+**필요한 것**: Docker(메모리 8GB 안팎), JDK 17 이상(Gradle 실행용 — Java 25 툴체인과 화면 빌드용 Node는 Gradle이 받는다), `curl`·`jq`·`openssl`(LibreSSL도 된다), 화면을 볼 때 Chrome. kind·kubectl·kubeconform은 `deploy/tools.lock`의 고정판을 Gradle이 `build/tools`에 받는다(전역 설치 없음). macOS·Linux. 저장소 루트에서 실행한다.
+
+**시간**: 캐시가 찬 기계에서 아래 명령 전체가 약 6.4분이었다(2026-10-10 재현 — 아래 "재현 기록"). 첫 실행은 Java 툴체인·의존성·노드 이미지·이미지 빌드를 받느라 더 걸린다(측정하지 않았다).
 
 ```bash
+git clone https://github.com/hjryoo-ai/ga-disclosure && cd ga-disclosure
 C=ga-tour-$(date +%s)                 # 클러스터 이름(ga-로 시작)
 deploy/scripts/kind.sh up "$C"        # 도구 받기 · 클러스터 · 이미지 빌드·적재(첫 실행은 빌드 때문에 오래 걸린다)
 deploy/scripts/kind.sh deploy "$C"    # 비밀 생성(저장소 밖 ~/.ga-disclosure/kind/$C) → 적용 → 마이그레이션 Job → 롤아웃
@@ -54,8 +57,10 @@ deploy/scripts/kind.sh smoke "$C"     # 진입점 셋·mTLS·한도·NetworkPoli
 deploy/scripts/kind.sh seed "$C"      # 데모 테넌트 셋 시드 → 클러스터 안 VERIFY_TENANT: DEMO1·DEMO2·DEMO3 MATCH
 deploy/scripts/kind.sh browse "$C"    # 화면을 볼 Chrome 명령줄을 출력 — 복사해 실행(별도 프로필, hosts·신뢰 저장소 변경 없음)
 deploy/scripts/kind.sh verify "$C"    # 화면에서 무엇을 했든 다시: 모든 테넌트 MATCH가 아니면 종료 1
-deploy/scripts/kind.sh down "$C"
+deploy/scripts/kind.sh down "$C"      # 클러스터와 ~/.ga-disclosure/kind/$C만 지운다 — 이미지(ga-disclosure/*:dev·kindest/node)·Docker 네트워크 kind·클론의 build/는 남는다
 ```
+
+`VERIFY_TENANT … MATCH findings=0 sha256=…`의 해시는 그 실행의 검증 **보고서**(실행 시각 포함)의 해시라 실행마다 다르다 — 같아야 하는 것은 `MATCH findings=0`이다.
 
 **화면**(직원 호스트 `https://staff.ga.example.invalid:18443/staff`): "데모 로그인" → 새 창에서 계정 선택(팝업 허용 필요). 역할은 토큰이 아니라 서버의 `identity_link`에서 온다.
 
@@ -65,13 +70,13 @@ deploy/scripts/kind.sh down "$C"
 | `DEMO1 · demo-manager` | 관리자 | 목록 → 상세의 플래그 확인 → 관리자 확인(마지막 서명이면 완료) |
 | `DEMO1 · demo-compliance` | 준법 | 준법 플래그(필터·배정·해소)·법적 보존(해제는 `demo-compliance-2` — 4-eyes)·작업(보존 재계산 dry-run)·징구율 |
 
-같은 흐름과 `CHAIN_BROKEN` 해소(감사 행 하나를 잠깐 바꿔 검증이 찾게 한 사건 — `kind.sh e2e-prep`이 만든다)는 `./gradlew :disclosure-web:e2eKind -Pkind.cluster="$C"`가 진입점 A·B·C로 데스크톱·모바일 12건을 돈다(CI 잡 `kind`는 여기에 백업·복구·키 회전 여섯 종을 더 돈다 — [`docs/operations/`](docs/operations/)).
+같은 흐름과 `CHAIN_BROKEN` 해소(감사 행 하나를 잠깐 바꿔 검증이 찾게 한 사건)는 `./gradlew :disclosure-web:e2eKind -Pkind.cluster="$C"`가(준비 `kind.sh e2e-prep`은 이 작업이 스스로 부르고, 처음이면 Playwright Chromium을 받는다. 끝의 `E2E DOWN`은 시험 프로세스만 정리하고 클러스터는 남긴다) 진입점 A·B·C로 데스크톱·모바일 12건을 돈다(CI 잡 `kind`는 여기에 백업·복구·키 회전 여섯 종을 더 돈다 — [`docs/operations/`](docs/operations/)).
 
 ### 재현 기록
 
 | 누가 | 언제 | 무엇을 보고 | 결과·막힌 곳 |
 |---|---|---|---|
-| 맥락 없는 별도 에이전트 | 2026-10-10 | 새 클론 + 이 README만 | (12단계 실행 뒤 기입) |
+| 맥락 없는 별도 에이전트(이 작업의 맥락을 받지 않은 새 세션) | 2026-10-10 | `work/phase-8` `9549c9d`의 새 클론 + 이 README만 | **세 테넌트 MATCH까지 막힘 없음.** up 63초 · deploy 126초 · smoke 20초(실패 0) · seed 165초(`SEED_LINES 44`) · verify 11초 · down 1초(웜 캐시, macOS arm64 · Docker 7.75GiB). 화면은 헤드리스 Chrome으로 직원 페이지 로드(TLS 오류 0)까지만 — 로그인 이후는 사람 몫, 대신 e2eKind 12/12. 추측한 곳 6개(e2e-prep 순서, 실행마다 바뀌는 VERIFY 해시, 첫 실행 시간, down이 남기는 것, Node, 클론·cd 줄)는 이 판에서 README에 반영했다 |
 | 사람 | — | — | 수용 심사와 별개로 편한 때(PR 코멘트 + 이 표) |
 
 ## 문서 색인
