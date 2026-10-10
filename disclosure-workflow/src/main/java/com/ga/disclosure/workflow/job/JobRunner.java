@@ -55,13 +55,15 @@ public final class JobRunner {
     private final AuditPort audit;
     private final WorkflowTransactions transactions;
     private final Clock clock;
+    private final com.ga.disclosure.workflow.metrics.OperationalMetrics metrics;
     private final Supplier<UUID> ids;
     private final AuthorizationPort authz;
     private final Executor executor;
     private final JobHandlers handlers;
 
     public JobRunner(JobStore store, JobLockPort locks, ReportCryptoPort crypto, ArtifactStore storage, AuditPort audit,
-                     WorkflowTransactions transactions, Clock clock, Supplier<UUID> ids, AuthorizationPort authz, Executor executor, JobHandlers handlers) {
+                     WorkflowTransactions transactions, Clock clock, Supplier<UUID> ids, AuthorizationPort authz, Executor executor, JobHandlers handlers,
+                     com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
         this.store = Objects.requireNonNull(store, "store");
         this.locks = Objects.requireNonNull(locks, "locks");
         this.crypto = Objects.requireNonNull(crypto, "crypto");
@@ -73,6 +75,7 @@ public final class JobRunner {
         this.authz = Objects.requireNonNull(authz, "authz");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.handlers = Objects.requireNonNull(handlers, "handlers");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     /** 테넌트별 결과. */
@@ -326,6 +329,9 @@ public final class JobRunner {
                     .put("reportSha256", sha));
             return true;
         });
+        if (done) {
+            measured(s, JobRecord.Status.SUCCEEDED);
+        }
         return done ? new Outcome.Finished(s.tenant(), s.jobId(), JobRecord.Status.SUCCEEDED, Optional.empty(), Optional.of(sha)) : stale(s);
     }
 
@@ -341,7 +347,16 @@ public final class JobRunner {
             record(s.actor(), AuditAction.JOB_FINISHED, s.jobId(), detail);
             return true;
         });
+        if (done) {
+            measured(s, JobRecord.Status.FAILED);
+        }
         return done ? new Outcome.Finished(s.tenant(), s.jobId(), JobRecord.Status.FAILED, Optional.of(error.name()), Optional.empty()) : stale(s);
+    }
+
+    /** 운영 미터(G8): 종류·결과·테넌트와 요청부터 종단까지의 시간. 기록 실패는 작업 결과를 바꾸지 않는다. */
+    private void measured(Started s, JobRecord.Status outcome) {
+        com.ga.disclosure.workflow.metrics.OperationalMetrics.safely(() ->
+                metrics.jobFinished(s.kind(), outcome, s.tenant(), java.time.Duration.between(s.queued().requestedAt(), clock.instant())));
     }
 
     /** 다른 제출이 이 행을 이미 닫았다(잠금을 잃은 옛 실행기) — 아무것도 쓰지 않는다. */

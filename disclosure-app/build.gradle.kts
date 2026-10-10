@@ -19,6 +19,8 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     implementation(libs.spring.boot.starter.security.oauth2.resource.server)
     implementation(libs.spring.boot.starter.actuator)
+    // Phase 8 G8: 운영 미터(라벨 키 닫힌 목록)를 관리 포트에서 Prometheus 형식으로
+    runtimeOnly(libs.micrometer.registry.prometheus)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(project(":disclosure-rules"))
     implementation(project(":disclosure-audit"))

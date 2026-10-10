@@ -138,12 +138,12 @@ public class QueryConfiguration {
         return new com.ga.disclosure.workflow.disclosure.RetentionRecomputeService(store, versions, records, storage, audit, tx, authz, clock);
     }
 
-    /** 청약 게이트(6B 계획 §6) — 게이트 서비스 주체 전용, 요청마다 감사. 한도 창은 인스턴스 메모리라 빈 하나. */
+    /** 청약 게이트(6B 계획 §6) — 게이트 서비스 주체 전용, 요청마다 감사. 한도는 판정 감사 행의 DB 집계(Phase 8 — 복제본 수와 무관). */
     @Bean
     public com.ga.disclosure.workflow.gate.GateService gateService(com.ga.disclosure.workflow.gate.GateLookup lookup,
             com.ga.disclosure.rules.resolve.RuleResolver rules, com.ga.disclosure.audit.AuditPort audit, WorkflowTransactions tx, AuthorizationPort authz,
-            java.time.Clock clock) {
-        return new com.ga.disclosure.workflow.gate.GateService(lookup, rules, audit, tx, authz, clock);
+            java.time.Clock clock, com.ga.disclosure.workflow.gate.GateLimitStore limits) {
+        return new com.ga.disclosure.workflow.gate.GateService(lookup, rules, audit, tx, authz, clock, limits);
     }
 
     /** 준법 큐 명령(6B 계획 §7): 배정·수동 해소·SLA 경과 표시 — 해소 코드·근거 필요 여부는 해소 시점의 룰. */

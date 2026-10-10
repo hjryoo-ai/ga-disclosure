@@ -65,7 +65,10 @@ class AuthorizationCoverageTest {
             new Allowed(WORKFLOW + ".contract.ContractLinkCarrier#carryOnSeal",
                     "seal plumbing (6B interim ③): moves the predecessor's active contract link to the superseding version inside SEAL's transaction"),
             new Allowed(WORKFLOW + ".sign.PublicSignLimits#perMinute",
-                    "public sign gate plumbing: reads the known tenant's rate limit before any token is checked; reads rule data only"));
+                    "public sign gate plumbing: reads the known tenant's rate limit before any token is checked; reads rule data only"),
+            new Allowed(WORKFLOW + ".onboarding.TenantRulesStatus#inForce",
+                    "write-path plumbing (Phase 8, 6B carry-over 1): whether a GLOBAL rule is in force for the bound caller's own tenant, before the "
+                            + "idempotency claim; reads rule data only"));
 
     /**
      * 규칙 4의 예외 — {@code workflow} 밖에서 내부 단계를 부를 수 있는 (메서드, 호출 클래스) 쌍. 닫힌 FQN 열거이고 실제로 없는 쌍은 실패한다(폐기 항목).
@@ -75,7 +78,8 @@ class AuthorizationCoverageTest {
             WORKFLOW + ".idempotency.IdempotencyService#claim <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
             WORKFLOW + ".idempotency.IdempotencyService#complete <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
             WORKFLOW + ".idempotency.IdempotencyService#release <- com.ga.disclosure.api.idempotency.IdempotencyInterceptor",
-            WORKFLOW + ".sign.PublicSignLimits#perMinute <- com.ga.disclosure.api.security.PublicSignGate");
+            WORKFLOW + ".sign.PublicSignLimits#perMinute <- com.ga.disclosure.api.security.PublicSignGate",
+            WORKFLOW + ".onboarding.TenantRulesStatus#inForce <- com.ga.disclosure.api.security.TenantRulesInterceptor");
 
     /** 진입점이 스스로 부를 인가 메서드: 대상 하나({@code require}) 또는 목록 범위({@code requireList} — 6A 6c, 범위로 걸러진 목록). */
     static final Set<String> AUTHORIZING = Set.of("require", "requireList");

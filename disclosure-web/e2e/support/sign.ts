@@ -58,7 +58,9 @@ export async function remoteLink(request: APIRequestContext): Promise<string> {
   const log = resolve(OUT, 'server.log');
   const offset = statSync(log).size;
   const jwt = readFileSync(resolve(RUN, 'scheduler.jwt'), 'utf8').trim();
-  const r = await request.post('/internal/v1/jobs/NOTIFY', {
+  // Phase 8 Q5: 내부 경로는 내부 포트에만 — 하네스가 env.json에 적은 주소로
+  const { internalUrl } = JSON.parse(readFileSync(resolve(OUT, 'env.json'), 'utf8')) as { internalUrl: string };
+  const r = await request.post(`${internalUrl}/internal/v1/jobs/NOTIFY`, {
     headers: { Authorization: `Bearer ${jwt}`, 'Idempotency-Key': `e2e-notify-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` },
   });
   expect(r.status()).toBe(202);

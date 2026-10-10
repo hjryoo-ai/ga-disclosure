@@ -76,7 +76,7 @@ public class JobConfiguration {
                                    com.ga.disclosure.workflow.disclosure.DraftAbandonService drafts,
                                    com.ga.disclosure.workflow.rate.CollectionRateService rates,
                                    com.ga.disclosure.workflow.disclosure.RetentionRecomputeService recompute,
-                                   Clock clock, RetentionConfiguration.TsaTrust trust) {
+                                   Clock clock, RetentionConfiguration.TsaTrust trust, com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
         Map<JobKind, Function<ObjectNode, JobWork<?>>> h = new EnumMap<>(JobKind.class);
         h.put(JobKind.EXPIRE, p -> {
             StandardJobs.only(p, Set.of("asOf", "limit"));
@@ -105,7 +105,7 @@ public class JobConfiguration {
         h.put(JobKind.FLAG_SLA_SWEEP, p -> {
             StandardJobs.only(p, Set.of("limit"));
             return StandardJobs.flagSlaSweep(flags, StandardJobs.limit(p, StandardJobs.DEFAULT_SLA_SWEEP_LIMIT,
-                    com.ga.disclosure.workflow.flag.FlagCommandService.MAX_SWEEP));
+                    com.ga.disclosure.workflow.flag.FlagCommandService.MAX_SWEEP), metrics);
         });
         h.put(JobKind.CONTRACT_LINK_UNMATCHED_PURGE, p -> {
             StandardJobs.only(p, Set.of("limit"));
@@ -139,6 +139,12 @@ public class JobConfiguration {
         return new IdempotencyService(store, rules, tx, clock);
     }
 
+    /** 룰 없는 테넌트의 쓰기 503(Phase 8, 6B 이월 ①) — API 인터셉터가 멱등 청구 전에 부른다. */
+    @Bean
+    public com.ga.disclosure.workflow.onboarding.TenantRulesStatus tenantRulesStatus(RuleResolver rules, WorkflowTransactions tx, Clock clock) {
+        return new com.ga.disclosure.workflow.onboarding.TenantRulesStatus(rules, tx, clock);
+    }
+
     @Bean
     public IdempotencyPurge idempotencyPurge(IdempotencyStore store, AuthorizationPort authz, WorkflowTransactions tx, Clock clock) {
         return new IdempotencyPurge(store, authz, tx, clock);
@@ -146,8 +152,9 @@ public class JobConfiguration {
 
     @Bean
     public JobRunner jobRunner(JobStore store, JobLockPort locks, ReportCryptoPort crypto, ArtifactStore storage, AuditPort audit,
-                               WorkflowTransactions tx, Clock clock, AuthorizationPort authz, ExecutorService jobExecutor, JobHandlers handlers) {
-        return new JobRunner(store, locks, crypto, storage, audit, tx, clock, UUID::randomUUID, authz, jobExecutor, handlers);
+                               WorkflowTransactions tx, Clock clock, AuthorizationPort authz, ExecutorService jobExecutor, JobHandlers handlers,
+                               com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
+        return new JobRunner(store, locks, crypto, storage, audit, tx, clock, UUID::randomUUID, authz, jobExecutor, handlers, metrics);
     }
 
     @Bean

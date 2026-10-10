@@ -128,11 +128,14 @@ export async function up() {
 
   const appPort = await freePort();
   const managementPort = await freePort();
+  const internalPort = await freePort();
   env.baseUrl = `http://127.0.0.1:${appPort}`;
+  // Phase 8 Q5: /internal/**은 내부 포트에만(운영은 클러스터 안 진입점 C) — 하네스의 통지 작업도 그 포트로
+  env.internalUrl = `http://127.0.0.1:${internalPort}`;
   env.managementUrl = `http://127.0.0.1:${managementPort}`;
   const serverLog = openSync(resolve(out, 'server.log'), 'w', 0o600);
   const app = spawn(java, ['-jar', jar, '--spring.profiles.active=demo', `--server.port=${appPort}`, '--server.address=127.0.0.1',
-    `--management.server.port=${managementPort}`, '--management.server.address=127.0.0.1', ...common, ...keys,
+    `--management.server.port=${managementPort}`, '--management.server.address=127.0.0.1', `--ga.internal.port=${internalPort}`, ...common, ...keys,
     `--ga.api.jwt.public-key-location=${resolve(run, 'demo-oidc.pem')}`,
     `--ga.sign.link-base-url=${env.baseUrl}/s#`], { env: appEnv, cwd: repo, stdio: ['ignore', serverLog, serverLog], detached: true });
   closeSync(serverLog);

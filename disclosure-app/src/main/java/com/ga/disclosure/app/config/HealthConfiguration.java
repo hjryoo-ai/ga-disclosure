@@ -20,6 +20,12 @@ import java.util.Optional;
 @Configuration
 public class HealthConfiguration {
 
+    /** 운영 필수 키 가드 — 스키마 버전 가드보다 먼저(PriorityOrdered). 빈 팩토리 후처리기는 static으로(설정 클래스보다 먼저 만들어진다). */
+    @Bean
+    public static ProdStartupGuard prodStartupGuard() {
+        return new ProdStartupGuard();
+    }
+
     /** 빈 팩토리 후처리기는 static으로(설정 클래스보다 먼저 만들어진다). */
     @Bean
     public static SchemaVersionGuard schemaVersionGuard() {

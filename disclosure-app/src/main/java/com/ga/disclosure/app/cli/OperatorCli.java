@@ -169,7 +169,7 @@ public class OperatorCli implements ApplicationRunner {
                        com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate,
                        com.ga.disclosure.workflow.disclosure.RetentionRecomputeService retentionRecompute,
                        com.ga.disclosure.workflow.flag.FlagQueryService flagQueries, com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService,
-                       com.ga.disclosure.workflow.kek.TenantKekService keks) {
+                       com.ga.disclosure.workflow.kek.TenantKekService keks, com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -194,7 +194,7 @@ public class OperatorCli implements ApplicationRunner {
         this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
         this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, retentionRecompute, jobs, this::tenants,
-                clock, out);
+                clock, out, metrics);
         this.contractLinks = new ContractLinkCommands(contractLinks, jobs, out);
         this.drafts = new DraftCommands(draftAbandon, jobs, out);
         this.draftAbandon = draftAbandon;

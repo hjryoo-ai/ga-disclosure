@@ -64,10 +64,12 @@ final class RetentionCommands {
     private final Function<String, List<TenantId>> tenants;
     private final Clock clock;
     private final PrintStream out;
+    private final com.ga.disclosure.workflow.metrics.OperationalMetrics metrics;
 
     RetentionCommands(AnchorJob anchors, ReceiptExporter receipts, TenantVerifier verifier, DestructionJob destruction, LegalHoldService holds,
                       com.ga.disclosure.workflow.disclosure.RetentionRecomputeService recompute, JobCommands jobs,
-                      Function<String, List<TenantId>> tenants, Clock clock, PrintStream out) {
+                      Function<String, List<TenantId>> tenants, Clock clock, PrintStream out, com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.recompute = Objects.requireNonNull(recompute, "recompute");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
@@ -111,7 +113,7 @@ final class RetentionCommands {
         date.ifPresent(d -> params.put("date", d.toString()));
         // 6A 계획 §6.2: 테넌트마다 잠금·작업 행, 잡은 테넌트들로 앵커 배치 한 번(한 트리) — 잠긴 테넌트는 그 테넌트만 JOB_BUSY
         Optional<AnchorJob.Report> ran = jobs.group(targets.stream().map(t -> Caller.cli(t, operator)).toList(), JobKind.ANCHOR, params,
-                StandardJobs.anchor(anchors, date, operator)).result();
+                StandardJobs.anchor(anchors, date, operator, metrics)).result();
         if (ran.isEmpty()) {
             jobs.failIfIncomplete();
             return;

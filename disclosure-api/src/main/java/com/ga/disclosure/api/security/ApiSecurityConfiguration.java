@@ -95,6 +95,12 @@ public class ApiSecurityConfiguration {
         return new ResponsePadding(Duration.ofMillis(floorMillis), clock, sleeper);
     }
 
+    /** 내부 경로 전용 포트(Phase 8 Q5) — 앱 조립이 서버 기동 뒤 실제 포트를 넣는다. */
+    @Bean
+    public InternalPort internalPort() {
+        return new InternalPort();
+    }
+
     @Bean
     public RateWindow publicSignRateWindow() {
         return new RateWindow();
@@ -115,7 +121,8 @@ public class ApiSecurityConfiguration {
     @Bean
     @Order(0)
     public SecurityFilterChain publicSignSecurityFilterChain(HttpSecurity http, Clock clock, TenantRegistry tenants, PublicSignLimits limits,
-                                                            RateWindow rates, ResponsePadding padding) throws Exception {
+                                                            RateWindow rates, ResponsePadding padding, InternalPort internalPort,
+                                                            org.springframework.beans.factory.ObjectProvider<PublicRejection.Counter> rejections) throws Exception {
         http.securityMatcher("/public/**")
                 .csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -126,13 +133,14 @@ public class ApiSecurityConfiguration {
                 .logout(l -> l.disable())
                 .headers(h -> h.referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
                 .authorizeHttpRequests(a -> a.anyRequest().permitAll())
-                .addFilterAfter(new PublicSignGate(clock, tenants, limits, rates, padding), HeaderWriterFilter.class);
+                .addFilterAfter(new PublicSignGate(clock, tenants, limits, rates, padding, rejections.getIfAvailable(() -> PublicRejection.Counter.NONE), internalPort),
+                        HeaderWriterFilter.class);
         return http.build();
     }
 
     @Bean
     @Order(1)
-    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http, JwtDecoder apiJwtDecoder, TenantRegistry tenants,
+    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http, JwtDecoder apiJwtDecoder, TenantRegistry tenants, InternalPort internalPort,
             @org.springframework.beans.factory.annotation.Value("${ga.api.client-cert.subject-header:}") String clientCertHeader) throws Exception {
         ApiAuthenticationEntryPoint entryPoint = new ApiAuthenticationEntryPoint();
         http.securityMatcher("/api/**", "/internal/**")
@@ -147,6 +155,7 @@ public class ApiSecurityConfiguration {
                 .oauth2ResourceServer(o -> o.jwt(j -> j.decoder(apiJwtDecoder).jwtAuthenticationConverter(TenantBindingFilter.noAuthorities()))
                         .authenticationEntryPoint(entryPoint))
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
+                .addFilterAfter(new PortChannelFilter(internalPort), HeaderWriterFilter.class)
                 .addFilterAfter(new TenantBindingFilter(tenants), BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(new ClientCertSubjectFilter(java.util.Optional.of(clientCertHeader)), TenantBindingFilter.class)
                 .addFilterAfter(new IdempotencyCaptureFilter(), ClientCertSubjectFilter.class);
@@ -159,7 +168,7 @@ public class ApiSecurityConfiguration {
      */
     @Bean
     @Order(10)
-    public SecurityFilterChain otherSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain otherSecurityFilterChain(HttpSecurity http, InternalPort internalPort) throws Exception {
         UnroutedPathHandler unrouted = new UnroutedPathHandler();
         http.csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -167,9 +176,11 @@ public class ApiSecurityConfiguration {
                 .formLogin(f -> f.disable())
                 .httpBasic(b -> b.disable())
                 .logout(l -> l.disable())
-                .authorizeHttpRequests(a -> a.requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/readiness", "/actuator/health/liveness")
+                .authorizeHttpRequests(a -> a.requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/readiness", "/actuator/health/liveness",
+                                "/actuator/prometheus")
                         .permitAll().anyRequest().denyAll())
-                .exceptionHandling(e -> e.authenticationEntryPoint(unrouted).accessDeniedHandler(unrouted));
+                .exceptionHandling(e -> e.authenticationEntryPoint(unrouted).accessDeniedHandler(unrouted))
+                .addFilterAfter(new PortChannelFilter(internalPort), HeaderWriterFilter.class);
         return http.build();
     }
 }

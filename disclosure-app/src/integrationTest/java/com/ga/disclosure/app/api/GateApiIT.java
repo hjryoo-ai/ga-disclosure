@@ -220,4 +220,27 @@ class GateApiIT {
         assertThat(ok).isGreaterThanOrEqualTo(3);
         assertThat(gateAudits(t)).isEqualTo(ok);
     }
+
+    /**
+     * 6B 이월 ②(Phase 8): 한도는 DB 집계라 인스턴스가 둘이어도 하나다 — 같은 DB를 쓰는 두 번째 앱에 번갈아 보내도 한도 3이면 정확히 3번 200, 그 뒤 429
+     * (6B의 인스턴스 메모리 창이면 인스턴스마다 3번씩 6번이 통과했다). 창은 지난 60초라 분 경계와 무관하다.
+     */
+    @Test
+    void theLimitIsOneLimitAcrossTwoInstances() {
+        String t = tenant("DISC-GATE2-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+                body -> ((ObjectNode) body.get("gate")).put("perMinutePerPrincipal", 3));
+        java.util.List<String> args = new java.util.ArrayList<>(java.util.List.of("--server.port=0"));
+        ApiTestSupport.propertyMap().forEach((k, v) -> args.add("--" + k + "=" + v.get()));
+        try (var second = new org.springframework.boot.builder.SpringApplicationBuilder(DisclosureApplication.class)
+                .web(org.springframework.boot.WebApplicationType.SERVLET).run(args.toArray(String[]::new))) {
+            int secondPort = Integer.parseInt(second.getEnvironment().getRequiredProperty("local.server.port"));
+            java.util.List<Integer> statuses = new java.util.ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                int target = i % 2 == 0 ? port : secondPort;
+                statuses.add(ApiTestSupport.post(target, "/internal/v1/gate", TestJwts.token(t, GATE), byPolicy("POL-NONE", MINE), Map.of()).status());
+            }
+            assertThat(statuses).containsExactly(200, 200, 200, 429, 429, 429);
+            assertThat(gateAudits(t)).isEqualTo(3);
+        }
+    }
 }

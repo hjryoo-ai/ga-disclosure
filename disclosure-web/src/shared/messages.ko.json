@@ -358,6 +358,7 @@
       "IDEMPOTENCY_NOT_REPLAYABLE": "이미 처리된 요청이며 결과를 다시 보낼 수 없습니다.",
       "INVALID_CURSOR": "목록 위치가 올바르지 않습니다. 처음부터 다시 불러오세요.",
       "RATE_LIMITED": "요청이 너무 많습니다. 잠시 뒤 다시 시도하세요.",
+      "TENANT_RULES_NOT_ACTIVE": "이 회사에 아직 시행 중인 규정이 없습니다. 운영자에게 문의하세요.",
       "INTERNAL_ERROR": "서버 오류가 발생했습니다."
     },
     "rejection": {

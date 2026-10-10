@@ -74,14 +74,14 @@ logging:
     org.springframework.security.web.FilterChainProxy: INFO
 
 # (Phase 8, G7) 관리 포트 분리 — 헬스는 이 포트에서만(인그레스 미노출, NetworkPolicy는 kubelet·모니터링만). 앱 포트의 /actuator/**는 없는 경로와
-# 같은 404다. 준비성 = DB(헬스 롤)·저장소(Object Lock)·IdP JWKS, 활성 = 프로세스만.
+# 같은 404다. 준비성 = DB(헬스 롤)·저장소(Object Lock)·IdP JWKS, 활성 = 프로세스만. /actuator/prometheus는 운영 미터(G8 — ga.* 라벨 키 닫힌 목록).
 management:
   server:
     port: ${GA_MANAGEMENT_PORT:8082}
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       probes:

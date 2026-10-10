@@ -61,6 +61,7 @@ public final class ApiTestSupport {
         p.put("ga.health.url", DB::jdbcUrl);
         // Phase 8: 액추에이터는 관리 포트에만 — 시험 컨텍스트가 여럿 캐시되므로 임의 포트
         p.put("management.server.port", () -> "0");
+        p.put("ga.internal.port", () -> "0");
         // 웹 IT 클래스마다 컨텍스트가 캐시에 남고 각자 풀을 쥔다 — 기본 풀(최소 유휴 = 최대 10)이면 컨텍스트 14개에서 서버 연결 100개를 넘는다(53300)
         p.put("spring.datasource.hikari.maximum-pool-size", () -> "5");
         p.put("spring.datasource.hikari.minimum-idle", () -> "1");
@@ -161,7 +162,19 @@ public final class ApiTestSupport {
         return send(port, "POST", path, tokenOrNull, jsonOrNull, headers);
     }
 
+    /**
+     * 앱 포트 → 그 앱의 내부 포트(Phase 8 Q5 — {@code /internal/**}은 내부 포트에만 있다). 시험 수신기 {@code InternalPortRecorder}가 기동 때 채운다.
+     * {@link #send}는 {@code /internal} 경로를 같은 앱의 내부 포트로 보낸다(클러스터 안 진입점 C가 하는 일) — 포트를 그대로 쓰려면 {@link #sendExact}.
+     */
+    public static final java.util.Map<Integer, Integer> INTERNAL_PORTS = new java.util.concurrent.ConcurrentHashMap<>();
+
     public static Response send(int port, String method, String path, String tokenOrNull, String jsonOrNull, Map<String, String> headers) {
+        int target = path.startsWith("/internal/") || path.equals("/internal") ? INTERNAL_PORTS.getOrDefault(port, port) : port;
+        return sendExact(target, method, path, tokenOrNull, jsonOrNull, headers);
+    }
+
+    /** 주어진 포트로 그대로 보낸다(포트 분리 시험). */
+    public static Response sendExact(int port, String method, String path, String tokenOrNull, String jsonOrNull, Map<String, String> headers) {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
         if (tokenOrNull != null) {
             b.header("Authorization", "Bearer " + tokenOrNull);

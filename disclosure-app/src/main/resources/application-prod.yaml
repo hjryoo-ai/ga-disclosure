@@ -1,0 +1,57 @@
+# 운영 프로파일(Phase 8, 8 계획 ③ "운영 필수 키 가드", G3). application.yaml의 로컬 기본값(허구 자격 증명·localhost)을 운영에서 쓰지 않도록
+# 운영 필수 키를 전부 기본값 없는 자리표시로 덮는다 — 값은 배포(쿠버네티스 Secret → 환경)가 준다. 빠진 키는 ProdStartupGuard가 기동 전에 이름만으로
+# 모아 알린다(값·기본값·경로 0). 이 파일의 필수 키에 기본값(`${X:…}`)을 두면 ProdProfileYamlTest가 실패한다.
+spring:
+  datasource:
+    url: ${DISCLOSURE_DB_URL}
+    username: ${DISCLOSURE_APP_USER}
+    password: ${DISCLOSURE_APP_PASSWORD}
+
+ga:
+  health:
+    url: ${DISCLOSURE_DB_URL}
+    username: ${DISCLOSURE_HEALTH_USER}
+    password: ${DISCLOSURE_HEALTH_PASSWORD}
+  tenant-directory:
+    url: ${DISCLOSURE_DB_URL}
+    username: ${DISCLOSURE_OPERATOR_USER}
+    password: ${DISCLOSURE_OPERATOR_PASSWORD}
+  job-lock:
+    url: ${DISCLOSURE_DB_URL}
+    username: ${DISCLOSURE_JOB_LOCK_USER}
+    password: ${DISCLOSURE_JOB_LOCK_PASSWORD}
+  # 마이그레이터 자격 증명은 마이그레이션 Job(db migrate)에만 마운트한다 — 앱 파드에는 없다(앱은 읽지 않는다)
+  migrator:
+    url: ${DISCLOSURE_DB_URL}
+    username: ${DISCLOSURE_MIGRATOR_USER}
+    password: ${DISCLOSURE_MIGRATOR_PASSWORD}
+  secrets:
+    dir: ${GA_SECRETS_DIR}
+    allow-group-read: true
+  storage:
+    s3:
+      endpoint: ${GA_S3_ENDPOINT}
+      region: ${GA_S3_REGION}
+      bucket: ${GA_S3_BUCKET}
+      access-key-id: ${GA_S3_ACCESS_KEY_ID}
+      secret-access-key: ${GA_S3_SECRET_ACCESS_KEY}
+      create-bucket: false
+  api:
+    jwt:
+      issuer: ${GA_JWT_ISSUER}
+      audience: ${GA_JWT_AUDIENCE}
+      jwk-set-uri: ${GA_JWT_JWK_SET_URI}
+    client-cert:
+      subject-header: ${GA_CLIENT_CERT_SUBJECT_HEADER}
+  public-sign:
+    min-response-millis: ${GA_PUBLIC_SIGN_MIN_RESPONSE_MILLIS}
+  sign:
+    link-base-url: ${GA_SIGN_LINK_BASE_URL}
+  tsa:
+    url: ${GA_TSA_URL}
+
+# 구조화 로그(Boot 내장 — 추가 의존성 0). 접근 로그 ga.access도 같은 형식이다.
+logging:
+  structured:
+    format:
+      console: ecs

@@ -59,12 +59,22 @@ public final class PublicSignGate extends OncePerRequestFilter {
     private final ResponsePadding padding;
 
     public PublicSignGate(Clock clock, TenantRegistry tenants, PublicSignLimits limits, RateWindow rates, ResponsePadding padding) {
+        this(clock, tenants, limits, rates, padding, PublicRejection.Counter.NONE, new InternalPort());
+    }
+
+    public PublicSignGate(Clock clock, TenantRegistry tenants, PublicSignLimits limits, RateWindow rates, ResponsePadding padding,
+                          PublicRejection.Counter rejections, InternalPort internalPort) {
+        this.rejections = Objects.requireNonNull(rejections, "rejections");
+        this.internalPort = Objects.requireNonNull(internalPort, "internalPort");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.tenants = Objects.requireNonNull(tenants, "tenants");
         this.limits = Objects.requireNonNull(limits, "limits");
         this.rates = Objects.requireNonNull(rates, "rates");
         this.padding = Objects.requireNonNull(padding, "padding");
     }
+
+    private final PublicRejection.Counter rejections;
+    private final InternalPort internalPort;
 
     private record Admitted(HttpServletRequest request, String token) {
         @Override
@@ -78,8 +88,10 @@ public final class PublicSignGate extends OncePerRequestFilter {
         Instant start = clock.instant();
         ContentCachingResponseWrapper buffered = new ContentCachingResponseWrapper(response);
         try {
-            if (!passes(request, buffered, chain)) {
+            Optional<PublicRejection> refused = passes(request, buffered, chain);
+            if (refused.isPresent()) {
                 reject(buffered);
+                count(refused.get());
             }
         } finally {
             padding.pad(start);
@@ -92,19 +104,36 @@ public final class PublicSignGate extends OncePerRequestFilter {
      * {@code sendError}·리다이렉트, 허용 밖 상태({@link #PASSING} 밖)는 전부 거부 바이트가 된다. 그렇지 않으면 그런 실패가 500·400으로 새어
      * 테넌트 존재나 내부 상태를 구별하게 해 준다.
      */
-    private boolean passes(HttpServletRequest request, ContentCachingResponseWrapper buffered, FilterChain chain) {
+    private Optional<PublicRejection> passes(HttpServletRequest request, ContentCachingResponseWrapper buffered, FilterChain chain) {
         try {
-            Optional<Admitted> admitted = admit(request);
-            if (admitted.isEmpty()) {
-                return false;
+            Admission admission = admit(request);
+            if (!(admission instanceof Admission.In(Admitted admitted))) {
+                return Optional.of(((Admission.Out) admission).reason());
             }
-            admitted.get().request().setAttribute(TOKEN_ATTRIBUTE, admitted.get().token());
+            admitted.request().setAttribute(TOKEN_ATTRIBUTE, admitted.token());
             Contained contained = new Contained(buffered);
-            chain.doFilter(admitted.get().request(), contained);
-            return !contained.escaped && admitted.get().request().getAttribute(REJECT_ATTRIBUTE) == null && PASSING.contains(buffered.getStatus());
+            chain.doFilter(admitted.request(), contained);
+            boolean ok = !contained.escaped && admitted.request().getAttribute(REJECT_ATTRIBUTE) == null && PASSING.contains(buffered.getStatus());
+            return ok ? Optional.empty() : Optional.of(PublicRejection.HANDLER_REJECTED);
         } catch (Exception e) {
             LOG.log(System.Logger.Level.INFO, "PUBLIC_SIGN_REJECTED " + e.getClass().getSimpleName());
-            return false;
+            return Optional.of(PublicRejection.ERROR);
+        }
+    }
+
+    private void count(PublicRejection reason) {
+        try {
+            rejections.rejected(reason);
+        } catch (RuntimeException e) {
+            LOG.log(System.Logger.Level.WARNING, "METRIC_RECORD_FAILED " + e.getClass().getSimpleName());
+        }
+    }
+
+    private sealed interface Admission {
+        record In(Admitted admitted) implements Admission {
+        }
+
+        record Out(PublicRejection reason) implements Admission {
         }
     }
 
@@ -148,14 +177,15 @@ public final class PublicSignGate extends OncePerRequestFilter {
         }
     }
 
-    private Optional<Admitted> admit(HttpServletRequest request) throws IOException {
-        if (request.getQueryString() != null || !"POST".equals(request.getMethod())
+    private Admission admit(HttpServletRequest request) throws IOException {
+        // Phase 8 Q5: 내부 포트로 온 공개 경로도 같은 거부(패딩 포함) — 공개 경로는 공개 포트에만 있다
+        if (internalPort.arrivedOn(request.getLocalPort()) || request.getQueryString() != null || !"POST".equals(request.getMethod())
                 || !PATHS.contains(request.getRequestURI().substring(request.getContextPath().length()))) {
-            return Optional.empty();
+            return new Admission.Out(PublicRejection.NOT_A_SIGN_REQUEST);
         }
         byte[] body = request.getInputStream().readNBytes(MAX_BODY_BYTES + 1);
         if (body.length > MAX_BODY_BYTES) {
-            return Optional.empty();
+            return new Admission.Out(PublicRejection.BODY_TOO_LARGE);
         }
         String raw = request.getHeader(TOKEN_HEADER);
         if (raw == null && body.length > 0) {
@@ -163,20 +193,23 @@ public final class PublicSignGate extends OncePerRequestFilter {
                 JsonNode node = Canonicalizer.parseStrict(new String(body, StandardCharsets.UTF_8));
                 raw = node.path("token").isString() ? node.get("token").asString() : null;
             } catch (RuntimeException notJson) {
-                return Optional.empty();
+                return new Admission.Out(PublicRejection.MALFORMED);
             }
         }
         SignToken token;
         try {
             token = SignToken.parse(raw);
         } catch (RuntimeException malformed) {
-            return Optional.empty();
+            return new Admission.Out(PublicRejection.MALFORMED);
         }
         // 없는 테넌트는 카운터를 거치지 않는다(맵을 키울 수 없다). 거부 지점이 달라도 패딩이 전체 응답을 덮는다(B2)
-        if (!tenants.exists(token.tenant()) || !rates.admit(token.tenant(), limits.perMinute(token.tenant()), clock.instant())) {
-            return Optional.empty();
+        if (!tenants.exists(token.tenant())) {
+            return new Admission.Out(PublicRejection.UNKNOWN_TENANT);
         }
-        return Optional.of(new Admitted(new BufferedBodyRequest(request, body), raw));
+        if (!rates.admit(token.tenant(), limits.perMinute(token.tenant()), clock.instant())) {
+            return new Admission.Out(PublicRejection.RATE_LIMITED);
+        }
+        return new Admission.In(new Admitted(new BufferedBodyRequest(request, body), raw));
     }
 
     private static void reject(ContentCachingResponseWrapper response) {

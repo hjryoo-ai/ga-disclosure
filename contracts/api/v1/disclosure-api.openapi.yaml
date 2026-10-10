@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 사람 역할 API(설계사·관리자·준법)
-  version: 2.9.0
+  version: 2.10.0
   description: |
     설계서 §7, 6A 계획 §4. 접두 `/api/v1`은 사람 역할(AGENT·MANAGER·COMPLIANCE)만 닿는다 — 서비스 주체는 404(승인 Q15).
     - 인증: JWT(Bearer) 하나. 역할·설계사·조직은 토큰이 아니라 `identity_link`에서 정한다. 인증 실패는 전부 같은 401(`UNAUTHENTICATED`).
@@ -639,7 +639,9 @@ components:
       schema: { $ref: '#/components/schemas/JobKind' }
   responses:
     Problem:
-      description: 오류(인증 401·없음 404·형식 400·키 없음 428·업무 거부 409/422·작업 겹침 409 등)
+      description: >-
+        오류(인증 401·없음 404·형식 400·키 없음 428·업무 거부 409/422·작업 겹침 409 등). (2.10.0) 오늘 시행 중인 룰이 없는 테넌트의 쓰기 요청은
+        유스케이스·멱등 청구 전에 503 `TENANT_RULES_NOT_ACTIVE`(감사 없음, 멱등 키를 묶지 않는다 — 온보딩 뒤 같은 키로 다시 보내면 처음 요청이다).
       content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } }
     DisclosureReceipt:
       description: 적용됨
@@ -692,7 +694,7 @@ components:
           type: string
           enum: [UNAUTHENTICATED, NOT_FOUND, METHOD_NOT_ALLOWED, MALFORMED_REQUEST, REJECTED, CONFLICT, CONCURRENT_WRITE, JOB_ALREADY_RUNNING,
                  REPORT_NOT_AVAILABLE, IDEMPOTENCY_KEY_REQUIRED, IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_IN_PROGRESS, IDEMPOTENCY_NOT_REPLAYABLE,
-                 INVALID_CURSOR, RATE_LIMITED, INTERNAL_ERROR]
+                 INVALID_CURSOR, RATE_LIMITED, TENANT_RULES_NOT_ACTIVE, INTERNAL_ERROR]
         message: { type: string, description: 코드별 고정 영문 문장(입력값·자원 값 없음) }
         details:
           oneOf:

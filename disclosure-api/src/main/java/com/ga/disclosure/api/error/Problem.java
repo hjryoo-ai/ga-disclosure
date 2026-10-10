@@ -39,6 +39,7 @@ public final class Problem {
             Map.entry("IDEMPOTENCY_NOT_REPLAYABLE", "The original response carried a one-time credential and is not replayed."),
             Map.entry("INVALID_CURSOR", "The cursor is not valid."),
             Map.entry("RATE_LIMITED", "Too many requests; retry later."),
+            Map.entry("TENANT_RULES_NOT_ACTIVE", "No rules are in force for this tenant yet; retry after onboarding."),
             Map.entry("INTERNAL_ERROR", "Internal error."));
 
     private Problem() {
