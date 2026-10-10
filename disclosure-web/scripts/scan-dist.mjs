@@ -1,7 +1,9 @@
 // Vite 산출물 검사(webBuild 마지막 단계, 계획 ③·⑤, G9 빌드 쪽):
 //  ① HTML: 인라인 스크립트·인라인 스타일·이벤트 속성 0, 참조는 전부 같은 출처 /assets/, 외부 출처 URL 0
 //  ② CSS: url()은 /assets/만, @import 0
-//  ③ 폰트: 번들된 폰트 바이트 = PDF 렌더러 폰트(disclosure-seal 자원) 바이트 — 같은 폰트(Q8)
+//  ③ 폰트: 번들된 폰트 바이트 = PDF 렌더러 폰트(disclosure-seal 자원) 바이트 — 같은 폰트(Q8). (Phase 8 ③-x-3) 폰트 바이트 합계 상한 = 측정값
+//     4,128,612 + 여유 5%. 화면 폰트 서브셋(한글 완성형 11,172 + ASCII + 문장부호, FontBox TTFSubsetter)은 측정 결과 Regular 4.1%·Bold 3.9% 감소로
+//     계획의 기준(10%) 미만이라 하지 않았다 — 화면 폰트는 렌더러 폰트 그대로(위 검사 불변). 원본 폰트에 한자 글리프가 없어 줄일 것이 거의 없다.
 //  ④ 고객 서명 번들의 모듈 그래프에 react·라우터·직원 화면 코드 0, 소스맵 0
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
@@ -60,6 +62,10 @@ for (const font of ['NanumGothic-Regular.ttf', 'NanumGothic-Bold.ttf']) {
   if (!bundledFonts.has(sha256(await readFile(join(fonts, font))))) failures.push(`font ${font} is not bundled byte for byte`);
 }
 if (bundledFonts.size !== 2) failures.push(`expected exactly the 2 renderer fonts, found ${bundledFonts.size} .ttf files`);
+const FONT_BYTES_CAP = 4_335_043;                                          // 4,128,612 × 1.05 (올림)
+let fontBytes = 0;
+for (const f of files.filter((f) => /\.(ttf|otf|woff2?)$/.test(f))) fontBytes += (await readFile(f)).length;
+if (fontBytes > FONT_BYTES_CAP) failures.push(`font bytes ${fontBytes} exceed the cap ${FONT_BYTES_CAP}`);
 
 const chunks = JSON.parse(await readFile(resolve(web, 'build/web/bundle-modules.json'), 'utf8'));
 const signEntry = Object.entries(chunks).find(([, c]) => c.entry === 'sign');
