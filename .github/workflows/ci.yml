@@ -132,7 +132,7 @@ jobs:
     # 크기 한도·평문 무경로)·내부 진입점 mTLS(인증서 없음/다른 SNI 거부, 있음 통과)·NetworkPolicy 집행(전제: 다른 파드는 8081에 못 닿음)을 단언하고,
     # 모든 파드·Job 로그를 비밀 값·허구 개인정보 센티널로 스캔한다. 클러스터·비밀 디렉터리는 실행마다 이름을 달리하고 끝나면 지운다.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CLUSTER: ga-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -155,6 +155,17 @@ jobs:
       - name: Smoke
         run: deploy/scripts/kind.sh smoke "$CLUSTER" | tee kind-smoke.txt
 
+      - name: Demo seed and in-cluster verify (G1)
+        run: deploy/scripts/kind.sh seed "$CLUSTER" | tee kind-seed.txt
+
+      - name: Backup and disaster restore (G2 — tables, objects, verify tenant)
+        run: |
+          deploy/scripts/kind.sh backup "$CLUSTER" | tee kind-backup.txt
+          deploy/scripts/kind.sh restore "$CLUSTER" | tee kind-restore.txt
+
+      - name: Smoke after the restore
+        run: deploy/scripts/kind.sh smoke "$CLUSTER" | tee kind-smoke-after-restore.txt
+
       - name: Log scan
         run: deploy/scripts/kind.sh logscan "$CLUSTER" | tee kind-logscan.txt
 
@@ -165,6 +176,10 @@ jobs:
           name: kind-results
           path: |
             kind-smoke.txt
+            kind-seed.txt
+            kind-backup.txt
+            kind-restore.txt
+            kind-smoke-after-restore.txt
             kind-logscan.txt
 
       - name: Delete the cluster

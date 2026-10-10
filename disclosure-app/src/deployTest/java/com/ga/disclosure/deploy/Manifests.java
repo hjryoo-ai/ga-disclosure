@@ -23,7 +23,7 @@ import java.util.stream.Stream;
 public final class Manifests {
 
     /** 린트 대상 오버레이. */
-    public static final List<String> OVERLAYS = List.of("prod", "kind-demo");
+    public static final List<String> OVERLAYS = List.of("prod", "kind-demo", "kind-restore");
 
     static final YAMLMapper YAML = YAMLMapper.builder().build();
     private static final Map<String, String> RENDERED = new ConcurrentHashMap<>();

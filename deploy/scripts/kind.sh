@@ -7,13 +7,17 @@
 #   deploy/scripts/kind.sh deploy  <cluster>   네임스페이스·CRD → 비밀 → 렌더 적용 → 마이그레이션 Job 완료 → 롤아웃 대기
 #   deploy/scripts/kind.sh smoke   <cluster>   인그레스·mTLS·한도·NetworkPolicy 단언(실패하면 종료 1)
 #   deploy/scripts/kind.sh logscan <cluster>   모든 파드·Job 로그를 모아 비밀 값·허구 개인정보 센티널 스캔(걸리면 종료 1)
+#   deploy/scripts/kind.sh seed    <cluster>   데모 시드(disclosure-demo/scripts/seed.sh를 포트 포워드로 — 클러스터의 DB·저장소·비밀) → 클러스터 안 VERIFY_TENANT
+#   deploy/scripts/kind.sh verify  <cluster>   클러스터 안 VERIFY_TENANT 작업(CronJob에서 한 번) — 모든 테넌트 MATCH가 아니면 종료 1
+#   deploy/scripts/kind.sh backup  <cluster>   표 내용 해시를 저장한 뒤 ga-backup CronJob을 한 번 → 실행 이름 출력
+#   deploy/scripts/kind.sh restore <cluster> <실행>  DB 볼륨을 지우고 kind-restore 오버레이로 복구 → 표 해시 = 백업 때, VERIFY_TENANT MATCH
 #   deploy/scripts/kind.sh down    <cluster>   클러스터와 그 비밀 디렉터리 삭제(이 스크립트가 만든 것만)
 #
 # 값은 출력하지 않는다. 비밀 값은 명령줄·환경변수에 싣지 않는다 — 파일(소유자 전용)과 --from-file·--from-env-file로만 넘긴다.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-CMD="${1:?usage: kind.sh up|secrets|deploy|smoke|logscan|down <cluster>}"
+CMD="${1:?usage: kind.sh up|secrets|deploy|smoke|logscan|seed|verify|backup|restore|down <cluster> [run]}"
 CLUSTER="${2:?cluster name (e.g. ga-p8-$(date +%s))}"
 [[ "$CLUSTER" =~ ^ga-[a-z0-9-]{1,40}$ ]] || { echo "cluster name must match ga-[a-z0-9-]+" >&2; exit 2; }
 
@@ -25,7 +29,7 @@ HOST_PORT=18443
 NS=ga-disclosure
 
 lock() { awk -v n="$1" '$1 == n { print $4 }' deploy/tools.lock; }
-render() { $TOOLS/kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/overlays/kind-demo; }
+render() { $TOOLS/kubectl kustomize --load-restrictor LoadRestrictionsNone "deploy/overlays/${1:-kind-demo}"; }
 java_bin() { ./gradlew -q :disclosure-app:demoJavaLauncher; }
 app_jar() { ls disclosure-app/build/libs/disclosure-app-*.jar | grep -v -- '-plain.jar' | head -n 1; }
 
@@ -59,7 +63,8 @@ secrets() {
   JAVA="$(java_bin)"; JAR="$(app_jar)"
   # 키 재료(앱의 오프라인 명령 — 없는 것만 만든다): API 키·백업 키·데모 OIDC 서명 키·스텁 TSA 키 저장소, 데모 테넌트의 첫 KEK
   "$JAVA" -jar "$JAR" --spring.profiles.active=cli secrets init --secrets-dir "$STATE/secrets" --demo yes
-  for t in DEMO1 DEMO2; do
+  # 데모 테넌트 셋(DEMO3 = 짧은 보존 — seed.sh가 등록한다)의 첫 KEK. 클러스터 Secret보다 늦게 생긴 키는 파드가 읽지 못한다 — 여기서 미리 만든다.
+  for t in DEMO1 DEMO2 DEMO3; do
     "$JAVA" -jar "$JAR" --spring.profiles.active=cli crypto kek init --tenant "$t" --kek-id "$t-KEK-1" --secrets-dir "$STATE/secrets" --if-absent yes
   done
   # DB 롤 비밀번호(파일 하나에 하나)
@@ -77,6 +82,8 @@ secrets() {
   [ -f "$STATE/s3/access" ] || password > "$STATE/s3/access"
   [ -f "$STATE/s3/secret" ] || password > "$STATE/s3/secret"
   { echo "GA_S3_ACCESS_KEY_ID=$(cat "$STATE/s3/access")"; echo "GA_S3_SECRET_ACCESS_KEY=$(cat "$STATE/s3/secret")"; } > "$STATE/s3/app.env"
+  { echo "GA_BACKUP_S3_ACCESS_KEY_ID=$(cat "$STATE/s3/access")"; echo "GA_BACKUP_S3_SECRET_ACCESS_KEY=$(cat "$STATE/s3/secret")"; } > "$STATE/s3/backup.env"
+  echo "PGPASSWORD=$(cat "$STATE/db/backup-password")" > "$STATE/db/backup.env"
   printf '{"identities":[{"name":"ga-app","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","List","Tagging","Write"]}]}' \
     "$(cat "$STATE/s3/access")" "$(cat "$STATE/s3/secret")" > "$STATE/s3/s3.json"
   # 데모 OIDC 공개키(비밀 아님 — 서명 키에서 유도)
@@ -100,6 +107,8 @@ secrets() {
   $KUBECTL -n $NS create secret generic ga-db-migrator --from-env-file="$STATE/db/migrator.env" --dry-run=client -o yaml | $apply
   $KUBECTL -n $NS create secret generic ga-s3 --from-env-file="$STATE/s3/app.env" --dry-run=client -o yaml | $apply
   $KUBECTL -n $NS create secret generic ga-seaweed --from-file=s3.json="$STATE/s3/s3.json" --dry-run=client -o yaml | $apply
+  $KUBECTL -n $NS create secret generic ga-backup-s3 --from-env-file="$STATE/s3/backup.env" --dry-run=client -o yaml | $apply
+  $KUBECTL -n $NS create secret generic ga-db-backup --from-env-file="$STATE/db/backup.env" --dry-run=client -o yaml | $apply
   $KUBECTL -n $NS create configmap ga-demo-oidc-public --from-file=demo-oidc.pem="$STATE/demo-oidc.pem" --dry-run=client -o yaml | $apply
   $KUBECTL -n ga-ingress create secret tls ga-tls-staff --cert="$STATE/pki/staff.crt" --key="$STATE/pki/staff.key" --dry-run=client -o yaml | $apply
   $KUBECTL -n ga-ingress create secret tls ga-tls-sign --cert="$STATE/pki/sign.crt" --key="$STATE/pki/sign.key" --dry-run=client -o yaml | $apply
@@ -144,7 +153,8 @@ deploy() {
   $KUBECTL wait --for=condition=Established crd --all --timeout=60s >/dev/null
   # 2) 비밀
   secrets
-  # 3) 나머지
+  # 3) 나머지. 끝난 마이그레이션 Job은 지우고 다시 만든다 — Job의 파드 틀은 바꿀 수 없고(설정 ConfigMap 이름에 내용 해시가 붙는다) db migrate는 멱등이다
+  $KUBECTL -n $NS delete job ga-db-migrate --ignore-not-found >/dev/null
   $KUBECTL apply --server-side -f "$out" >/dev/null
   $KUBECTL -n $NS rollout status statefulset/ga-postgres --timeout=300s
   $KUBECTL -n $NS rollout status statefulset/ga-seaweedfs --timeout=300s
@@ -172,6 +182,29 @@ probe() {
   $KUBECTL -n "$ns" logs "$name" 2>/dev/null || true
   $KUBECTL -n "$ns" delete pod "$name" --wait=false >/dev/null 2>&1 || true
 }
+
+# 포트 포워드가 받기 시작할 때까지(최대 20초) — 고정 sleep은 경합했다(스모크의 C 검사가 간헐 000)
+wait_port() {
+  for _ in $(seq 1 40); do
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && return 0
+    sleep 0.5
+  done
+  echo "port $1 is not listening" >&2
+  return 1
+}
+
+# 내부 진입점 C에 포트 포워드 하나를 열고 명령 하나를 돌린 뒤 닫는다
+internal() {
+  $KUBECTL -n ga-ingress-internal port-forward svc/traefik-internal 19443:9443 >/dev/null 2>&1 &
+  local pf=$!
+  wait_port 19443 || { kill "$pf" 2>/dev/null; echo "no-port-forward"; return 0; }
+  "$@" || true
+  kill "$pf" 2>/dev/null || true
+  wait "$pf" 2>/dev/null || true
+}
+
+# curl의 종료 코드만(응답 코드 아님) — TLS 실패(35·56)와 연결 실패(7)를 가른다
+curl_exit() { curl -s -o /dev/null "$@"; echo $?; }
 
 FAILS=0
 check() {   # check <설명> <기대 정규식> <실제>
@@ -210,17 +243,16 @@ smoke() {
   check "B: /public requests reach the app until the per-IP limit ($n concurrent, limit 30 x $replicas)" "^404×[0-9]+ 429×[0-9]+ $" "$codes"
 
   # 내부 진입점 C(클러스터 안에서만): 인증서 없이 → TLS 실패, 인증서와 함께 → 앱의 401
-  $KUBECTL -n ga-ingress-internal port-forward svc/traefik-internal 19443:9443 >/dev/null 2>&1 &
-  local pf=$!
-  sleep 3
+  # 검사마다 새 포트 포워드 — kubectl port-forward는 거부된 TLS 연결의 리셋 뒤에 끝날 수 있다(그 다음 검사가 연결 실패 7을 받았다)
   local cacert="$STATE/pki/server-ca.crt" host=traefik-internal.ga-ingress-internal.svc
-  check "C: without a client certificate the TLS handshake fails" "^000$" \
-    "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$cacert" --resolve "$host:19443:127.0.0.1" https://$host:19443/internal/v1/jobs || true)"
-  check "C: a different SNI still needs a client certificate" "^000$" \
-    "$(curl -s -o /dev/null -w '%{http_code}' -k --resolve "other.invalid:19443:127.0.0.1" https://other.invalid:19443/internal/v1/jobs || true)"
+  # 연결은 되고(포트 포워드 준비) TLS에서 실패해야 한다 — curl 35(핸드셰이크)·56(받기 중 경고). 7(연결 실패)이면 검사가 헛돈 것
+  check "C: without a client certificate the TLS handshake fails" "^(35|56)$" \
+    "$(internal curl_exit --cacert "$cacert" --resolve "$host:19443:127.0.0.1" https://$host:19443/internal/v1/jobs)"
+  check "C: a different SNI still needs a client certificate" "^(35|56)$" \
+    "$(internal curl_exit -k --resolve "other.invalid:19443:127.0.0.1" https://other.invalid:19443/internal/v1/jobs)"
   check "C: with the client certificate the request reaches the app (401 without a token)" "^401$" \
-    "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$cacert" --cert "$STATE/pki/client.crt" --key "$STATE/pki/client.key" --resolve "$host:19443:127.0.0.1" https://$host:19443/internal/v1/jobs)"
-  kill "$pf" 2>/dev/null || true
+    "$(internal curl -s -o /dev/null -w '%{http_code}' --cacert "$cacert" --cert "$STATE/pki/client.crt" --key "$STATE/pki/client.key" \
+      --resolve "$host:19443:127.0.0.1" https://$host:19443/internal/v1/jobs)"
   echo "SMOKE failures=$FAILS"
   [ "$FAILS" -eq 0 ]
 }
@@ -249,6 +281,110 @@ logscan() {
   [ "$files" -gt 0 ] && [ "$hits" -eq 0 ]
 }
 
+# 표마다 행 수·내용 해시(슈퍼유저 — DB 파드 안 psql, 소켓 인증). 복구 전후 대조용(값이 아니라 해시만).
+digests() {
+  $KUBECTL -n $NS exec ga-postgres-0 -- psql -U postgres -d disclosure -At -c "SELECT table_name || ' ' || (xpath('/row/c/text()', query_to_xml(format(
+    'SELECT count(*) || '':'' || coalesce(md5(string_agg(x::text, ''|'' ORDER BY x::text)), ''-'') AS c FROM %I x', table_name), false, true, '')))[1]::text
+    FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
+}
+
+# CronJob의 파드 틀로 Job 하나를 만들어(인자를 바꿀 수 있다 — JSON 배열) 성공·실패까지 기다리고 로그를 낸다(실패하면 종료 1)
+run_job() {
+  local cron="$1" args="${2:-}" name="$1-$(date +%s)" phase=""
+  if [ -z "$args" ]; then
+    $KUBECTL -n $NS create job "$name" --from="cronjob/$cron" >/dev/null
+  else
+    $KUBECTL -n $NS get cronjob "$cron" -o json | jq --arg n "$name" --argjson a "$args" \
+      '{apiVersion: "batch/v1", kind: "Job", metadata: {name: $n, namespace: .metadata.namespace, labels: .spec.jobTemplate.metadata.labels},
+        spec: (.spec.jobTemplate.spec | .template.spec.containers[0].args = $a)}' | $KUBECTL create -f - >/dev/null
+  fi
+  for _ in $(seq 1 180); do
+    phase="$($KUBECTL -n $NS get job "$name" -o jsonpath='{.status.succeeded}/{.status.failed}')"
+    case "$phase" in 1/*) break ;; */[1-9]*) break ;; esac
+    sleep 5
+  done
+  $KUBECTL -n $NS logs "job/$name" --all-containers 2>/dev/null
+  [[ "$phase" == 1/* ]] || { echo "job $name did not succeed ($phase)" >&2; return 1; }
+}
+
+# 클러스터 안 검증: VERIFY_TENANT CronJob의 파드 틀(같은 이미지·설정·비밀)로 운영자 명령 verify tenant — 테넌트마다 MATCH/MISMATCH를 출력하고 불일치면
+# 종료 코드가 0이 아니다(예약 작업 jobs run VERIFY_TENANT는 보고서에만 남긴다). 신뢰 앵커는 스텁 TSA가 기동 때 쓴 /tmp/tsa-trust.pem.
+verify() {
+  local out
+  out="$(run_job ga-job-verify-tenant '["--spring.profiles.active=cli,$(GA_PROFILE)","verify","tenant","--tenants","all","--tsa-trust","/tmp/tsa-trust.pem","--operator","kind-verify"]')" \
+    || { echo "$out" | grep -E '^VERIFY_TENANT|^  ' >&2; return 1; }
+  echo "$out" | grep -E '^VERIFY_TENANT'
+  ! echo "$out" | grep -qE '^VERIFY_TENANT .* MISMATCH'
+}
+
+# 데모 시드: seed.sh(로컬 JVM — 운영자 CLI)를 클러스터의 DB·S3에 포트 포워드로. 비밀번호·키는 저장소 밖 비밀 디렉터리의 파일에서(이 프로세스의 환경에만 —
+# 개인정보 아님), 고객 정보는 seed.sh 그대로 허구 파일로만.
+seed() {
+  $KUBECTL -n $NS port-forward svc/ga-postgres 15432:5432 >/dev/null 2>&1 &
+  local pf1=$!
+  $KUBECTL -n $NS port-forward svc/ga-seaweedfs 18333:8333 >/dev/null 2>&1 &
+  local pf2=$!
+  trap 'kill $pf1 $pf2 2>/dev/null || true' RETURN
+  wait_port 15432
+  wait_port 18333
+  DISCLOSURE_DB_URL=jdbc:postgresql://localhost:15432/disclosure \
+  DISCLOSURE_APP_PASSWORD="$(cat "$STATE/db/app-password")" DISCLOSURE_HEALTH_PASSWORD="$(cat "$STATE/db/health-password")" \
+  DISCLOSURE_OPERATOR_PASSWORD="$(cat "$STATE/db/operator-password")" DISCLOSURE_JOB_LOCK_PASSWORD="$(cat "$STATE/db/job-lock-password")" \
+  DISCLOSURE_MIGRATOR_PASSWORD="$(cat "$STATE/db/migrator-password")" \
+  GA_SECRETS_DIR="$STATE/secrets" GA_TSA_STUB_KEY_STORE="$STATE/secrets/demo/tsa-stub.p12" \
+  GA_S3_ENDPOINT=http://localhost:18333 GA_S3_BUCKET=ga-disclosure-kind \
+  GA_S3_ACCESS_KEY_ID="$(cat "$STATE/s3/access")" GA_S3_SECRET_ACCESS_KEY="$(cat "$STATE/s3/secret")" \
+  DEMO_PSQL="$TOOLS/kubectl --context kind-$CLUSTER -n $NS exec -i ga-postgres-0 -- psql -U postgres -d disclosure" \
+    disclosure-demo/scripts/seed.sh > "$STATE/seed.log" 2>&1 || { tail -n 40 "$STATE/seed.log" >&2; return 1; }
+  grep -cE '^(SEED|DEMO_|ANCHOR_RUN|VERIFY_TENANT)' "$STATE/seed.log" | sed 's/^/SEED_LINES /'
+  verify
+}
+
+backup() {
+  umask 077
+  digests > "$STATE/digests-before.txt"
+  local out run
+  out="$(run_job ga-backup)"
+  echo "$out" | grep -E '^BACKUP_'
+  run="$(echo "$out" | sed -nE 's/^BACKUP_UPLOADED run=([^ ]+) .*/\1/p')"
+  [ -n "$run" ] || { echo "no BACKUP_UPLOADED line" >&2; return 1; }
+  echo "$run" > "$STATE/last-backup-run"
+  echo "BACKUP_RUN $run tables=$(wc -l < "$STATE/digests-before.txt" | tr -d ' ')"
+}
+
+# 재해 → 복구: 앱을 멈추고 DB StatefulSet·볼륨을 지운 뒤 kind-restore 오버레이(빈 볼륨에 백업 → 새 버킷에 객체)를 적용한다.
+restore() {
+  local run="${RUN_ARG:-$(cat "$STATE/last-backup-run")}"
+  [ -n "$run" ] || { echo "no backup run" >&2; return 1; }
+  $KUBECTL -n $NS scale deployment ga-app --replicas=0 >/dev/null
+  $KUBECTL -n $NS delete statefulset ga-postgres --wait=true >/dev/null
+  $KUBECTL -n $NS delete pvc data-ga-postgres-0 --wait=true >/dev/null
+  # 복구마다 새 산출물 버킷(잠긴 객체는 지울 수 없다 — 이전 시도의 버킷은 남는다)
+  local bucket
+  bucket="ga-kind-r-$(echo "$run" | tr 'A-Z' 'a-z')-$(date +%s)"
+  $KUBECTL -n $NS create configmap ga-restore --from-literal=GA_RESTORE_RUN="$run" --from-literal=GA_S3_BUCKET="$bucket" --dry-run=client -o yaml \
+    | $KUBECTL apply -f - >/dev/null
+  render kind-restore > "$STATE/rendered-restore.yaml"
+  # 마이그레이션 Job도 다시(복구한 스키마가 지금 이미지보다 오래됐으면 올린다 — 같으면 적용 0), 객체 복구 Job은 실행마다 새로
+  $KUBECTL -n $NS delete job ga-db-migrate ga-restore-objects --ignore-not-found >/dev/null
+  $KUBECTL apply --server-side --force-conflicts -f "$STATE/rendered-restore.yaml" >/dev/null
+  $KUBECTL -n $NS rollout status statefulset/ga-postgres --timeout=600s
+  $KUBECTL -n $NS logs ga-postgres-0 -c restore | grep -E '^RESTORE_|^BACKUP_'
+  $KUBECTL -n $NS wait --for=condition=complete job/ga-restore-objects --timeout=600s >/dev/null
+  $KUBECTL -n $NS logs job/ga-restore-objects | grep '^BACKUP_OBJECTS_IMPORTED'
+  $KUBECTL -n $NS wait --for=condition=complete job/ga-db-migrate --timeout=600s >/dev/null
+  $KUBECTL -n $NS logs "$($KUBECTL -n $NS get pods -l job-name=ga-db-migrate --field-selector=status.phase==Succeeded -o name | head -n 1)" | grep '^DB_MIGRATE '
+  digests > "$STATE/digests-after.txt"
+  if diff -q "$STATE/digests-before.txt" "$STATE/digests-after.txt" >/dev/null; then
+    echo "RESTORE_TABLES MATCH tables=$(wc -l < "$STATE/digests-after.txt" | tr -d ' ')"
+  else
+    echo "RESTORE_TABLES DIFFER: $(diff "$STATE/digests-before.txt" "$STATE/digests-after.txt" | grep -c '^[<>]') lines" >&2
+    return 1
+  fi
+  $KUBECTL -n $NS rollout status deployment/ga-app --timeout=600s
+  verify
+}
+
 down() {
   "$KIND" delete cluster --name "$CLUSTER"
   rm -rf "$STATE"
@@ -260,6 +396,10 @@ case "$CMD" in
   deploy) deploy ;;
   smoke) smoke ;;
   logscan) logscan ;;
+  seed) seed ;;
+  verify) verify ;;
+  backup) backup ;;
+  restore) RUN_ARG="${3:-}" restore ;;
   down) down ;;
   *) echo "unknown command $CMD" >&2; exit 2 ;;
 esac

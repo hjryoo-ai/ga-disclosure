@@ -49,7 +49,7 @@ public final class OfflineCli {
             case "crypto kek init" -> KekCommands.init(parsed, out);
             case "backup seal", "backup open", "backup upload", "backup download", "backup objects export", "backup objects import" -> {
                 try (ConfigurableApplicationContext settings = settings(args)) {
-                    new BackupCommands(settings.getEnvironment(), out).run(parsed);
+                    new BackupCommands(settings.getEnvironment(), out, Clock.systemUTC()).run(parsed);
                 }
             }
             default -> throw new CliFailure("not an offline command: '" + parsed.command() + "'");

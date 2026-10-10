@@ -22,6 +22,11 @@ configMapGenerator:
     literals:
       - SPRING_PROFILES_ACTIVE=prod
       - DISCLOSURE_DB_URL=jdbc:postgresql://db.example.invalid:5432/disclosure?sslmode=verify-full
+      # 정기 백업(ga-backup): pg_basebackup의 접속 호스트와 백업 저장소(산출물과 다른 Object Lock 버킷 — 자격 증명은 ESO ga-backup-s3)
+      - DISCLOSURE_DB_HOST=db.example.invalid
+      - GA_BACKUP_S3_ENDPOINT=https://backup-s3.example.invalid
+      - GA_BACKUP_S3_REGION=ap-northeast-2
+      - GA_BACKUP_S3_BUCKET=ga-disclosure-prod-backup
       - GA_S3_ENDPOINT=https://s3.example.invalid
       - GA_S3_REGION=ap-northeast-2
       - GA_S3_BUCKET=ga-disclosure-prod
@@ -46,5 +51,5 @@ patches:
   # 파일 비밀의 경로(Secret 키 → 비밀 이름) — ESO 템플릿 ga-secrets의 키 목록과 같다. 테넌트 KEK·엔진 토큰 줄은 KEK 등록 런북이 함께 늘린다.
   - target: { kind: Deployment, name: ga-app }
     path: secret-items-deployment.yaml
-  - target: { kind: CronJob }
+  - target: { kind: CronJob, labelSelector: app.kubernetes.io/name=ga-job }
     path: secret-items-cronjob.yaml

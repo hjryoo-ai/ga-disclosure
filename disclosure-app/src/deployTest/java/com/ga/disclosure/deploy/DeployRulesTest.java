@@ -277,7 +277,7 @@ class DeployRulesTest {
             pod.containers().forEach(c -> {
                 String image = c.path("image").asString();
                 boolean ours = image.startsWith("ga-disclosure/") || image.contains("/ga-disclosure/");
-                if (ours && overlay.equals("kind-demo")) {
+                if (ours && overlay.startsWith("kind-")) {
                     if (!Set.of("ga-disclosure/app:dev", "ga-disclosure/web:dev").contains(image) || !c.path("imagePullPolicy").asString("").equals("Never")) {
                         bad.add(pod.label() + ": " + image + " must be the locally loaded dev image, never pulled");
                     }
@@ -375,8 +375,36 @@ class DeployRulesTest {
             if (migrator != (pod.owner().path("kind").asString().equals("Job") && name(pod.owner()).equals("ga-db-migrate"))) {
                 bad.add(pod.label() + ": migrator credentials " + (migrator ? "mounted" : "missing"));
             }
+            // 백업 자격(복제 롤 비밀번호·백업 저장소)은 백업 파드에만(닫힌 목록 — 복구 오버레이는 복구 준비 컨테이너를 가진 DB 파드와 객체 복구 Job),
+            // 그 파드들에는 앱 DB 롤이 없고 비밀은 backup/key 하나뿐
+            Set<String> backupPods = overlay.equals("kind-restore") ? Set.of("ga-backup", "ga-restore-objects", "ga-postgres") : Set.of("ga-backup");
+            boolean backupPod = backupPods.contains(name(pod.owner()));
+            Set<String> secretsUsed = new TreeSet<>();
+            pod.containers().forEach(c -> {
+                stream(c.path("envFrom")).forEach(e -> secretsUsed.add(e.path("secretRef").path("name").asString("")));
+                stream(c.path("env")).forEach(e -> secretsUsed.add(e.path("valueFrom").path("secretKeyRef").path("name").asString("")));
+            });
+            for (String backupOnly : List.of("ga-db-backup", "ga-backup-s3")) {
+                if (secretsUsed.contains(backupOnly) && !backupPod) {
+                    bad.add(pod.label() + ": " + backupOnly + " mounted outside the backup pods");
+                }
+            }
+            if (name(pod.owner()).equals("ga-backup") && !secretsUsed.containsAll(List.of("ga-db-backup", "ga-backup-s3"))) {
+                bad.add(pod.label() + ": backup credentials missing");
+            }
+            if (backupPod) {
+                if (secretsUsed.contains("ga-db-app")) {
+                    bad.add(pod.label() + ": app database roles in the backup pod");
+                }
+                List<String> paths = stream(pod.spec().path("volumes")).filter(v -> v.path("secret").path("secretName").asString("").equals("ga-secrets"))
+                        .flatMap(v -> stream(v.path("secret").path("items"))).map(i -> i.path("path").asString()).toList();
+                if (!paths.isEmpty() && !paths.equals(List.of("backup/key"))) {
+                    bad.add(pod.label() + ": the backup pod may read only backup/key, got " + paths);
+                }
+            }
         }
-        assertThat(volumes).as("app and every CronJob mount ga-secrets").isEqualTo(16);
+        // 앱·작업 CronJob 15·백업 CronJob(+ 복구 오버레이: 복구 준비 컨테이너의 DB 파드)
+        assertThat(volumes).as("pods that mount ga-secrets").isEqualTo(overlay.equals("kind-restore") ? 18 : 17);
         assertThat(bad).isEmpty();
     }
 
@@ -392,7 +420,7 @@ class DeployRulesTest {
         Set<String> sources = new TreeSet<>();
         ofKind(docs, "ConfigMap").forEach(c -> sources.add("configMap:" + namespace(c) + "/" + name(c)));
         ofKind(docs, "ExternalSecret").forEach(e -> sources.add("secret:" + namespace(e) + "/" + e.path("spec").path("target").path("name").asString()));
-        if (overlay.equals("kind-demo")) {
+        if (overlay.startsWith("kind-")) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("-n (\\$NS|ga-[a-z-]+) create (secret generic|secret tls|configmap) ([a-z0-9-]+)")
                     .matcher(Manifests.read(Manifests.repoRoot().resolve("deploy/scripts/kind.sh")));
             while (m.find()) {
@@ -426,6 +454,45 @@ class DeployRulesTest {
         assertThat(sources).as("every referenced Secret/ConfigMap has a source").containsAll(referenced);
     }
 
+    /**
+     * DB 연결의 전송 보안(10d 보안 검토 — 형제 비대칭): 운영에서 libpq로 DB에 닿는 컨테이너(PGHOST)는 앱 JDBC와 같이 {@code verify-full} + 채널 바인딩 +
+     * 마운트된 CA. kind 데모는 TLS 없는 PostgreSQL이라 명시적 {@code disable}만 허용(빠뜨린 기본값 {@code prefer}는 어디서도 안 된다). 운영 JDBC URL도
+     * {@code sslmode=verify-full}.
+     */
+    @ParameterizedTest
+    @FieldSource("OVERLAYS")
+    void everyDatabaseConnectionVerifiesTheServerInProd(String overlay) {
+        List<JsonNode> docs = docs(overlay);
+        List<String> bad = new ArrayList<>();
+        int libpq = 0;
+        for (Manifests.Pod pod : pods(docs)) {
+            for (JsonNode c : pod.containers().toList()) {
+                Map<String, String> env = new LinkedHashMap<>();
+                stream(c.path("env")).forEach(e -> env.put(e.path("name").asString(), e.has("value") ? e.path("value").asString() : "<ref>"));
+                if (!env.containsKey("PGHOST")) {
+                    continue;
+                }
+                libpq++;
+                String label = pod.label() + "/" + c.path("name").asString();
+                if (overlay.equals("prod")) {
+                    String root = env.getOrDefault("PGSSLROOTCERT", "");
+                    boolean mounted = stream(c.path("volumeMounts")).anyMatch(m -> !root.isEmpty() && root.startsWith(m.path("mountPath").asString() + "/"));
+                    if (!"verify-full".equals(env.get("PGSSLMODE")) || !"require".equals(env.get("PGCHANNELBINDING")) || !mounted) {
+                        bad.add(label + ": PGSSLMODE=" + env.get("PGSSLMODE") + " PGCHANNELBINDING=" + env.get("PGCHANNELBINDING") + " CA mounted=" + mounted);
+                    }
+                } else if (!List.of("verify-full", "disable").contains(env.getOrDefault("PGSSLMODE", ""))) {
+                    bad.add(label + ": PGSSLMODE must be explicit (verify-full, or disable for the TLS-less kind demo database)");
+                }
+            }
+        }
+        assertThat(libpq).as("the backup's replication connection").isPositive();
+        assertThat(bad).isEmpty();
+        if (overlay.equals("prod")) {
+            assertThat(ofKind(docs, "ConfigMap").filter(c -> name(c).startsWith("ga-app-config")).findFirst().orElseThrow()
+                    .path("data").path("DISCLOSURE_DB_URL").asString()).contains("sslmode=verify-full");
+        }
+    }
+
     /** 운영 기동 가드를 파드가 받을 환경으로: ConfigMap(envFrom)·Secret(envFrom — ESO 대상 키, 값은 자리 값)·컨테이너 env. 비밀 키 이름은 ConfigMap에 없다. */
     @ParameterizedTest
     @FieldSource("OVERLAYS")
@@ -446,7 +513,9 @@ class DeployRulesTest {
         int checked = 0;
         for (Manifests.Pod pod : pods(docs)) {
             JsonNode c = pod.spec().path("containers").get(0);
-            if (!c.path("image").asString().contains("ga-disclosure/app") || pod.owner().path("kind").asString().equals("Job")) {
+            // 앱 컨텍스트로 뜨는 파드(웹·작업 CronJob). 마이그레이션 Job·백업 CronJob은 앱 컨텍스트 없는 운영자 명령(OfflineCli)이다
+            String role = pod.spec().path("serviceAccountName").asString("");
+            if (!role.equals("ga-app") && !role.equals("ga-jobs")) {
                 continue;
             }
             Map<String, Object> env = new LinkedHashMap<>();

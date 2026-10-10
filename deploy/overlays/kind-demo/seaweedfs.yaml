@@ -79,6 +79,6 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        - podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [ga-app, ga-job] }] }
+        - podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [ga-app, ga-job, ga-backup] }] }
       ports:
         - { protocol: TCP, port: 8333 }

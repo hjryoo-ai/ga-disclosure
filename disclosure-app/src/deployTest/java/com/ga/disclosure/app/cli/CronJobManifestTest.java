@@ -36,7 +36,12 @@ class CronJobManifestTest {
         assertThat(DEDICATED_COMMANDS.keySet()).isEqualTo(JobCommands.DEDICATED.keySet());
         Map<String, JsonNode> byKind = new TreeMap<>();
         List<String> bad = new ArrayList<>();
-        Manifests.ofKind(Manifests.docs(overlay), "CronJob").forEach(c -> {
+        List<JsonNode> cronJobs = Manifests.ofKind(Manifests.docs(overlay), "CronJob").toList();
+        // JobKind 밖 CronJob은 닫힌 목록 하나(정기 백업 — 작업 실행기를 지나지 않는 DB 밖 저장소 작업). 같은 스케줄 규칙을 지킨다.
+        List<JsonNode> others = cronJobs.stream().filter(c -> !c.path("metadata").path("labels").path("app.kubernetes.io/name").asString("").equals("ga-job")).toList();
+        assertThat(others).extracting(Manifests::name).containsExactly("ga-backup");
+        others.forEach(c -> schedule(c.path("metadata").path("name").asString(), c, bad));
+        cronJobs.stream().filter(c -> !others.contains(c)).forEach(c -> {
             String kind = c.path("metadata").path("labels").path("ga/job-kind").asString("");
             if (byKind.put(kind, c) != null) {
                 bad.add(kind + ": two CronJobs");
@@ -44,23 +49,8 @@ class CronJobManifestTest {
         });
         assertThat(byKind.keySet()).isEqualTo(new TreeSet<>(Arrays.stream(JobKind.values()).map(Enum::name).toList()));
         byKind.forEach((kind, c) -> {
-            JsonNode spec = c.path("spec");
-            JsonNode job = spec.path("jobTemplate").path("spec");
-            if (!spec.path("timeZone").asString("").equals("Asia/Seoul")) {
-                bad.add(kind + ": timeZone " + spec.path("timeZone"));
-            }
-            if (!spec.path("concurrencyPolicy").asString("").equals("Forbid")) {
-                bad.add(kind + ": concurrencyPolicy " + spec.path("concurrencyPolicy"));
-            }
-            if (spec.path("startingDeadlineSeconds").asInt(0) <= 0) {
-                bad.add(kind + ": startingDeadlineSeconds");
-            }
-            if (!job.has("backoffLimit") || job.path("backoffLimit").asInt() > 2) {
-                bad.add(kind + ": backoffLimit");
-            }
-            if (job.path("activeDeadlineSeconds").asInt(0) <= 0) {
-                bad.add(kind + ": activeDeadlineSeconds");
-            }
+            schedule(kind, c, bad);
+            JsonNode job = c.path("spec").path("jobTemplate").path("spec");
             List<String> args = Manifests.strings(job.path("template").path("spec").path("containers").get(0).path("args"));
             List<String> command = args.stream().filter(a -> !a.startsWith("--spring.profiles.active=")).toList();
             List<String> expected = DEDICATED_COMMANDS.getOrDefault(JobKind.valueOf(kind), List.of("jobs", "run", kind));
@@ -70,5 +60,26 @@ class CronJobManifestTest {
             }
         });
         assertThat(bad).isEmpty();
+    }
+
+    /** 모든 CronJob 공통: Asia/Seoul·Forbid·시작 기한·재시도 상한·실행 기한. */
+    static void schedule(String name, JsonNode c, List<String> bad) {
+        JsonNode spec = c.path("spec");
+        JsonNode job = spec.path("jobTemplate").path("spec");
+        if (!spec.path("timeZone").asString("").equals("Asia/Seoul")) {
+            bad.add(name + ": timeZone " + spec.path("timeZone"));
+        }
+        if (!spec.path("concurrencyPolicy").asString("").equals("Forbid")) {
+            bad.add(name + ": concurrencyPolicy " + spec.path("concurrencyPolicy"));
+        }
+        if (spec.path("startingDeadlineSeconds").asInt(0) <= 0) {
+            bad.add(name + ": startingDeadlineSeconds");
+        }
+        if (!job.has("backoffLimit") || job.path("backoffLimit").asInt() > 2) {
+            bad.add(name + ": backoffLimit");
+        }
+        if (job.path("activeDeadlineSeconds").asInt(0) <= 0) {
+            bad.add(name + ": activeDeadlineSeconds");
+        }
     }
 }

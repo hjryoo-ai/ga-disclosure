@@ -50,6 +50,7 @@ spec:
             - { name: run, mountPath: /var/run/postgresql }
             - { name: tmp, mountPath: /tmp }
             - { name: init, mountPath: /docker-entrypoint-initdb.d/00-roles.sql, subPath: 00-roles.sql, readOnly: true }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d/01-replication.sh, subPath: 01-replication.sh, readOnly: true }
             - { name: init, mountPath: /ga-init/init-roles.sql, subPath: init-roles.sql, readOnly: true }
             - { name: passwords, mountPath: /var/run/ga-pg, readOnly: true }
       volumes:
@@ -79,7 +80,7 @@ spec:
   ports:
     - { name: postgres, port: 5432, targetPort: postgres }
 ---
-# DB에는 앱·CronJob·마이그레이션 Job 파드만
+# DB에는 앱·CronJob·마이그레이션 Job·백업 파드만(백업은 복제 연결 — pg_hba의 복제 롤 줄)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -91,6 +92,6 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        - podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [ga-app, ga-job, ga-db-migrate] }] }
+        - podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [ga-app, ga-job, ga-db-migrate, ga-backup] }] }
       ports:
         - { protocol: TCP, port: 5432 }

@@ -57,9 +57,25 @@ public final class BackupStore implements AutoCloseable {
     private final String bucket;
 
     public BackupStore(S3StorageSettings settings) {
+        this(settings, false);
+    }
+
+    /** {@code createIfMissing}: 개발·kind 전용(Object Lock 활성으로 만든다) — 운영 백업 버킷은 인프라가 만든다. */
+    public BackupStore(S3StorageSettings settings, boolean createIfMissing) {
         this.s3 = S3ArtifactStore.client(Objects.requireNonNull(settings, "settings"));
         this.bucket = settings.bucket();
-        new ArtifactStoreBootstrap(s3, bucket).verify();
+        ArtifactStoreBootstrap bootstrap = new ArtifactStoreBootstrap(s3, bucket);
+        if (createIfMissing) {
+            bootstrap.createIfMissing();
+        }
+        bootstrap.verify();
+    }
+
+    /** 복구 대상 산출물 버킷을 개발·kind에서 만든다(운영 금지 — 복구 환경의 버킷도 인프라가 만든다). */
+    public static void createArtifactBucketIfMissing(S3StorageSettings artifacts) {
+        try (S3Client a = S3ArtifactStore.client(artifacts)) {
+            new ArtifactStoreBootstrap(a, artifacts.bucket()).createIfMissing();
+        }
     }
 
     /** 산출물 저장소 → 실행의 {@code objects/}(비어 있어야 한다 — 같은 실행 이름을 두 번 쓰지 않는다). */
@@ -70,11 +86,28 @@ public final class BackupStore implements AutoCloseable {
         }
     }
 
-    /** 실행의 {@code objects/} → 산출물 저장소(비어 있어야 한다 — 복구 환경). */
-    public ObjectVersionCopier.Report importObjects(S3StorageSettings artifacts, String run) {
+    /** 복구 결과: 복제한 모양과, 대상이 이미 그 실행과 같은 모양이라 아무것도 쓰지 않았는지. */
+    public record Imported(ObjectVersionCopier.Report report, boolean alreadyPresent) {
+    }
+
+    /**
+     * 실행의 {@code objects/} → 산출물 저장소(복구 환경). 대상이 비어 있으면 복제한다. 비어 있지 않으면 — 이전 복구 시도가 끝까지 갔다면 — 그 모양(키·버전 순서·
+     * 바이트 해시·보존·보류)이 실행과 같을 때만 아무것도 쓰지 않고 성공한다(복구 절차를 다시 돌릴 수 있게). 반쯤 들어간 대상은 거부한다(잠긴 객체는 지울 수
+     * 없으니 새 버킷으로).
+     */
+    public Imported importObjects(S3StorageSettings artifacts, String run) {
         try (S3Client a = S3ArtifactStore.client(artifacts)) {
             new ArtifactStoreBootstrap(a, artifacts.bucket()).verify();
-            return ObjectVersionCopier.copy(s3, bucket, objects(run), a, artifacts.bucket(), "");
+            ObjectVersionCopier.Report present = ObjectVersionCopier.describe(a, artifacts.bucket(), "");
+            if (!present.entries().isEmpty()) {
+                ObjectVersionCopier.Report source = ObjectVersionCopier.describe(s3, bucket, objects(run));
+                if (present.equals(source)) {
+                    return new Imported(source, true);
+                }
+                throw new IllegalStateException("target " + artifacts.bucket() + " is not empty and does not match backup run " + run
+                        + " — restore into a new bucket");
+            }
+            return new Imported(ObjectVersionCopier.copy(s3, bucket, objects(run), a, artifacts.bucket(), ""), false);
         }
     }
 

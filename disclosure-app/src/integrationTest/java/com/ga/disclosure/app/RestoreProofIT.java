@@ -320,8 +320,11 @@ class RestoreProofIT {
                 .contains("BACKUP_OPENED bytes=" + seal.group(1) + " sha256=" + seal.group(2));
         GenericContainer<?> b = environmentB(restoredTar);
         assertThat(tableDigests(b)).as("every table's rows, before anything runs against B").isEqualTo(tablesA);
-        offline(concat(backupStore(bucketB, backupBucket), "backup", "objects", "import", "--run", "r1"));
+        assertThat(offline(concat(backupStore(bucketB, backupBucket), "backup", "objects", "import", "--run", "r1"))).doesNotContain("alreadyPresent");
         assertThat(ObjectVersionCopier.describe(s3, bucketB, "")).as("keys, version order, bytes, retention, holds").isEqualTo(objectsA);
+        // 복구 절차를 다시 돌려도 된다: 같은 모양이면 쓰지 않고 성공, 다른 모양(다른 버킷의 일부)이면 거부
+        assertThat(offline(concat(backupStore(bucketB, backupBucket), "backup", "objects", "import", "--run", "r1"))).contains("alreadyPresent=true");
+        assertThat(ObjectVersionCopier.describe(s3, bucketB, "")).isEqualTo(objectsA);
 
         assertThat(ok(cli(b, bucketB, tmp, "verify", "tenant", "--tenants", "all", "--tsa-trust", tmp.resolve("tsa-trust.pem").toString(),
                 "--operator", "auditor-1"))).contains("VERIFY_TENANT " + done + " MATCH findings=0", "VERIFY_TENANT " + shortLived + " MATCH findings=0");
@@ -344,6 +347,8 @@ class RestoreProofIT {
                 ObjectVersionCopier.copy(s3, backupBucket, "runs/r1/objects/" + k, s3, bucketC, k);
             }
         }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> offline(concat(backupStore(bucketC, backupBucket), "backup", "objects", "import", "--run", "r1")))
+                .hasStackTraceContaining("does not match backup run r1");
         Run broken = cli(b, bucketC, tmp, "verify", "tenant", "--tenants", done, "--tsa-trust", tmp.resolve("tsa-trust.pem").toString(), "--operator", "auditor-1");
         assertThat(broken.exit()).as(broken.out()).isNotZero();
         List<String> findings = broken.out().lines().filter(l -> l.startsWith("  ") && !l.startsWith("  STATEMENT")).map(String::strip).toList();

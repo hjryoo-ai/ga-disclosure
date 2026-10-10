@@ -21,6 +21,12 @@ configMapGenerator:
     literals:
       - SPRING_PROFILES_ACTIVE=demo
       - DISCLOSURE_DB_URL=jdbc:postgresql://ga-postgres:5432/disclosure
+      - DISCLOSURE_DB_HOST=ga-postgres
+      - GA_BACKUP_S3_ENDPOINT=http://ga-seaweedfs:8333
+      - GA_BACKUP_S3_REGION=us-east-1
+      - GA_BACKUP_S3_BUCKET=ga-disclosure-kind-backup
+      # 데모 전용: 백업 버킷이 없으면 만든다(운영은 인프라)
+      - GA_BACKUP_S3_CREATE_BUCKET=true
       - GA_S3_ENDPOINT=http://ga-seaweedfs:8333
       - GA_S3_REGION=us-east-1
       - GA_S3_BUCKET=ga-disclosure-kind
@@ -42,6 +48,7 @@ configMapGenerator:
     files:
       - 00-roles.sql=postgres/00-roles.sql
       - init-roles.sql=../../../docker/postgres/init-roles.sql
+      - 01-replication.sh=postgres/01-replication.sh
 patches:
   # 데모 로그인(/demo/oidc/*)은 앱이 낸다 — 직원 호스트에 그 경로만 더한다(운영 오버레이에는 없다 — deploy 린트)
   - target: { kind: IngressRoute, name: staff }
@@ -57,10 +64,21 @@ patches:
     path: patches/app.yaml
   - target: { kind: Deployment, name: ga-app }
     path: patches/secret-items-deployment.yaml
-  - target: { kind: CronJob }
+  - target: { kind: CronJob, labelSelector: app.kubernetes.io/name=ga-job }
     path: patches/cronjob.yaml
-  - target: { kind: CronJob }
+  - target: { kind: CronJob, labelSelector: app.kubernetes.io/name=ga-job }
     path: patches/secret-items-cronjob.yaml
+  # 백업: 로컬 이미지, 데모는 주기 실행을 멈춘다(kind.sh backup이 create job --from)
+  # kind 데모 PostgreSQL에는 TLS가 없다 — 복제 연결의 TLS를 명시적으로 끄고 DB CA 마운트를 뺀다(데모만, deploy 린트가 운영에서는 verify-full을 요구)
+  - target: { kind: CronJob, name: ga-backup }
+    patch: |-
+      - { op: replace, path: /spec/jobTemplate/spec/template/spec/containers/0/imagePullPolicy, value: Never }
+      - { op: replace, path: /spec/suspend, value: true }
+      - { op: replace, path: /spec/jobTemplate/spec/template/spec/initContainers/0/env/2/value, value: disable }
+      - { op: remove, path: /spec/jobTemplate/spec/template/spec/initContainers/0/env/4 }
+      - { op: remove, path: /spec/jobTemplate/spec/template/spec/initContainers/0/env/3 }
+      - { op: remove, path: /spec/jobTemplate/spec/template/spec/initContainers/0/volumeMounts/2 }
+      - { op: remove, path: /spec/jobTemplate/spec/template/spec/volumes/3 }
   - target: { kind: Deployment, name: ga-web }
     patch: |-
       - { op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: Never }

@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ga-restore-objects
+  namespace: ga-disclosure
+  labels:
+    app.kubernetes.io/name: ga-restore-objects
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-restore-objects
+    spec:
+      serviceAccountName: ga-backup
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restore-objects
+          image: ga-disclosure/app:dev
+          imagePullPolicy: Never
+          command: ["sh", "-c", "java org.springframework.boot.loader.launch.JarLauncher backup objects import --run \"$GA_RESTORE_RUN\""]
+          envFrom:
+            - configMapRef: { name: ga-app-config }
+            - configMapRef: { name: ga-restore }
+            - secretRef: { name: ga-s3 }
+            - secretRef: { name: ga-backup-s3 }
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 128Mi }

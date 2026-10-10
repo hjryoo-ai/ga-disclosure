@@ -11,4 +11,5 @@ resources:
   - web.yaml
   - db-migrate.yaml
   - cronjobs.yaml
+  - backup.yaml
   - networkpolicies.yaml
