@@ -45,8 +45,8 @@ Q1(`FLAG_READ` AGENT OWN)·Q3(서식 조회 경로)·미리보기·Q5(룰 키 `p
 - **정비(지시문 §3, G9~G11)**: 룰 어휘 API, 환급금 표(렌더러 2판 — 렌더러 버전을 봉인 때 고정, 기존 골든 불변), 목록 인덱스 V24(10만 행 실측), 화면 폰트 상한, E2E 실패 스냅샷 마스킹.
 - **포트폴리오 문서(지시문 §4, G12)**: README(알려진 한계 첫 절·CI 숫자·그림·15분 둘러보기), ARCHITECTURE·EVIDENCE·DECISIONS·운영 런북 7종, 문서 검사 `PortfolioDocsTest`. 맥락 없는 에이전트가 README만으로 세 테넌트 MATCH까지(§4.1).
 - **kind가 찾은 배포 결함 13건**(KIND-1~13) — 그중 KIND-10(분리 호스트에서 현장 서명 불가 → 계약 2.12.0 `signUrl`, 사후 승인)·KIND-12(`.mjs` MIME)는 Phase 7까지의 시험(같은 출처)으로는 드러나지 않았다.
-- **테스트**: JVM 13,887건(`build` 13,835 + `deployTest` 47 + `imageTest` 5, 실패 0·스킵 0) + 화면 단위 27 + E2E 12(격리 컨테이너) + 12(kind 클러스터 대상) · 위반 주입 **62건**(ID 단위) 전부 의도한 방어선에서 실패 확인 · 보안 검토 발견 7건(SEC-1~7) 수정.
-- **CI**: PR #13 run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852)(head `a0c1833`) — 일곱 잡(`build`·`e2e`·`kind`·`deploy-lint`·`images`·`pdfa-verify`·`no-docker`) 전부 첫 실행에 success. `kind` 잡의 첫 실행이 배포 → 스모크 → 시드 → 백업·복구 → 스모크 → 키 회전 여섯 종 → 클러스터 대상 E2E → 로그 스캔을 20분에 끝냈다. CI 테스트 수는 로컬과 모듈별로 같다.
+- **테스트**: JVM 13,887건(`build` 13,835 + `deployTest` 47 + `imageTest` 5, 실패 0·스킵 0) + 화면 단위 27 + E2E 12(격리 컨테이너) + 12(kind 클러스터 대상) · 위반 주입 **63건**(ID 단위) 전부 의도한 방어선에서 실패 확인 · 보안 검토 발견 7건(SEC-1~7) 수정.
+- **CI**: PR #13 run [`38517344797`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38517344797)(head `0e0d393`) — 일곱 잡(`build`·`e2e`·`kind`·`deploy-lint`·`images`·`pdfa-verify`·`no-docker`) 전부 success. `kind` 잡이 배포 → 스모크 → 시드 → 백업·복구 → 스모크 → 키 회전 여섯 종 → 클러스터 대상 E2E → 로그 스캔을 20분 안에 끝냈다. CI 테스트 수는 로컬과 모듈별로 같다. 이력: 앞선 PR run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852)(`a0c1833`) success, 보고서 1판의 태그 push run [`38512687590`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38512687590) **kind 잡 실패** → 원인 BUG-5(앱)·BUG-6(E2E 경합), `0e0d393`로 수정(D-8).
 
 ## 1. 커밋
 
@@ -79,6 +79,8 @@ Q1(`FLAG_READ` AGENT OWN)·Q3(서식 조회 경로)·미리보기·Q5(룰 키 `p
 | `9549c9d` | 12 | 포트폴리오·운영 문서, 문서 검사, 2단 업그레이드 실측 |
 | `2ded5b2` | 12 | 맥락 없는 재현 기록, README가 추측하게 한 6곳 |
 | `a0c1833` | 13 | 시험 입력 선언 대조(`verifyTestInputs`)·CLAUDE.md 규약 한 줄·주입 세는 단위 |
+| `f3a14d3` | 13 | 보고서 1판(태그 `phase-8` 첫 위치) — 태그 push CI의 kind 잡이 실패(BUG-5·6) |
+| `0e0d393` | 13 | 공개 본인확인 마지막 실패의 응답·E2E 경합 수정(BUG-5·6) |
 | (이 커밋) | 13 | 보고서 |
 
 ## 2. 완료 기준
@@ -104,7 +106,7 @@ Q1(`FLAG_READ` AGENT OWN)·Q3(서식 조회 경로)·미리보기·Q5(룰 키 `p
 ### 테스트 수
 
 로컬 강제 재실행(13단계, `clean build :disclosure-app:deployTest :disclosure-app:imageTest` — 통합 테스트 포함 전부 실행, 2026-10-14) 실패 0·스킵 0.
-CI run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852)의 `test-reports`(Gradle 보고서)·`deploy-lint-reports`·`image-test-reports`·vitest·E2E JUnit과 모듈별로 같다(아래 표의 로컬 수 = CI 수).
+CI run [`38517344797`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38517344797)의 `test-reports`(Gradle 보고서)·`deploy-lint-reports`·`image-test-reports`·vitest·E2E JUnit과 모듈별로 같다(아래 표의 로컬 수 = CI 수).
 
 | 모듈·소스셋 | 로컬 | Phase 7 대비 |
 |---|---:|---|
@@ -131,7 +133,7 @@ CI run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/3
 
 ### 위반 주입 기록 (주입 → 실패 확인 → 제거)
 
-세는 단위는 주입 ID 하나(13단계 규약 — README). Phase 8: **62건**, 첫 시도에 의도한 방어선이 못 잡은 것 3건(P8-16b·P8-25 — 시험·오버레이 결함, P8-55 — 빌드 입력, 모두 원인을 고친 뒤 재주입으로 실패 확인).
+세는 단위는 주입 ID 하나(13단계 규약 — README). Phase 8: **63건**, 첫 시도에 의도한 방어선이 못 잡은 것 3건(P8-16b·P8-25 — 시험·오버레이 결함, P8-55 — 빌드 입력, 모두 원인을 고친 뒤 재주입으로 실패 확인).
 
 | ID | 단계 | 주입 | 잡은 것 |
 |---|---|---|---|
@@ -191,6 +193,7 @@ CI run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/3
 | P8-55 | 12 | README에 금지 형용사 | `PortfolioDocsTest` — **1차 시도는 "최신"으로 건너뛰어 통과(BUG-3)** |
 | P8-56 | 12 | 문서의 시험 메서드 이름을 낡게 | `PortfolioDocsTest` |
 | P8-57 | 13 | 시험 입력 선언 한 줄 제거 | `verifyTestInputs` |
+| P8-58 | 13 | 재현 장치: 원격 링크 시험에서 공개 본인확인 응답을 1.5초 늦춤 | 수정 전 E2E 도우미 → CI와 같은 실패(데스크톱·모바일), 응답을 기다리는 도우미 → 마지막 실패의 `passed:true`가 드러남, 두 수정 뒤 12/12 — 장치 제거 |
 
 ### 결함·발견 기록 (주입 아님)
 
@@ -223,20 +226,26 @@ CI run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/3
 | BUG-3 | archTest가 저장소 전체 스캔인데 입력 미선언 → 주입이 "최신"으로 통과(세 번째 같은 패턴) | P8-55 1차 시도 | 매번 실행 + **CLAUDE.md 규약 한 줄**(12단계 회신 승인) + `verifyTestInputs` |
 | BUG-4 | `verifyTestInputs` 자체: 주석 제거 정규식이 첫 `//`부터 파일 끝까지 지움(미보고), 최상위 파일 이름을 디렉터리로 취급 | 알려진 읽기(`init-roles.sql`)가 안 잡힌 것을 의심 | 정규식 분리·규칙 수정(18 → 29건) |
 | REG-1 | 3단계가 계약 코드를 더하고 화면 시험의 크기 고정을 안 고침 | 5단계 전체 실행 | 수정 — 단계마다 `build` 전체 |
+| BUG-5 | **공개 본인확인: 한도에 닿아 세션이 닫히는 마지막 실패가 `{"missing":[],"passed":true}`** — 유스케이스가 닫힌 세션의 빠진 수단을 빈 목록으로 돌려주고 공개 매퍼가 "빠진 것 없음 = 통과"로 읽었다(유스케이스 Phase 4 `62c41d8`부터, 공개 응답 6A부터). 세션은 실제로 닫혀 서명으로 이어지지 않지만 고객에게 틀린 결과를 알리고 마지막 시도만 다른 응답이었다 | 태그 push run `38512687590`의 kind E2E 간헐 실패 → 재현 장치(P8-58) | `0e0d393`: 빠진 수단 유지 + 공개 매퍼는 닫힌 세션을 통과로 내지 않음. 회귀: `PublicSignUniformResponseIT`(다섯 응답 같은 바이트 — 이 시험은 응답을 보내기만 하고 읽지 않았다), `SignSessionIT`(닫힌 결과에도 BIRTH_DATE) — 둘 다 수정 전 코드에서 실패 |
+| BUG-6 | E2E `verifyBirthDate`가 안내 문구만 대조 — 두 번째 실패부터 직전 "실패" 문구가 남아 있어 자기 응답을 보지 않고 통과, 다음 단계가 진행 중 요청을 끊어 실패 횟수가 모자람(간헐) — **이 경합이 BUG-5를 가렸다**(Phase 7 D-5·KIND-9와 같은 "통과할 때만 안전한 검사") | 같은 태그 run | 응답을 기다린 뒤 문구 대조 |
 
 ### CI (1차 증거)
 
-PR #13 run [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852) — 이벤트 `pull_request`, head `a0c1833`, 결론 success. 수치는 이 run의 아티팩트를 새 디렉터리에 받아 센 것이다.
+PR #13 run [`38517344797`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38517344797) — 이벤트 `pull_request`, head `0e0d393`, 결론 success. 수치는 이 run의 아티팩트를 새 디렉터리에 받아 센 것이다.
 
 | 잡 | 결론 | 시간 | 아티팩트에서 본 것 |
 |---|---|---|---|
-| `build` | success | 11분 21초 | JVM 13,835(모듈 13개 — 로컬과 같음), 실패 0·스킵 0, 화면 단위(vitest) 27 |
-| `e2e` | success | 5분 35초 | Playwright 12(실패 0), 산출물 스캔 39파일 0건, 재전송 61 → 재생 59 + 재생 불가 2, 테이블 38개 행 수 그대로 |
-| `kind` | success | 20분 17초 | `SMOKE failures=0`(복구 전·후 두 번), 시드 `SEED_LINES 44`·세 테넌트 MATCH, 백업 `keys=59 versions=59 held=2` → 복구 `RESTORE_TABLES MATCH tables=38`·세 테넌트 MATCH, 회전 PASS 32줄·FAIL 0(재기동 다섯 번 각 141~144요청 5xx 0, KEK `rewrapped=17` → 두 번째 0, TSA 대조 `TSA_UNTRUSTED` 의도한 MISMATCH), 회전 뒤 세 테넌트 MATCH, 클러스터 대상 E2E 12(실패 0, 산출물 스캔 0), `LOGSCAN files=26 needles=98 hits=0` |
-| `deploy-lint` | success | 1분 15초 | deploy 시험 47(실패 0) |
-| `images` | success | 1분 40초 | 이미지 시험 5(실패 0 — 레이어 전수 스캔 포함) |
-| `pdfa-verify` | success | 1분 4초 | 골든 PDF veraPDF |
-| `no-docker` | success | 1분 19초 | Docker 없이 통합 테스트가 스킵이 아니라 실패 |
+| `build` | success | 11분 14초 | JVM 13,835(모듈 13개 — 로컬과 같음), 실패 0·스킵 0, 화면 단위(vitest) 27 |
+| `e2e` | success | 5분 43초 | Playwright 12(실패 0), 산출물 스캔 39파일 0건, 재전송 61 → 재생 59 + 재생 불가 2, 테이블 38개 행 수 그대로 |
+| `kind` | success | 19분 42초 | `SMOKE failures=0`(복구 전·후 두 번), 시드 `SEED_LINES 44`·세 테넌트 MATCH, 백업 `keys=59 versions=59 held=2` → 복구 `RESTORE_TABLES MATCH tables=38`·세 테넌트 MATCH, 회전 PASS 32줄·FAIL 0(재기동 다섯 번 각 141~143요청 5xx 0, KEK `rewrapped=17` → 두 번째 0, TSA 대조 `TSA_UNTRUSTED` 의도한 MISMATCH), 회전 뒤 세 테넌트 MATCH, 클러스터 대상 E2E 12(실패 0, 산출물 스캔 0), `LOGSCAN files=26 needles=98 hits=0` |
+| `deploy-lint` | success | 1분 28초 | deploy 시험 47(실패 0) |
+| `images` | success | 2분 8초 | 이미지 시험 5(실패 0 — 레이어 전수 스캔 포함) |
+| `pdfa-verify` | success | 1분 0초 | 골든 PDF veraPDF |
+| `no-docker` | success | 1분 7초 | Docker 없이 통합 테스트가 스킵이 아니라 실패 |
+
+이력(같은 PR): [`38510785852`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852)(`a0c1833`) 일곱 잡 success — 같은 수. 보고서 1판(`f3a14d3`)의 PR run `38512689473` success, 같은 커밋의 태그 push run
+[`38512687590`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38512687590)은 `kind` 잡의 클러스터 대상 E2E에서 "원격 링크: 본인확인 실패" 시험이 데스크톱·모바일 모두 실패(`이 링크는 사용할 수 없습니다` 기대 →
+`확인서 서명`) — §3 BUG-5·BUG-6, D-8.
 
 ### CLAUDE.md 규칙 9 기록
 
@@ -344,6 +353,7 @@ VERIFY_TENANT DEMO1·DEMO2·DEMO3 MATCH findings=0
 | D-5 | 규약 | 주입 수는 ID 하나 단위로 센다(Phase 7: 27 → 28, Phase 0: 16, Phase 1: 10) |
 | D-6 | 작업 기록 손실 | 10-10 이후 기계 재부팅으로 임시 디렉터리(주입 메모·숫자 표 초안·업그레이드 실측 로그)가 지워졌다. 주입 표는 세션 기록에서 복구했고, 실측 값은 커밋된 운영 문서(`keys.md`·`backup-restore.md`)와 이 보고서가 정본이다 |
 | D-7 | 6B D-2 닫음 | 간헐 실패 — 미증명·재발 0 |
+| D-8 | 간헐 실패를 넘기지 않음 | 보고서 1판의 태그 push run에서만 kind E2E가 실패했다(같은 커밋의 PR run 두 번은 통과). 재실행으로 넘기지 않고 재현 장치로 결정적으로 재현해 원인 두 겹(BUG-6 시험 경합이 BUG-5 앱 결함을 가림)을 고쳤다. 태그 `phase-8`은 이 보고서의 최종 커밋으로 옮겼다(첫 위치 `f3a14d3`) |
 
 ## 7. 알려진 한계 (최종)
 
@@ -385,8 +395,8 @@ ID가 없어 주입한 위반 하나) — 수는 각 Phase 보고서의 주입 �
 | 6A | `phase-6A` | #9 | [37786410851](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37786410851) success | 12,204 | — | — | 105 | — |
 | 6B | `phase-6B` | #10 | [37926046428](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37926046428) success | 13,642 | — | — | 151 | — |
 | 7 | `phase-7` | #12 | [37968091134](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37968091134) success | 13,689 | 24 | 12 | 28 | — |
-| 8 | `phase-8` | #13 | [38510785852](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852) success | 13,835(+ deploy 47 · image 5) | 27 | 12 + kind 12 | 62 | — |
-| **합** | | | | | | | **542** | |
+| 8 | `phase-8` | #13 | [38517344797](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38517344797) success | 13,835(+ deploy 47 · image 5) | 27 | 12 + kind 12 | 63 | 38512687590(태그 push — kind E2E, BUG-5·6) |
+| **합** | | | | | | | **543** | |
 
 계약 PR(#2·#4·#11)은 표에 없다(공유 계약 표기 변경 — 자체 CI 뒤 병합). 3A의 엔진 저장소 run 2건(`hjryoo-ai/ga-commission-engine` 36707878119·36707884896)은 success.
 Phase 0~7의 수치 조사는 각 run의 아티팩트를 받아 합산한 것이고(2026-10-10), 이 저장소 run 67건 중 실패는 위 세 건뿐이었다.

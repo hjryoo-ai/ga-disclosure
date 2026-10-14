@@ -31,7 +31,7 @@
 | 6A | REST API·작업·멱등 | 12,204 | 105 | — | [37786410851](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37786410851) |
 | 6B | 준법 큐·계약 연결·게이트 | 13,642 | 151 | — | [37926046428](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37926046428) |
 | 7 | 화면·E2E | 13,689 + 화면 단위 24 | 28 | 12 | [37968091134](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37968091134) |
-| 8 | 배포·운영·키 회전·백업·복구 | 13,835 + 배포 린트 47 + 이미지 5 + 화면 단위 27 | 62 | 12 + kind 대상 12 | [38510785852](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38510785852) |
+| 8 | 배포·운영·키 회전·백업·복구 | 13,835 + 배포 린트 47 + 이미지 5 + 화면 단위 27 | 63 | 12 + kind 대상 12 | [38517344797](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38517344797) |
 
 테스트 수는 각 run의 `test-reports` 아티팩트(Gradle 보고서 합계)와 대조했다. 주입은 규칙 시험(ArchUnit·SQL 스캔·트리거·린트)마다 일부러 위반을 넣어 실패를 확인하고 되돌린 기록이다 — 수는 각 Phase 보고서의 주입 표에서 센다(CI 아티팩트에는 없다). **세는 단위는 주입 ID 하나**다(표 한 행에 ID가 여럿이면 따로 — 예: Phase 7의 W3a·W3b는 2건이라 보고서 본문의 27이 아니라 28, 6A·6B도 같은 방식). ID가 없는 Phase 0·1은 주입한 위반 하나가 1건이다(Phase 0: 아키텍처 7 + SQL 스캔 4 + 트리거·제약·RLS 4 + jqwik 1).
 
