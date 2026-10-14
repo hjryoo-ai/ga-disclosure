@@ -22,6 +22,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -192,6 +194,98 @@ class ContractSchemaTest {
         assertThat(envelope.toString()).doesNotContain("TODO(confirm-portal-4.1)");
     }
 
+    // ------------------------------------------------------------------ 플랫폼 0.2.0(H2): 발행자 공통 Envelope 핵심
+
+    private static final String CORE = "events/v1/envelope-core.schema.json";
+
+    /** 공유되는 것은 파일이 아니라 필드 집합이다: 핵심은 §4.1의 일곱 필드이고, 포털이 이 파일 하나만 가져가므로 밖을 참조하지 않는다. */
+    @Test
+    void envelopeCoreIsTheSharedFieldSetAndStandsAlone() {
+        JsonNode core = read(CORE);
+        assertThat(required(core)).containsExactly("eventId", "seq", "type", "version", "occurredAt", "aggregate", "payload");
+        assertThat(core.path("properties").propertyNames()).containsExactlyInAnyOrderElementsOf(required(core));
+        assertThat(required(core.at("/properties/aggregate"))).containsExactly("kind", "id");
+        List<String> refs = new ArrayList<>();
+        collectRefs(core, refs);
+        assertThat(refs).isNotEmpty().allMatch(r -> r.startsWith("#/"));
+        // 핵심의 형식은 disclosure 공통 정의와 같은 정규식이다(같은 형식이 두 곳에 있으므로 대조한다)
+        JsonNode defs = read("events/v1/defs.schema.json").path("$defs");
+        assertThat(core.at("/$defs/uuid")).isEqualTo(defs.path("uuid"));
+        assertThat(core.at("/$defs/instant")).isEqualTo(defs.path("instant"));
+    }
+
+    private static void collectRefs(JsonNode node, List<String> out) {
+        if (node.isObject()) {
+            node.properties().forEach(e -> {
+                if (e.getKey().equals("$ref")) {
+                    out.add(e.getValue().asString());
+                }
+                collectRefs(e.getValue(), out);
+            });
+        } else if (node.isArray()) {
+            node.forEach(n -> collectRefs(n, out));
+        }
+    }
+
+    /** disclosure envelope는 핵심을 allOf 첫 항으로 포함한다 — 핵심을 통과하지 못하는 문서는 파생도 통과하지 못한다. */
+    @Test
+    void disclosureEnvelopeDerivesFromCore() {
+        JsonNode envelope = read("events/v1/envelope.schema.json");
+        assertThat(envelope.at("/allOf/0/$ref").asString()).isEqualTo("envelope-core.schema.json");
+        assertThat(required(envelope)).containsAll(required(read(CORE)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("eventTypes")
+    void everySamplePassesTheCore(String type) {
+        assertThat(schema(CORE).validate(read("events/v1/samples/" + type + ".json"))).isEmpty();
+    }
+
+    static Stream<String> coreViolations() {
+        return Stream.of("no-eventId", "no-seq", "no-type", "no-version", "no-occurredAt", "no-aggregate", "no-payload",
+                "seq-zero", "seq-string", "version-zero", "type-number", "type-lowercase", "occurredAt-no-offset", "eventId-not-uuid",
+                "aggregate-no-kind", "aggregate-no-id", "aggregate-empty-id", "aggregate-kind-lowercase", "payload-array");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("coreViolations")
+    void aDocumentTheCoreRejectsIsRejectedByTheDisclosureEnvelope(String violation) {
+        ObjectNode doc = (ObjectNode) read("events/v1/samples/DisclosureSealed.json");
+        ObjectNode aggregate = (ObjectNode) doc.get("aggregate");
+        switch (violation) {
+            case "seq-zero" -> doc.put("seq", 0);
+            case "seq-string" -> doc.put("seq", "1002");
+            case "version-zero" -> doc.put("version", 0);
+            case "type-number" -> doc.put("type", 7);
+            case "type-lowercase" -> doc.put("type", "disclosureSealed");
+            case "occurredAt-no-offset" -> doc.put("occurredAt", "2026-09-23T10:02:00");
+            case "eventId-not-uuid" -> doc.put("eventId", "evt-1");
+            case "aggregate-no-kind" -> aggregate.remove("kind");
+            case "aggregate-no-id" -> aggregate.remove("id");
+            case "aggregate-empty-id" -> aggregate.put("id", "");
+            case "aggregate-kind-lowercase" -> aggregate.put("kind", "disclosure");
+            case "payload-array" -> doc.putArray("payload");
+            default -> doc.remove(violation.substring("no-".length()));
+        }
+        assertThat(schema(CORE).validate(doc)).as("core rejects %s", violation).isNotEmpty();
+        assertThat(schema("events/v1/envelope.schema.json").validate(doc)).as("derived rejects %s", violation).isNotEmpty();
+    }
+
+    /** 핵심은 발행자 공통이다: 포털 §4.1 예시 모양의 엔진 이벤트는 핵심을 통과하고 disclosure envelope(종류 열거)는 통과하지 못한다. */
+    @Test
+    void anEngineEventPassesTheCoreButNotTheDisclosureEnvelope() {
+        ObjectNode engine = JSON.createObjectNode();
+        engine.put("eventId", "6f1c0e2a-1b3c-4d5e-8f60-718293a4b5c6");
+        engine.put("seq", 10231);
+        engine.put("type", "CommissionCalculated");
+        engine.put("version", 1);
+        engine.put("occurredAt", "2026-09-22T10:15:30+09:00");
+        engine.putObject("aggregate").put("kind", "COMM_CALC").put("id", "884213");
+        engine.putObject("payload").put("calcId", 884213);
+        assertThat(schema(CORE).validate(engine)).isEmpty();
+        assertThat(schema("events/v1/envelope.schema.json").validate(engine)).isNotEmpty();
+    }
+
     @Test
     void envelopeWithAggregateMissingKindOrUnknownVersionPayloadMismatchFails() {
         ObjectNode sample = (ObjectNode) read("events/v1/samples/DisclosureSealed.json");
@@ -341,6 +435,32 @@ class ContractSchemaTest {
     @Test
     void engineContractHasNoFormatKeyword() {
         assertThat(formatKeywords(YAML.readTree(readString(ENGINE)))).isZero();
+    }
+
+    /**
+     * 플랫폼 0.2.0(H3): 위 시험과 6A G11({@code OpenApiContractIT})은 API 계약만 봤고 이벤트 {@code defs}·룰·봉인 스키마의 {@code format} 6개를
+     * 빼놓았다(시험 범위 결함). {@code contracts/} 아래 JSON·YAML 전부를 센다 — 포털이 사본으로 가져가는 파일도 여기 있다.
+     */
+    @Test
+    void noContractFileHasAFormatKeyword() throws IOException {
+        Map<String, Integer> found = new TreeMap<>();
+        List<Path> files;
+        try (Stream<Path> walk = Files.walk(CONTRACTS)) {
+            files = walk.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".json") || p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"))
+                    .toList();
+        }
+        for (Path p : files) {
+            String text = Files.readString(p);
+            int n = formatKeywords(p.toString().endsWith(".json") ? JSON.readTree(text) : YAML.readTree(text));
+            if (n > 0) {
+                found.put(CONTRACTS.relativize(p).toString(), n);
+            }
+        }
+        assertThat(files.stream().map(f -> CONTRACTS.relativize(f).toString().replace('\\', '/')).toList()).as("contract files scanned")
+                .contains("events/v1/defs.schema.json", "rules/v1/rule-bundle.schema.json", "rules/v1/rule-version.schema.json",
+                        "seal/v1/evidence-manifest.schema.json", "api/v1/engine-disclosure.openapi.yaml");
+        assertThat(found).isEmpty();
     }
 
     @ParameterizedTest(name = "generatedAt {0} -> {1}")

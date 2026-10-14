@@ -1,8 +1,13 @@
+import java.security.MessageDigest
+
 plugins {
     `java-library`
 }
 
 val fromGitHub = providers.gradleProperty("ga.platformRepo").orNull == "github"
+// 루트 태스크가 플랫폼 모듈의 버전을 넘긴다(0.2.0부터 — 버전을 여기 두 번 적지 않는다).
+val platformVersion: String = providers.gradleProperty("ga.platformVersion").orNull
+    ?: throw GradleException("-Pga.platformVersion is required (run through the root verifyPublishedPlatform* tasks)")
 val platformSource = if (fromGitHub) "GitHub Packages" else "mavenLocal"
 
 java {
@@ -17,7 +22,7 @@ sourceSets {
 }
 
 dependencies {
-    api("com.ga.platform:platform-core:0.1.0")
+    api("com.ga.platform:platform-core:$platformVersion")
 }
 
 val platformSpring = configurations.create("platformSpring") {
@@ -25,7 +30,7 @@ val platformSpring = configurations.create("platformSpring") {
 }
 
 dependencies {
-    platformSpring("com.ga.platform:platform-spring:0.1.0")
+    platformSpring("com.ga.platform:platform-spring:$platformVersion")
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -38,8 +43,8 @@ tasks.register("verifyPlatformSpringResolves") {
     val files = platformSpring
     doLast {
         val names = files.resolve().map { it.name }.sorted()
-        require(names.any { it.startsWith("platform-spring-0.1.0") }) { "platform-spring not resolved: $names" }
-        require(names.any { it.startsWith("platform-core-0.1.0") }) { "platform-core (transitive) not resolved: $names" }
+        require(names.any { it.startsWith("platform-spring-$platformVersion") }) { "platform-spring not resolved: $names" }
+        require(names.any { it.startsWith("platform-core-$platformVersion") }) { "platform-core (transitive) not resolved: $names" }
         require(names.any { it.startsWith("spring-jdbc-") }) { "spring-jdbc (transitive) not resolved: $names" }
         println("platform-spring resolves from $platformSource with ${names.size} artifacts")
     }
@@ -61,16 +66,37 @@ val platformCanonical = configurations.create("platformCanonical") {
 }
 
 dependencies {
-    platformCanonical("com.ga.platform:platform-canonical:0.1.0")
+    platformCanonical("com.ga.platform:platform-canonical:$platformVersion")
 }
 
 tasks.register("verifyPlatformCanonical") {
     val files = platformCanonical
     doLast {
         val names = files.resolve().map { it.name }.sorted()
-        require(names.any { it.startsWith("platform-canonical-0.1.0") }) { "platform-canonical not resolved: $names" }
+        require(names.any { it.startsWith("platform-canonical-$platformVersion") }) { "platform-canonical not resolved: $names" }
         require(names.any { it.startsWith("java-json-canonicalization-1.1") }) { "JCS library (transitive) not resolved: $names" }
         require(names.any { it.startsWith("jackson-databind-3.") }) { "jackson-databind 3 (transitive) not resolved: $names" }
         println("platform-canonical resolves from $platformSource with ${names.size} artifacts: $names")
+    }
+}
+
+// 소비자가 받은 플랫폼 jar(테스트 픽스처 포함)의 SHA-256 — 발행 워크플로 로그에 남겨 포털이 의존성 검증 메타데이터에 고정할 값의 1차 출처로 쓴다.
+val platformFixtures = configurations.create("platformFixtures") {
+    isCanBeConsumed = false
+}
+
+dependencies {
+    platformFixtures("com.ga.platform:platform-core:$platformVersion") {
+        capabilities { requireCapability("com.ga.platform:platform-core-test-fixtures") }
+    }
+}
+
+tasks.register("printPlatformSha256") {
+    val files = configurations.compileClasspath.get().incoming.files + platformSpring.incoming.files + platformCanonical.incoming.files + platformFixtures.incoming.files
+    doLast {
+        files.files.filter { it.name.startsWith("platform-") }.sortedBy { it.name }.forEach { f ->
+            val hex = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+            println("PLATFORM_SHA256 $hex  ${f.name} (from $platformSource)")
+        }
     }
 }

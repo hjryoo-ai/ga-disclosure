@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ga.example/contracts/events/v1/envelope.schema.json",
   "title": "이벤트 Envelope (v1)",
-  "description": "아웃박스 이벤트 공통 봉투(설계서 §4.5). 포털 설계서 v1.1 §4.1 Envelope 규약과 필드·의미가 같다(Phase 1에서 대조·정렬, 차이는 docs/phase-01-보고서.md). 호환성: 소비자는 모르는 필드를 무시한다. 지원하는 최대 version보다 큰 이벤트를 만나면 그 테넌트의 소비를 정지하고 운영 알림. seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적용, 크면(갭) 정지.",
+  "description": "ga-disclosure 아웃박스 이벤트의 봉투(설계서 §4.5). 발행자 공통 핵심 envelope-core.schema.json(포털 설계서 v1.1 §4.1 규약 — Phase 1에서 대조·정렬, 차이는 docs/phase-01-보고서.md)을 allOf 첫 항으로 포함하고, 이벤트 종류·aggregate 종류를 열거로 좁히며 type·version별 payload 스키마를 고른다(플랫폼 0.2.0 정비 — 추가형). 호환성: 소비자는 모르는 필드를 무시한다. 지원하는 최대 version보다 큰 이벤트를 만나면 그 테넌트의 소비를 정지하고 운영 알림. seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적용, 크면(갭) 정지.",
   "type": "object",
   "required": ["eventId", "seq", "type", "version", "occurredAt", "aggregate", "payload"],
   "properties": {
@@ -25,6 +25,7 @@
     "payload": { "type": "object" }
   },
   "allOf": [
+    { "$ref": "envelope-core.schema.json" },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureCreated" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureCreated.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "DisclosureSealed" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/DisclosureSealed.schema.json" } } } },
     { "if": { "required": ["type", "version"], "properties": { "type": { "const": "SignatureCaptured" }, "version": { "const": 1 } } }, "then": { "properties": { "payload": { "$ref": "payloads/SignatureCaptured.schema.json" } } } },

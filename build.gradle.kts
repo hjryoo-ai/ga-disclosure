@@ -314,7 +314,8 @@ tasks.register<Exec>("verifyPublishedPlatform") {
         rootDir.resolve("gradlew").absolutePath,
         "--project-dir", "verification/published-consumer",
         "--no-configuration-cache",
-        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
+        "-Pga.platformVersion=${project(":platform-core").version}",
+        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical", "printPlatformSha256",
     )
 }
 
@@ -371,6 +372,124 @@ tasks.register<Exec>("verifyPublishedPlatformFromGitHub") {
         "--project-dir", "verification/published-consumer",
         "--no-configuration-cache", "--refresh-dependencies",
         "-Pga.platformRepo=github",
-        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical",
+        "-Pga.platformVersion=${project(":platform-core").version}",
+        "clean", "compileJava", "verifyPlatformSpringResolves", "verifyPlatformCanonical", "printPlatformSha256",
     )
 }
+
+// ---------------------------------------------------------------------------------------------
+// 플랫폼 0.2.0 정비(H1): 공개 API 서명 덤프. 0.1.0은 발행(2026-09-30) 뒤 소스가 두 번 바뀌었는데(OrgPath 추가, OIDC 골격 삭제)
+// 버전이 그대로였다 — GitHub Packages의 0.1.0과 그 뒤 publishToMavenLocal한 0.1.0이 다른 API였다. 발행된 버전은 다시 발행하지 않는다.
+// platform/API-<버전>.txt가 그 버전의 공개 API다(발행 jar 넷의 public 클래스와 public·protected 멤버, 상수 값 포함 — javap).
+// 지금 코드의 덤프가 그 파일과 다르면 실패한다: API를 바꾸려면 세 모듈의 버전을 올리고 ./gradlew platformApiDump로 새 덤프를 커밋한다.
+// 남는 틈: API가 같은 구현 변경은 이 검사가 보지 못한다 — 소비자는 jar SHA-256을 의존성 검증 메타데이터에 고정한다(포털 C9).
+// ---------------------------------------------------------------------------------------------
+// 루트 스크립트가 먼저 평가되므로 플랫폼 모듈을 먼저 평가해 그 jar 태스크(testFixturesJar 포함)를 참조한다.
+platformModules.forEach { evaluationDependsOn(":$it") }
+val platformApiJars: List<Pair<String, Provider<RegularFile>>> = listOf(
+    "platform-core" to project(":platform-core").tasks.named<Jar>("jar").flatMap { it.archiveFile },
+    "platform-core test-fixtures" to project(":platform-core").tasks.named<Jar>("testFixturesJar").flatMap { it.archiveFile },
+    "platform-canonical" to project(":platform-canonical").tasks.named<Jar>("jar").flatMap { it.archiveFile },
+    "platform-spring" to project(":platform-spring").tasks.named<Jar>("jar").flatMap { it.archiveFile },
+)
+// 루트에는 java 플러그인이 없다 — 플랫폼 모듈의 툴체인 서비스로 같은 JDK의 javap를 쓴다.
+val javapTool: Provider<File> = project(":platform-core").extensions.getByType<JavaToolchainService>()
+    .launcherFor { languageVersion = JavaLanguageVersion.of(catalog.versions.java.get()) }
+    .map { it.metadata.installationPath.file("bin/javap").asFile }
+val platformVersions = platformModules.associateWith { project(":$it").version.toString() }
+
+fun platformApiText(javap: File, jars: List<Pair<String, File>>, version: String): String {
+    val out = StringBuilder("# com.ga.platform $version 공개 API — ./gradlew platformApiDump가 만든다(javap -protected -constants). 손으로 고치지 않는다.\n")
+    for ((label, jar) in jars) {
+        val classes = java.util.zip.ZipFile(jar).use { z ->
+            z.entries().asSequence().map { it.name }
+                .filter { it.endsWith(".class") && !it.endsWith("package-info.class") && !it.endsWith("module-info.class") }
+                .map { it.removeSuffix(".class").replace('/', '.') }.sorted().toList()
+        }
+        // 클래스가 아닌 자원(예: 자동 구성 등록 META-INF/spring/…imports)도 소비자가 받는 것이다 — 이름과 내용 해시
+        val resources = java.util.zip.ZipFile(jar).use { z ->
+            z.entries().asSequence().filter { !it.isDirectory && !it.name.endsWith(".class") && it.name != "META-INF/MANIFEST.MF" }
+                .map { e -> e.name + " sha256=" + MessageDigest.getInstance("SHA-256").digest(z.getInputStream(e).use { it.readBytes() })
+                    .joinToString("") { "%02x".format(it) } }
+                .sorted().toList()
+        }
+        val process = ProcessBuilder(listOf(javap.path, "-protected", "-constants", "-cp", jar.path) + classes).redirectErrorStream(true).start()
+        val text = process.inputStream.bufferedReader().readText()
+        if (process.waitFor() != 0) throw GradleException("javap failed for $label:\n$text")
+        val blocks = sortedMapOf<String, Pair<String, List<String>>>()   // 클래스 이름 → (머리줄, 멤버)
+        val typeName = Regex("(?:class|interface|enum) (\\S+)")
+        var header: String? = null
+        val members = mutableListOf<String>()
+        text.lines().forEach { line ->
+            when {
+                line.startsWith("Compiled from") || line.isBlank() -> {}
+                header == null && line.endsWith("{") -> { header = line.removeSuffix("{").trim(); members.clear() }
+                header != null && line == "}" -> {
+                    val h = header!!
+                    if (h.startsWith("public ") || h.startsWith("protected ")) {
+                        val name = typeName.find(h)?.groupValues?.get(1) ?: throw GradleException("no type name in javap header: $h")
+                        blocks[name] = h to members.map { it.trim() }.filter { it.startsWith("public ") || it.startsWith("protected ") }.sorted()
+                    }
+                    header = null
+                }
+                header != null -> members += line
+                else -> throw GradleException("unexpected javap line for $label: $line")
+            }
+        }
+        out.append("\n## ").append(label).append('\n')
+        blocks.values.forEach { (h, ms) ->
+            out.append(h).append('\n')
+            ms.forEach { out.append("  ").append(it).append('\n') }
+        }
+        resources.forEach { out.append("resource ").append(it).append('\n') }
+    }
+    return out.toString()
+}
+
+tasks.register("platformApiDump") {
+    group = "platform"
+    description = "Writes platform/API-<version>.txt from the platform jars (only for a new, unpublished version)."
+    platformApiJars.forEach { (_, f) -> inputs.file(f) }
+    val javap = javapTool
+    val jars = platformApiJars
+    val versions = platformVersions
+    val dir = rootDir.resolve("platform")
+    doLast {
+        val version = versions.values.toSet().singleOrNull() ?: throw GradleException("platform modules disagree on the version: $versions")
+        val file = dir.resolve("API-$version.txt")
+        file.parentFile.mkdirs()
+        file.writeText(platformApiText(javap.get(), jars.map { (l, f) -> l to f.get().asFile }, version))
+        logger.lifecycle("wrote ${file.relativeTo(rootDir)}")
+    }
+}
+
+val verifyPlatformApi = tasks.register("verifyPlatformApi") {
+    group = "verification"
+    description = "Fails when the platform jars' public API differs from platform/API-<version>.txt (same version, different API)."
+    platformApiJars.forEach { (_, f) -> inputs.file(f) }
+    inputs.dir(rootDir.resolve("platform")).withPathSensitivity(PathSensitivity.RELATIVE)
+    val javap = javapTool
+    val jars = platformApiJars
+    val versions = platformVersions
+    val dir = rootDir.resolve("platform")
+    doLast {
+        val version = versions.values.toSet().singleOrNull() ?: throw GradleException("platform modules disagree on the version: $versions")
+        val file = dir.resolve("API-$version.txt")
+        if (!file.isFile) {
+            throw GradleException("platform/API-${version}.txt가 없다. 새 버전이면 ./gradlew platformApiDump로 만들어 같은 커밋에 넣는다.")
+        }
+        val actual = platformApiText(javap.get(), jars.map { (l, f) -> l to f.get().asFile }, version)
+        val expected = file.readText()
+        if (actual != expected) {
+            val now = actual.lines().toSet()
+            val then = expected.lines().toSet()
+            val diff = (then - now).map { "- $it" } + (now - then).map { "+ $it" }
+            throw GradleException(
+                "플랫폼 ${version}의 공개 API가 platform/API-${version}.txt와 다르다. 발행된 버전은 다시 발행하지 않는다 — API를 바꾸려면 " +
+                    "세 모듈의 버전을 올리고 ./gradlew platformApiDump로 새 덤프를 커밋한다.\n" + diff.take(40).joinToString("\n"),
+            )
+        }
+        logger.lifecycle("platform $version public API matches platform/API-$version.txt")
+    }
+}
+tasks.named("check") { dependsOn(verifyPlatformApi) }
