@@ -1,7 +1,7 @@
 # 포털 Phase 0 인계 — ga-disclosure가 확정한 것
 
 작성 2026-10-14 · 기준 ga-disclosure `main` = `60d5259`(PR #13 병합 커밋) · 대상 `ga-agent-portal` Phase 0 지시문 v1.1(2026-10-14)
-개정 2026-10-14 · H1~H6 결정 반영 — 플랫폼 0.2.0 정비(ga-disclosure PR #15, `docs/platform-0.2-정비-지시문.md`)와 포털 Phase 0 지시문 v1.2
+개정 2026-10-14 · H1~H6 결정 반영 — 플랫폼 0.2.0 정비(ga-disclosure PR #15, `docs/platform-0.2-정비-지시문.md`)와 포털 Phase 0 지시문 v1.2 · 0.2.0 발행본 SHA-256(§6)
 
 이 문서는 포털 Phase 0 계획이 그대로 인용할 수 있게 ga-disclosure 쪽 사실을 한곳에 모은 것이다. **정본이 아니다** — 각 항목에 정본 경로를 적었고,
 다르면 정본이 맞다. §0이 결정이고, §1은 그 결정을 부른 사실(지시문 v1.1의 전제 가운데 이 저장소와 달랐던 것)의 기록이다.
@@ -67,7 +67,7 @@
 - 포털은 자기 정본(payload 13·`engine-internal.openapi.yaml`)도 `contracts/`에 두므로 그대로 가져가면 그 파일들이 업스트림에 없어 실패한다.
   사본을 하위 디렉터리나 닫힌 목록으로 한정해야 한다 — 결정(§0): `contracts/shared/ga-disclosure/`.
 - `UPSTREAM` 형식은 `owner/repo@<40자 커밋>` 한 줄이다. 엔진의 현재 값 `hjryoo-ai/ga-disclosure@688cc46…`은 PR #11의 병합 커밋이다.
-  포털은 핵심이 들어간 병합 커밋(정비 PR #15의 병합)을 고정한다.
+  포털은 핵심이 들어간 병합 커밋을 고정한다: `hjryoo-ai/ga-disclosure@db82d5d4ca35de2e16ac1d6238fef5d39ae304a2`(PR #15 병합).
 
 ### H5. `CHECKSUMS`의 형식
 
@@ -186,6 +186,28 @@ seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적�
 - 0.2.0 발행본의 SHA-256은 발행 워크플로(`publish-platform.yml`) 로그의 두 곳이 1차 출처다: 올린 파일(jar·sources·test-fixtures·POM·모듈 메타데이터)의
   `sha256sum`, 그리고 `rm -rf ~/.m2/repository/com/ga` 뒤 GitHub Packages에서 다시 받은 jar의 `PLATFORM_SHA256` 줄. 값은 정비 보고서에 옮긴다.
   Gradle 의존성 검증은 jar뿐 아니라 POM·`.module`도 대조하므로 포털의 메타데이터에는 그 셋을 다 넣는다.
+- **0.2.0 발행본** — 태그 `platform-v0.2.0`(= PR #15 병합 커밋 `db82d5d4ca35de2e16ac1d6238fef5d39ae304a2`), 발행 run
+  [`38552151950`](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/38552151950). 올린 파일의 `sha256sum`(GitHub Packages 파일 이름으로 적음). jar 넷은
+  `~/.m2`를 비운 뒤 GitHub Packages에서 다시 받은 값(`PLATFORM_SHA256`)과도, 발행 전 로컬(macOS)·PR CI(Ubuntu) 빌드 값과도 같다.
+
+  | 파일 | SHA-256 |
+  |---|---|
+  | `platform-core-0.2.0.jar` | `981ad2635c56a39299beb40ce0883bf7e0d7d1f6c66e7fea833668378f76f35c` |
+  | `platform-core-0.2.0-test-fixtures.jar` | `c4f4e680b61bc9fd97c93c398d00c838c82199ebe0d64a4847b59e2539966355` |
+  | `platform-core-0.2.0-sources.jar` | `d7a9ad154272bfb4a7eaac040c3a6b2b7b88cc4a0e9d2091d4945f9c9a152b79` |
+  | `platform-core-0.2.0.pom` | `11931c99270da6436b9957103226e93ec33c78703d62496fb449a00ce6123d89` |
+  | `platform-core-0.2.0.module` | `1755e752029dad33ce8430d379ef467b24e61c4526278f65c9965b4b54a4434d` |
+  | `platform-canonical-0.2.0.jar` | `14856a61d9e311d6b9f229a232a73bde58ee425d2ff5796b244dc404a7632ca0` |
+  | `platform-canonical-0.2.0-sources.jar` | `f31dc36c3fa5bcccacd41dee5bb8b1cd3fa4d047fb9a483715f63929871e851a` |
+  | `platform-canonical-0.2.0.pom` | `af2f15a3933409d1d3b7a674887223fb22f6743e28aef8537bd091da085dc8ee` |
+  | `platform-canonical-0.2.0.module` | `89705f3ccee8f4fc9f7ce59685192a1dbc061d35dcd917327e674774ea882cf7` |
+  | `platform-spring-0.2.0.jar` | `7b45f07bb30126491861cb537335c61b5476effb767a8ef01403e98c032524e0` |
+  | `platform-spring-0.2.0-sources.jar` | `b01426e47bbfb3ddf46ec6f0d792a11ae1b4cf96a8054bd13349ef1f3a431b57` |
+  | `platform-spring-0.2.0.pom` | `2134532a1a0c12cb22a2062eb9b22eff16654bd019334ddbc220e69951888809` |
+  | `platform-spring-0.2.0.module` | `57fd96c20ceaa477f71743044e113722cc3c5883c0f8c9d3a426ae4766312868` |
+
+  `.pom`·`.module`은 빌드가 만든 `pom-default.xml`·`module.json`을 올린 것의 해시다. 포털의 검증 메타데이터는 Gradle이 실제로 받은 파일로
+  `--write-verification-metadata sha256` 해 만들고, 위 표와 같은지 대조한다(다르면 멈추고 보고).
 
 - 저장소 URL `https://maven.pkg.github.com/hjryoo-ai/ga-disclosure`. ga-disclosure의 소비 예시는 `verification/published-consumer/settings.gradle.kts`
   (`exclusiveContent`로 `com.ga.platform` 그룹을 한 저장소에만, 자격은 환경변수 `GITHUB_ACTOR`·`GITHUB_TOKEN`).
