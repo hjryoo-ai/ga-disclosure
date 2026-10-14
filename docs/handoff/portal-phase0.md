@@ -1,11 +1,25 @@
 # 포털 Phase 0 인계 — ga-disclosure가 확정한 것
 
 작성 2026-10-14 · 기준 ga-disclosure `main` = `60d5259`(PR #13 병합 커밋) · 대상 `ga-agent-portal` Phase 0 지시문 v1.1(2026-10-14)
+개정 2026-10-14 · H1~H6 결정 반영 — 플랫폼 0.2.0 정비(ga-disclosure PR #15, `docs/platform-0.2-정비-지시문.md`)와 포털 Phase 0 지시문 v1.2
 
 이 문서는 포털 Phase 0 계획이 그대로 인용할 수 있게 ga-disclosure 쪽 사실을 한곳에 모은 것이다. **정본이 아니다** — 각 항목에 정본 경로를 적었고,
-다르면 정본이 맞다. §1은 지시문 v1.1의 전제 가운데 이 저장소의 사실과 다른 것이라 계획 전에 결정이 필요하다.
+다르면 정본이 맞다. §0이 결정이고, §1은 그 결정을 부른 사실(지시문 v1.1의 전제 가운데 이 저장소와 달랐던 것)의 기록이다.
 
-## 1. 지시문 v1.1과 사실이 다른 점 (계획 전에 결정할 것)
+## 0. 결정 (2026-10-14)
+
+| # | 결정 | 어디서 |
+|---|---|---|
+| H1 | 플랫폼 **0.2.0**을 발행한다. 0.1.0은 쓰지 않는다(지우지도 재발행하지도 않는다). 공개 API 덤프 `platform/API-<버전>.txt`와 다르면 ga-disclosure 빌드가 실패한다(`verifyPlatformApi`). 포털은 0.2.0 jar의 SHA-256을 의존성 검증 메타데이터에 고정하고 CI에서 `mavenLocal`을 쓰지 않는다 | ga-disclosure PR #15 → 태그 `platform-v0.2.0`, 포털 v1.2 §1·C9 |
+| H2 | 발행자 공통 핵심 `contracts/events/v1/envelope-core.schema.json`을 분리했다(§4.1의 일곱 필드와 형식, 다른 파일 참조 없음). disclosure envelope는 `allOf` 첫 항으로 핵심을 포함한다(추가형). 포털은 **핵심만** 사본으로 가져가고 자기 envelope(`allOf: [core, 포털 이벤트 13종]`)를 쓴다 | ga-disclosure PR #15, 포털 v1.2 §5 |
+| H3 | ga-disclosure 계약 전 파일의 `format` 0(`defs` 2개 + 룰·봉인 스키마 4개 제거), 시험 범위를 `contracts/` 전체로 | ga-disclosure PR #15 |
+| H4 | 포털은 사본을 `contracts/shared/ga-disclosure/`에 두고 그 디렉터리 전용 `CHECKSUMS`·`UPSTREAM`을 둔다. `verifyUpstreamContract`는 그 디렉터리만 대조한다 | 포털 v1.2 §5 |
+| H5 | `CHECKSUMS`는 **파일 바이트의 평문 SHA-256**(`sha256sum -c` 형식) 그대로. JCS(`platform-canonical`)는 이벤트 payload의 정규 해시(멱등·중복 판정)에만 쓴다 | 포털 v1.2 §5 |
+| H6 | 공개 상수 `com.ga.platform.spring.jdbc.TenantSession.SETTING_NAME = "app.tenant_id"`(0.2.0). 마이그레이션 문자열과 상수를 대조하는 시험을 양쪽에 둔다(ga-disclosure `RlsSettingNameTest`, 포털 C10) | ga-disclosure PR #15, 포털 v1.2 §4·C10 |
+
+병합 순서: 플랫폼 0.2.0 정비 PR(#15) → 태그 `platform-v0.2.0`·발행 → 이 인계 PR(#14). 포털은 0.2.0이 발행되기 전에는 계획만 쓴다.
+
+## 1. 지시문 v1.1과 사실이 달랐던 점 (기록 — 결정은 §0)
 
 ### H1. `0.1.0`이 두 벌이다 — 발행본과 `mavenLocal`이 다르다
 
@@ -21,10 +35,7 @@
   없다. 발행본은 그 반대다. 좌표가 같은 두 아티팩트이므로 지시문의 "`mavenLocal()` 우선"을 그대로 쓰면 포털이 로컬에서는 발행되지 않은 API로
   컴파일되고, C9(발행본에서 해석)의 CI에서만 다르게 된다.
 - 이것은 ga-disclosure의 결함이다: 플랫폼 소스가 바뀌어도 버전을 올리게 하는 검사가 없었다(`checkPlatformVersion`은 태그와 모듈 버전의 일치만 본다).
-- 선택지:
-  - (a) 포털은 `0.1.0` **발행본만** 쓴다 — `com.ga.platform` 그룹을 GitHub Packages 한 곳으로 `exclusiveContent` 고정, `mavenLocal` 없음. `OrgPath`는 쓸 수 없다(포털 Phase 0 범위에는 필요 없다).
-  - (b) ga-disclosure가 `platform-v0.2.0`을 발행한다(SemVer 0.x에서 공개 API 삭제 = 마이너 상향). 포털은 `0.2.0`을 고정한다. ga-disclosure 쪽 작업이며 함께 "플랫폼 소스가 마지막 발행 태그와 다르면 버전이 달라야 한다" 검사를 넣는다.
-  - 어느 쪽이든 "개발은 `mavenLocal()` 우선"은 **같은 버전의 로컬 재발행을 금지**하는 조건과 함께여야 한다.
+- 결정(§0): 0.2.0 발행 + 공개 API 덤프 검사 + 포털의 jar SHA-256 고정.
 
 ### H2. `envelope.schema.json`은 범용 Envelope가 아니다
 
@@ -36,38 +47,42 @@
 - 그래서 지시문 §5·C7처럼 이 파일 **하나**를 사본으로 들이면 `$ref`가 풀리지 않고, 엔진 이벤트(포털 §4.1 예시의 `CommissionCalculated`·`COMM_CALC`)는 `type`·`kind` 열거에서 실패한다.
 - 공유되는 것은 **필드 집합과 규칙**(아래 §3)이지 이 파일이 아니다. ga-disclosure는 Phase 1에서 이 필드 집합을 포털 §4.1 원문과 맞췄고(`433db53`), 시험은
   `disclosure-rules`의 `ContractSchemaTest.envelopeFollowsPortalConvention`(필드 집합 정확 일치)이다.
-- 선택지:
-  - (a) ga-disclosure가 범용 봉투 `contracts/events/v1/envelope-core.schema.json`(필드 7개·타입·`seq ≥ 1`, `type`·`kind`는 문자열 `pattern`, payload는 `object`)을 새로 두고 기존 봉투가 그것을 `allOf`로 참조한다. 의미 변경이 아니라 분리이므로 지시문이 명시하면 "공유 계약 표기 변경" PR(자체 CI 뒤 병합)로 갈 수 있다. 포털은 `envelope-core`만 사본으로 들이고 자기 이벤트 봉투가 그것을 참조한다.
-  - (b) 포털이 확인서 이벤트를 **소비**하는 범위로 `contracts/events/v1/` 트리 전체(봉투·`defs`·payload 11·샘플 11)를 사본으로 들이고, 엔진 이벤트 봉투는 포털 정본으로 두되 필드 집합 일치 시험을 둔다.
+- 결정(§0): 핵심 `envelope-core.schema.json` 분리. 핵심의 필드는 정비 지시문이 적은 목록(`schemaVersion`·`tenantId` 포함)이 아니라 §4.1의 일곱 필드다 —
+  Envelope에는 `version`이 있고 테넌트가 없으며 `schemaVersion`은 피드 응답의 필드다. 그 목록대로면 기존 이벤트가 전부 핵심에서 실패한다(정비 보고서에 지시문 오류로 기록).
+  - 핵심: `required` 일곱 개, `eventId` UUID 정규식, `seq`·`version` 정수 ≥ 1, `type` `^[A-Z][A-Za-z0-9]{0,63}$`, `occurredAt` 오프셋 포함 시각 정규식,
+    `aggregate{kind ^[A-Z][A-Z0-9_]{0,31}$, id 비지 않은 문자열}`, `payload` 객체. 모르는 필드는 허용(소비자는 무시). 형식 정규식은 `defs`와 같다(시험이 대조).
+  - 포털 §4.1 예시 모양(`CommissionCalculated`·`COMM_CALC`)은 핵심을 통과하고 disclosure envelope는 통과하지 못한다(`ContractSchemaTest.anEngineEventPassesTheCoreButNotTheDisclosureEnvelope`).
 
 ### H3. 사본에 `format`이 있다
 
 - `contracts/events/v1/defs.schema.json`의 `instant`·`date`는 `pattern`과 함께 `"format": "date-time"`·`"format": "date"`를 가진다(2건). 강제는 `pattern`이
   하고 `format`은 주석 구실이다(5 D14 이전의 흔적).
-- H2의 어느 선택지든 `defs`를 들이면 포털의 "`format` 0" 검사와 충돌한다. 검사 범위에서 사본을 빼거나, ga-disclosure에서 `format`을 지운다(표기 변경).
+- 결정(§0): ga-disclosure에서 지웠다. 시험 범위를 넓히자 룰 번들(2)·룰 버전(1)·증거 매니페스트(1) 스키마의 4개가 더 나왔다(모두 `pattern`이 함께 있었다).
+  포털이 가져가는 핵심에는 `format`이 없다.
 
 ### H4. `verifyUpstreamContract`를 "엔진 규약 그대로" 쓰면 포털에서 실패한다
 
 - 엔진의 태스크(`ai-comm/commission-system/build.gradle.kts:111`)는 `contracts/` 아래 **모든 파일**(`CHECKSUMS`·`UPSTREAM` 제외)을
   `raw.githubusercontent.com/<owner/repo>/<commit>/contracts/<같은 경로>`와 바이트 대조한다. 엔진은 `contracts/`에 사본만 있어서 성립한다.
 - 포털은 자기 정본(payload 13·`engine-internal.openapi.yaml`)도 `contracts/`에 두므로 그대로 가져가면 그 파일들이 업스트림에 없어 실패한다.
-  사본을 하위 디렉터리(예: `contracts/upstream/ga-disclosure/` — 업스트림 경로 대응을 태스크가 안다)나 닫힌 목록으로 한정해야 한다.
+  사본을 하위 디렉터리나 닫힌 목록으로 한정해야 한다 — 결정(§0): `contracts/shared/ga-disclosure/`.
 - `UPSTREAM` 형식은 `owner/repo@<40자 커밋>` 한 줄이다. 엔진의 현재 값 `hjryoo-ai/ga-disclosure@688cc46…`은 PR #11의 병합 커밋이다.
-  포털이 지금 고정한다면 후보는 `60d52599a265aa0ea57659617455707328527730`(PR #13 병합)이다.
+  포털은 핵심이 들어간 병합 커밋(정비 PR #15의 병합)을 고정한다.
 
 ### H5. `CHECKSUMS`의 형식
 
 - ga-disclosure와 엔진의 `contracts/CHECKSUMS`는 **파일 바이트의 SHA-256**, `sha256sum` 형식(`<hex>  <경로>`), 경로 정렬이다
   (`build.gradle.kts:157`, 엔진 `build.gradle.kts:73`). 저장소 사이 대조와 `sha256sum -c`가 이 형식에 기대고 있다.
-- 지시문 §5의 "JCS로 정규화한 해시를 CHECKSUMS에"는 이 형식과 다르다. 같은 파일에 섞으면 두 성질이 깨진다. 제안: `CHECKSUMS`는 바이트 해시 그대로,
-  샘플의 JCS 해시는 샘플 시험 안에서(`Sha256.ofCanonical`) 단언한다.
+- 지시문 v1.1 §5의 "JCS로 정규화한 해시를 CHECKSUMS에"는 이 형식과 달랐다(v1.2에서 오기로 정정). 결정(§0): `CHECKSUMS`는 바이트 해시 그대로,
+  JCS는 이벤트 payload의 정규 해시에만.
 
 ### H6. RLS 세션 설정 이름 — 상수는 공개돼 있지 않다
 
 - 이름은 `app.tenant_id`다(v1.0과 같다). `TenantSessionBinder`가 트랜잭션 시작 때
   `SELECT set_config('app.tenant_id', ?, true)`를 실행한다(트랜잭션 로컬).
-- 그 SQL 상수 `SET_TENANT_SQL`은 **package-private**이고 공개 상수는 없다. "플랫폼 상수를 읽어 마이그레이션 주석에 적는다"는 소스 jar에서 읽어 적는 것으로만
-  가능하다. 포털 시험이 이름 일치를 단언하려면 RLS가 걸린 표에서 "바인딩 안 함 = 0행, 바인딩 = 그 테넌트만"(C2)을 보는 것이 이름을 몰라도 되는 방법이다.
+- 0.1.0에서는 그 SQL 상수 `SET_TENANT_SQL`이 **package-private**이었고 공개 상수가 없었다. 결정(§0): 0.2.0의 `TenantSession.SETTING_NAME`.
+  ga-disclosure의 대조 시험 `RlsSettingNameTest`는 마이그레이션이 읽거나 쓰는 설정 이름이 그 상수이거나 닫힌 표식 목록뿐임을 본다 — 철자가 틀린 테넌트 설정은
+  정책이 늘 NULL을 읽어 오류 없이 0행이 되므로 C2만으로는 "이름이 같다"를 증명하지 못한다.
 
 ### 확인된 전제 (그대로 맞다)
 
@@ -78,13 +93,14 @@
 | 5 D14·E3.2(`format` 대신 `pattern`) | `docs/phase-05-보고서.md` D14, `docs/DECISIONS.md` |
 | `no-docker`는 호스트 러너에서 데몬을 멈춘다 | `.github/workflows/ci.yml`의 `no-docker` 잡 |
 | PostgreSQL 18 digest 고정 | `postgres:18.6`, `disclosure-infra/src/testFixtures/java/com/ga/disclosure/infra/testing/PostgresHarness.java:30` |
-| 시드 고정 생성기 공유 | `platform-core`의 test-fixtures 변형(`SeededCases`)으로 0.1.0에 발행 — `testImplementation(testFixtures("com.ga.platform:platform-core:<버전>"))` |
+| 시드 고정 생성기 공유 | `platform-core`의 test-fixtures 변형(`SeededCases`)으로 발행(0.2.0도) — `testImplementation(testFixtures("com.ga.platform:platform-core:0.2.0"))` |
 
-## 2. 플랫폼 공개 API (`0.1.0` 발행본 = 태그 `platform-v0.1.0`)
+## 2. 플랫폼 공개 API (`0.2.0` — 정본 `platform/API-0.2.0.txt`)
 
-`main`과 다른 것은 "main" 열에 적었다. 지시문 작업 2·3·4의 분류는 마지막 열.
+정본은 ga-disclosure의 `platform/API-0.2.0.txt`(javap 덤프 — 클래스·public·protected 멤버·상수 값·자원 해시)이고 아래 표는 그 요약이다.
+0.1.0 발행본과 다른 것은 "0.1.0 발행본" 열에 적었다. 지시문 작업 2·3·4의 분류는 마지막 열.
 
-| 모듈 | 타입 | 공개 멤버 | main | 포털 분류 |
+| 모듈 | 타입 | 공개 멤버 | 0.1.0 발행본 | 포털 분류 |
 |---|---|---|---|---|
 | core | `money.Won(long value)` record, `Comparable` | `ZERO`, `of`, `plus`, `minus`, `negate`, `isNegative`, `isZero`, `isGreaterThan`, `isLessThan`, `compareTo` | 같음 | 플랫폼에서 |
 | core | `money.Ratio(long numerator, long denominator)` record | `of`, `toPercentString`(소수 1자리) — `Won` 생성 없음 | 같음 | 플랫폼에서 |
@@ -93,7 +109,7 @@
 | core | `tenant.AgentId(String value)` record | `of` | 같음 | 플랫폼에서 |
 | core | `tenant.TenantContext` | `current()`(미바인딩 `TenantNotBoundException`), `isBound()`, `runWith(TenantId, Runnable)`, `runWith(TenantId, Callable)` — `ScopedValue` | 같음 | 플랫폼에서 |
 | core | `tenant.TenantNotBoundException` | | 같음 | 플랫폼에서 |
-| core | `tenant.OrgPath` record | `of`, `contains`(세그먼트 단위 접두) | **main에만** | H1 |
+| core | `tenant.OrgPath` record | `of`, `contains`(세그먼트 단위 접두) | **없음**(0.2.0에서 추가) | 포털 Phase 0 범위 밖(관리자 범위 판정에 쓸 수 있다) |
 | core | `arch.ArchRules` | `noDoubleOrFloat`, `springFreeModules`, `dbAccessOnlyVia`, `layeredDependencies`(`Layer`), `typesOnlyUsedIn`, `methodOnlyInvokedFrom`, `notComparable`, `noOrderingInClassesUsing`, `noClassNameContaining`, `staleClasses`/`stalePackages`(허용 목록 폐기 항목 검사), `Allowed(fqn, reason)` | 같음 | 플랫폼에서(archunit은 소비자가 선언 — `compileOnly`) |
 | core test-fixtures | `testing.SeededCases` | `of(seed, gen)`, `of(seed, count, gen)`, `effectiveSeed`, `generator`, `DEFAULT_COUNT = 500`, `ALGORITHM = "L64X128MixRandom"`, `SEED_OVERRIDE_ENV = "GA_SEEDED_CASES_SEED"` | 같음 | 플랫폼에서 |
 | canonical | `Canonicalizer` | `canonicalize(String)`, `canonicalize(JsonNode)`, `parseStrict(String)` — RFC 8785, Jackson 3 `JsonNode` | 같음 | 플랫폼에서 |
@@ -104,7 +120,8 @@
 | spring | `jdbc.PlatformJdbcAutoConfiguration` | 빈 `transactionManager`(`TenantSessionBinder`), `tenantJdbcGateway` | 같음 | 플랫폼에서 |
 | spring | `jdbc.TenantDirectoryReader` | 생성자(url, user, password), `allTenants()` — 테넌트 목록 전용 롤용 | 같음 | 포털 Phase 0 범위 밖 |
 | spring | `identity.IdentityResolver` 인터페이스 | `resolve(oidcSubject) → Optional<ResolvedIdentity(AgentId, Set<String> roles, String orgPath)>` — 구현 없음 | 같음 | 포털 Phase 3(웹 바인딩과 함께) |
-| spring | `security.OidcResourceServerConfiguration` | 프로파일 `oidc`에서만 활성 | **main에서 삭제** | H1 — 쓰지 않는다 |
+| spring | `jdbc.TenantSession` | `SETTING_NAME = "app.tenant_id"` | **없음**(0.2.0에서 추가) | 플랫폼에서(C10 대조) |
+| spring | ~~`security.OidcResourceServerConfiguration`~~ | 0.2.0에 없다 | 있음(프로파일 `oidc` 골격) | — 보안 체인은 소비 애플리케이션 몫 |
 
 지시문 v1.0 정의 가운데 플랫폼에 **없는** 것은 찾지 못했다(`Ym.range` 포함 전부 있다).
 
@@ -160,8 +177,15 @@ seq 규칙(소비자): 기대값(last+1)보다 작으면 무시, 같으면 적�
 - 사본은 고치지 않는다. 바꿔야 하면 ga-disclosure에서 작은 PR → 병합 → 소비 저장소의 `UPSTREAM`을 그 **병합 커밋**으로 옮기고 사본을 다시 받는다.
 - 표기 변경(의미 변경 없음) PR은 지시문이 명시한 경우에만 자체 CI 통과 뒤 병합할 수 있다(상대 저장소의 `UPSTREAM`이 병합 커밋을 가리켜야 하므로).
 - `verifyContractChecksums`(오프라인, `check`에 연결)와 `verifyUpstreamContract`(네트워크, CI 전용)를 나눈다 — 엔진 `build.gradle.kts:73~133`.
+- 포털(H4·H5 결정): 사본은 `contracts/shared/ga-disclosure/`에만 두고(지금은 `events/v1/envelope-core.schema.json` 하나), 그 디렉터리 전용 `CHECKSUMS`
+  (평문 SHA-256, `sha256sum` 형식)와 `UPSTREAM`(`hjryoo-ai/ga-disclosure@<병합 커밋 40자>` + 파일 목록)을 둔다. `verifyUpstreamContract`는 그 디렉터리만
+  `raw.githubusercontent.com/hjryoo-ai/ga-disclosure/<커밋>/contracts/<업스트림 경로>`와 바이트 대조한다.
 
 ## 6. GitHub Packages 소비 — 확인할 것
+
+- 0.2.0 발행본의 SHA-256은 발행 워크플로(`publish-platform.yml`) 로그의 두 곳이 1차 출처다: 올린 파일(jar·sources·test-fixtures·POM·모듈 메타데이터)의
+  `sha256sum`, 그리고 `rm -rf ~/.m2/repository/com/ga` 뒤 GitHub Packages에서 다시 받은 jar의 `PLATFORM_SHA256` 줄. 값은 정비 보고서에 옮긴다.
+  Gradle 의존성 검증은 jar뿐 아니라 POM·`.module`도 대조하므로 포털의 메타데이터에는 그 셋을 다 넣는다.
 
 - 저장소 URL `https://maven.pkg.github.com/hjryoo-ai/ga-disclosure`. ga-disclosure의 소비 예시는 `verification/published-consumer/settings.gradle.kts`
   (`exclusiveContent`로 `com.ga.platform` 그룹을 한 저장소에만, 자격은 환경변수 `GITHUB_ACTOR`·`GITHUB_TOKEN`).
