@@ -1,9 +1,9 @@
 // 고객 공개 서명 화면 조작(/s#토큰): 열람(키보드 End로 끝까지) → 본인확인(원격 링크만 — 생년월일) → 서명 패드(마우스 — 지시문의 키보드 예외) → 완료.
-// 원격 링크 토큰은 데모 통지 포트(콘솔)가 server.log에 쓰는 SIGN LINK 줄에서 받는다(하네스의 스케줄러 토큰으로 NOTIFY 작업을 접수).
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
-import { readFileSync, statSync } from 'node:fs';
+// 원격 링크 토큰은 데모 통지 포트(콘솔)가 앱 로그에 쓰는 SIGN LINK 줄에서 받는다(하네스의 스케줄러 토큰으로 NOTIFY 작업을 접수).
+import { expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { OUT, RUN } from './env';
+import { postInternal, RUN, serverLog, signTarget } from './env';
 import { press, tabTo, type } from './keyboard';
 import { sign } from './staff';
 
@@ -23,7 +23,12 @@ export async function readDocument(page: Page): Promise<void> {
 export async function verifyBirthDate(page: Page, value: string, expected: 'passed' | 'failed'): Promise<void> {
   const input = page.locator('#birth-date');
   await type(page, input, value.replaceAll('-', ''));                       // 휴대폰 자판처럼 숫자 8자리
+  // 응답을 기다린다: 두 번째 실패부터는 안내 영역에 직전 "실패" 문구가 이미 있어 문구 대조만으로는 이 요청의 결과를 보지 않고 통과한다 —
+  // 응답 전에 다음 단계(링크 다시 열기)로 가면 요청이 끊겨 실패 횟수가 모자랐고(8 13단계 태그 CI의 kind E2E), 이 경합이 마지막 실패의 응답이
+  // "통과"이던 앱 결함을 가렸다
+  const answered = page.waitForResponse((r) => r.url().endsWith('/public/v1/sign/verify-identity') && r.request().method() === 'POST');
   await press(page, page.getByRole('button', { name: sign.identity.submit }));
+  await answered;
   await expect(page.locator('.live')).toHaveText(sign.identity[expected]);
   await expect(input).toHaveValue('');                                     // 제출 즉시 비운다
 }
@@ -53,19 +58,20 @@ export async function expectUnavailable(page: Page): Promise<void> {
   await expect(page.locator('#root > *')).toHaveCount(1);                 // 사유를 나누는 다른 요소 없음
 }
 
-/** 통지 작업을 돌려 새로 쓰인 SIGN LINK 줄의 링크를 받는다. */
-export async function remoteLink(request: APIRequestContext): Promise<string> {
-  const log = resolve(OUT, 'server.log');
-  const offset = statSync(log).size;
+const signLinks = (): string[] => [...serverLog().matchAll(/^SIGN LINK (\S+)$/gm)].map((m) => m[1] ?? '');
+
+/** 통지 작업을 돌려 새로 쓰인 SIGN LINK 줄의 링크를 받는다(클러스터는 어느 앱 파드가 보냈든 — 파드 로그 전부에서 새 줄). */
+export async function remoteLink(): Promise<string> {
+  const before = new Set(signLinks());
   const jwt = readFileSync(resolve(RUN, 'scheduler.jwt'), 'utf8').trim();
-  const r = await request.post('/internal/v1/jobs/NOTIFY', {
-    headers: { Authorization: `Bearer ${jwt}`, 'Idempotency-Key': `e2e-notify-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` },
+  // Phase 8 Q5: 내부 경로는 내부 포트(클러스터는 내부 진입점 C — mTLS)에만 — 하네스가 env.json에 적은 주소로
+  const status = await postInternal('/internal/v1/jobs/NOTIFY', {
+    Authorization: `Bearer ${jwt}`, 'Idempotency-Key': `e2e-notify-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
   });
-  expect(r.status()).toBe(202);
+  expect(status).toBe(202);
   for (let i = 0; i < 60; i++) {
-    const tail = readFileSync(log, 'utf8').slice(offset);
-    const m = [...tail.matchAll(/^SIGN LINK (\S+)$/gm)].pop();
-    if (m?.[1] !== undefined) return m[1];
+    const fresh = signLinks().filter((l) => !before.has(l)).pop();
+    if (fresh !== undefined) return fresh;
     await new Promise((res) => setTimeout(res, 500));
   }
   throw new Error('no SIGN LINK line after NOTIFY');
@@ -74,7 +80,7 @@ export async function remoteLink(request: APIRequestContext): Promise<string> {
 /** 링크 열기: 같은 문서의 조각만 바뀌면 다시 읽지 않으므로 빈 문서를 거친다. */
 export async function openLink(page: Page, link: string): Promise<void> {
   await page.goto('about:blank');
-  await page.goto(link);
+  await page.goto(signTarget(link));                                       // 상대 경로는 서명 호스트로(클러스터 — 진입점 B)
 }
 
 export const tokenOf = (link: string): string => link.slice(link.indexOf('#') + 1);

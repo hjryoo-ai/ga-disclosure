@@ -48,7 +48,8 @@ jobs:
 
   e2e:
     # Phase 7 계획 ⑦·Q12: 화면 E2E(Playwright Chromium 데스크톱·모바일) — 부트 jar + 격리 컨테이너(PostgreSQL·SeaweedFS digest 고정).
-    # Docker가 없으면 실패한다(스킵 없음). 아티팩트: HTML 리포트·JUnit·누출 스캔·재전송·axe 요약. server.log·seed.log는 올리지 않는다(데모 링크 토큰).
+    # Docker가 없으면 실패한다(스킵 없음). 아티팩트: JUnit·산출물 스캔·누출 스캔·재전송·axe 요약(Phase 8: HTML 리포트 없음 — 단계 제목이 입력값을 싣는다).
+    # server.log·seed.log는 올리지 않는다(데모 링크 토큰).
     runs-on: ubuntu-latest
     env:
       CI: 'true'
@@ -71,12 +72,131 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-reports
+          # Phase 8: HTML 보고서는 만들지 않는다 — 단계 제목이 입력값을 싣는다(키보드 API의 'Type "<값>"'). 산출물 전체는 run.mjs가 센티널로 스캔한다
           path: |
-            disclosure-web/build/e2e/report/**
             disclosure-web/build/e2e/junit.xml
+            disclosure-web/build/e2e/artifact-scan.json
             disclosure-web/build/e2e/*-summary.json
             disclosure-web/build/e2e/leak-scan/**
             disclosure-web/build/e2e/axe/**
+
+  images:
+    # Phase 8 ③·G3: 배포 이미지 2개(app·web)를 만들고 — 웹 헤더 = 데모 서빙 문자열, app이 비루트·읽기 전용 루트로 db migrate, 모든 레이어의 모든 파일
+    # 스캔(키 파일 이름·PEM 개인키 블록·데모 고객 센티널). 베이스는 다중 아키텍처 digest라 러너(amd64)와 로컬(arm64)이 같은 고정 값을 쓴다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Docker available
+        run: docker info --format '{{.ServerVersion}}'
+
+      - name: Images (build + header/runtime tests + layer scan)
+        run: ./gradlew :disclosure-app:imageTest --console=plain
+
+      - name: Image test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-test-reports
+          path: disclosure-app/build/test-results/imageTest/**
+
+  deploy-lint:
+    # Phase 8 ③·G4: 배포 매니페스트 린트 — tools.lock의 도구(SHA-256 대조) → 오버레이 렌더 → kubeconform(커밋 고정 스키마, strict) → 우리 규칙
+    # (JobKind ↔ CronJob, 공개 라우트에 /internal 0, 헤더 지움, NetworkPolicy, digest, 비밀 볼륨, 운영 기동 가드를 파드 환경으로).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Deploy lint
+        run: ./gradlew :disclosure-app:deployTest --console=plain
+
+      - name: Deploy lint reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deploy-lint-reports
+          path: disclosure-app/build/test-results/deployTest/**
+
+  kind:
+    # Phase 8 ③·G4·G8: kind 클러스터(tools.lock의 kind·노드 이미지 digest)에 kind-demo 오버레이 — 인그레스(/internal 외부 404·서명 호스트 분리·IP 한도·
+    # 크기 한도·평문 무경로)·내부 진입점 mTLS(인증서 없음/다른 SNI 거부, 있음 통과)·NetworkPolicy 집행(전제: 다른 파드는 8081에 못 닿음)을 단언하고,
+    # 모든 파드·Job 로그를 비밀 값·허구 개인정보 센티널로 스캔한다. 클러스터·비밀 디렉터리는 실행마다 이름을 달리하고 끝나면 지운다.
+    # (11단계, G5) 복구 뒤 키 여섯 가지를 한 번씩 회전(키마다 영향 단언·재기동 중 5xx 0·VERIFY_TENANT MATCH)하고 같은 E2E를 클러스터의 진입점으로 돈다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CI: 'true'
+      CLUSTER: ga-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Tools (tools.lock, SHA-256 checked)
+        run: ./gradlew :disclosure-app:deployTools --console=plain
+
+      - name: Cluster and images
+        run: deploy/scripts/kind.sh up "$CLUSTER"
+
+      - name: Deploy (namespaces, CRDs, secrets, migration Job, rollouts)
+        run: deploy/scripts/kind.sh deploy "$CLUSTER"
+
+      - name: Smoke
+        run: deploy/scripts/kind.sh smoke "$CLUSTER" | tee kind-smoke.txt
+
+      - name: Demo seed and in-cluster verify (G1)
+        run: deploy/scripts/kind.sh seed "$CLUSTER" | tee kind-seed.txt
+
+      - name: Backup and disaster restore (G2 — tables, objects, verify tenant)
+        run: |
+          deploy/scripts/kind.sh backup "$CLUSTER" | tee kind-backup.txt
+          deploy/scripts/kind.sh restore "$CLUSTER" | tee kind-restore.txt
+
+      - name: Smoke after the restore
+        run: deploy/scripts/kind.sh smoke "$CLUSTER" | tee kind-smoke-after-restore.txt
+
+      - name: Key rotations (G5 — cursor, request hash, receipt, demo OIDC, tenant KEK + KEK_REWRAP, TSA anchor set)
+        run: deploy/scripts/kind.sh rotate "$CLUSTER" all | grep -vE '^SECRET .* EXISTS$' | tee kind-rotate.txt
+
+      - name: E2E against the cluster (G5 — entry points A, B and C after the rotations)
+        run: ./gradlew :disclosure-web:e2eKind -Pkind.cluster="$CLUSTER" --console=plain
+
+      - name: Log scan
+        run: deploy/scripts/kind.sh logscan "$CLUSTER" | tee kind-logscan.txt
+
+      - name: Smoke and scan results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kind-results
+          path: |
+            kind-smoke.txt
+            kind-seed.txt
+            kind-backup.txt
+            kind-restore.txt
+            kind-smoke-after-restore.txt
+            kind-rotate.txt
+            kind-logscan.txt
+            disclosure-web/build/e2e/junit.xml
+            disclosure-web/build/e2e/artifact-scan.json
+            disclosure-web/build/e2e/*-summary.json
+
+      - name: Delete the cluster
+        if: always()
+        run: deploy/scripts/kind.sh down "$CLUSTER" || true
 
   pdfa-verify:
     # 3B S12: 골든 PDF를 veraPDF(PDF/A-2b 프로파일)로 검증한다 — 실패 규칙 1건 이상이면 잡 실패. veraPDF는 GPL-3.0/MPL-2.0이라

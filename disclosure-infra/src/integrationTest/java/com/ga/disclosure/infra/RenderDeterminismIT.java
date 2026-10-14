@@ -36,7 +36,7 @@ class RenderDeterminismIT {
     }
 
     private static byte[] rerenderInAnotherJvm(Path dir, String name, List<String> jvmOptions, Path canonical, Path template,
-                                               String disclosureNo) throws Exception {
+                                               String disclosureNo, int rendererVersion) throws Exception {
         Path out = dir.resolve(name + ".pdf");
         List<String> command = new ArrayList<>();
         command.add(ProcessHandle.current().info().command().orElseThrow());
@@ -44,7 +44,8 @@ class RenderDeterminismIT {
         command.add("-cp");
         command.add(System.getProperty("java.class.path"));
         command.add(RerenderMain.class.getName());
-        command.addAll(List.of(canonical.toString(), template.toString(), "STANDARD", "STANDARD", "1", disclosureNo, out.toString()));
+        command.addAll(List.of(canonical.toString(), template.toString(), "STANDARD", "STANDARD", "1", disclosureNo, out.toString(),
+                Integer.toString(rendererVersion)));
         Process p = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(dir.resolve(name + ".log").toFile()).start();
         assertThat(p.waitFor(120, TimeUnit.SECONDS)).as(name + " finished").isTrue();
         assertThat(p.exitValue()).as(name + " exit (log " + dir.resolve(name + ".log") + ")").isZero();
@@ -64,11 +65,14 @@ class RenderDeterminismIT {
         Path canonical = Files.write(dir.resolve("canonical.json"), canonicalBytes);
         Path template = Files.write(dir.resolve("template.json"), Canonicalizer.canonicalize(pinned.body()));
         String no = o.number().orElseThrow().value();
+        // 재렌더는 문서에 고정된 판으로(Phase 8 V23 — 산출물 행의 renderer_version)
+        int rendererVersion = Integer.parseInt(s.text("SELECT renderer_version::text FROM document_artifact WHERE tenant_id = ? AND disclosure_id = ? AND kind = 'PDF'",
+                s.w.tenant.value(), id.value()));
 
         byte[] seoul = rerenderInAnotherJvm(dir, "seoul", List.of("-Duser.timezone=Asia/Seoul", "-Duser.language=ko", "-Duser.country=KR",
-                "-Dfile.encoding=UTF-8"), canonical, template, no);
+                "-Dfile.encoding=UTF-8"), canonical, template, no, rendererVersion);
         byte[] newYork = rerenderInAnotherJvm(dir, "new-york", List.of("-Duser.timezone=America/New_York", "-Duser.language=en",
-                "-Duser.country=US", "-Dfile.encoding=ISO-8859-1"), canonical, template, no);
+                "-Duser.country=US", "-Dfile.encoding=ISO-8859-1"), canonical, template, no, rendererVersion);
         assertThat(seoul).isEqualTo(sealedPdf);
         assertThat(newYork).isEqualTo(sealedPdf);
         assertThat(com.ga.platform.canonical.Sha256.of(sealedPdf)).isEqualTo(s.text(
@@ -85,7 +89,7 @@ class RenderDeterminismIT {
         for (ObjectNode changed : List.of(date, item)) {
             CanonicalDocument other = CanonicalDocument.parse(Canonicalizer.canonicalize(changed));
             assertThat(other.sha256()).isNotEqualTo(original.sha256());
-            assertThat(renderer.render(other, resolution, no).sha256()).isNotEqualTo(com.ga.platform.canonical.Sha256.of(sealedPdf));
+            assertThat(renderer.render(com.ga.disclosure.seal.renderer.RendererVersion.of(rendererVersion), other, resolution, no).sha256()).isNotEqualTo(com.ga.platform.canonical.Sha256.of(sealedPdf));
         }
     }
 }

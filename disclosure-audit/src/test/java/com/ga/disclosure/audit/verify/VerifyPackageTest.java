@@ -119,6 +119,30 @@ class VerifyPackageTest {
         assertThat(r.findings().getFirst().where()).containsEntry("seq", 4L);
     }
 
+    /**
+     * Phase 8(승인 Q9): 매니페스트 2판(rendererVersion 포함)이 지금 패키지이고, 저장된 1판 패키지(Phase 5~7 — rendererVersion 없음)도 그대로 MATCH다.
+     * 2판에서 판을 빼면 스키마 위반이다.
+     */
+    @Test
+    void manifestsOneAndTwoBothMatchAndTwoWithoutTheRendererVersionDoesNot() {
+        ObjectNode current = (ObjectNode) Canonicalizer.parseStrict(new String(PackageFixtures.entries(f.zip).get("manifest.json"), StandardCharsets.UTF_8));
+        assertThat(current.get("manifestVersion").asInt()).isEqualTo(2);
+        assertThat(current.has("rendererVersion")).isTrue();
+        byte[] v1 = PackageFixtures.repack(f.zip, e -> {
+        }, m -> {
+            m.put("manifestVersion", 1);
+            m.remove("rendererVersion");
+        });
+        for (byte[] zip : List.of(f.zip, v1)) {
+            VerifyReport r = verify(zip, f.receipt());
+            assertThat(r.findings()).isEmpty();
+            assertThat(r.exitCode()).isZero();
+        }
+        byte[] v2WithoutVersion = PackageFixtures.repack(f.zip, e -> {
+        }, m -> m.remove("rendererVersion"));
+        assertThat(codes(verify(v2WithoutVersion))).containsExactly(FindingCode.PACKAGE_ENTRY_MISMATCH);
+    }
+
     @Test
     void aManifestOutsideItsSchemaIsAnEntryMismatchAndTheRestIsSkipped() {
         byte[] zip = PackageFixtures.repack(f.zip, e -> {

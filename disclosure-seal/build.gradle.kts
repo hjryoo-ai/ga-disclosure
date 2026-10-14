@@ -29,6 +29,7 @@ sourceSets {
 
 tasks.test {
     inputs.dir(rootProject.layout.projectDirectory.dir("contracts")).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-infra/src/integrationTest/resources/rule-as-data/templates")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // 3B S1 골든: 기대값 생성은 수동 전용(빌드·CI가 부르지 않는다), 골든 PDF 쓰기는 CI pdfa-verify 잡이 부른다.

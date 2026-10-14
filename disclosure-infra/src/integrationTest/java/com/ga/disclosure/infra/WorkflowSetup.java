@@ -7,7 +7,7 @@ import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.GroupCode;
 import com.ga.disclosure.domain.vo.ProductKey;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
+import com.ga.disclosure.infra.testing.TestKeks;
 import com.ga.disclosure.infra.engine.EngineClientSettings;
 import com.ga.disclosure.infra.engine.EngineGradeClient;
 import com.ga.disclosure.infra.engine.HttpEngineTransport;
@@ -85,7 +85,8 @@ final class WorkflowSetup implements AutoCloseable {
     final Clock clock;
     final FakeEngine engine;
     final EngineClientSettings settings;
-    final LocalFileKeyProvider keys;
+    /** 테넌트 KEK(시드 {T}-KEK-1) — 이행 시험은 {@link SwitchableKeys#use}로 바꾼다. */
+    final SwitchableKeys keys;
     final CustomerVaultRepository vault;
     final DisclosureService service;
     final TenantId tenant;
@@ -123,7 +124,7 @@ final class WorkflowSetup implements AutoCloseable {
         this.clock = Clock.fixed(Instant.parse(instant), Governance.SEOUL);
         this.settings = settings;
         this.engine = new FakeEngine(TableEngineStub.load(resource("/workflow/engine-table.json")), TOKEN, clock);
-        this.keys = LocalFileKeyProvider.load(CatalogCustomerSetup.newKekFile());
+        this.keys = new SwitchableKeys(TestKeks.shared().provider(tx, new com.ga.disclosure.infra.persistence.TenantKekRepository(gateway)));
         this.vault = new CustomerVaultRepository(gateway, keys);
         this.service = new DisclosureService(disclosures, reviews, flags, new TenantRepository(gateway),
                 new EngineGradeClient(new HttpEngineTransport(settings, t -> Optional.of(TOKEN), t -> engine.baseUrl())),
@@ -211,7 +212,12 @@ final class WorkflowSetup implements AutoCloseable {
 
     /** 그 고객의 확인서로 봉인 직전(REASONED)까지(Phase 4: 연락처·생년월일이 있는 고객). */
     DisclosureId reasoned(CustomerRef who) {
-        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, CONSULT, TemplateType.STANDARD, java.util.Optional.empty());
+        return reasonedOn(who, CONSULT);
+    }
+
+    /** 상담일을 정해 봉인 직전까지(Phase 8: 서식 버전은 상담일로 해석된다 — 서식 v2 개시일 뒤의 문서). */
+    DisclosureId reasonedOn(CustomerRef who, LocalDate consult) {
+        DisclosureId id = service.createDraft(Callers.of(tenant, AGENT), who, GROUP, consult, TemplateType.STANDARD, java.util.Optional.empty());
         service.replaceItems(Callers.of(tenant, AGENT), id, threeItems());
         service.compare(Callers.of(tenant, AGENT), id);
         service.requestGrades(Callers.of(tenant, AGENT), id);

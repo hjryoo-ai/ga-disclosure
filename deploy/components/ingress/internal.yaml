@@ -1,0 +1,173 @@
+# 내부 진입점 C(서비스 주체: 게이트·계약 피드·스케줄러): /internal만, 클러스터 안에서만(ClusterIP), 모든 연결이 클라이언트 인증서 필수.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ga-ingress-internal
+  labels:
+    app.kubernetes.io/part-of: ga-disclosure
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# 권한은 이 네임스페이스 안만(ClusterRole 없음 — 앱 네임스페이스의 Secret에 닿지 않는다). 읽는 Secret은 이 네임스페이스의 TLS·CA뿐.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik
+  namespace: ga-ingress-internal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: traefik
+  namespace: ga-ingress-internal
+rules:
+  - apiGroups: [""]
+    resources: [services, secrets, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list, watch]
+  - apiGroups: [traefik.io]
+    resources: [middlewares, middlewaretcps, ingressroutes, traefikservices, ingressroutetcps, ingressrouteudps, tlsoptions, tlsstores, serverstransports, serverstransporttcps]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: traefik
+  namespace: ga-ingress-internal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: traefik
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: ga-ingress-internal
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-internal
+  namespace: ga-ingress-internal
+  labels: &traefik_internal
+    app.kubernetes.io/name: traefik-internal
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-internal
+  template:
+    metadata:
+      labels: *traefik_internal
+    spec:
+      serviceAccountName: traefik
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traefik
+          image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+          args:
+            - --entrypoints.internal.address=:9443
+            - --entrypoints.internal.http.tls=true
+            - --providers.kubernetescrd
+            - --providers.kubernetescrd.namespaces=ga-ingress-internal
+            - --providers.kubernetescrd.ingressclass=ga-internal
+            - --providers.kubernetescrd.allowexternalnameservices=true
+            - --ping
+            - --entrypoints.ping.address=:8082
+            - --ping.entrypoint=ping
+            - --log.format=json
+            - --accesslog=true
+            - --accesslog.format=json
+            - --accesslog.fields.headers.defaultmode=drop
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+          ports:
+            - { name: internal, containerPort: 9443 }
+            - { name: ping, containerPort: 8082 }
+          readinessProbe:
+            httpGet: { path: /ping, port: ping }
+          livenessProbe:
+            httpGet: { path: /ping, port: ping }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-internal
+  namespace: ga-ingress-internal
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: traefik-internal }
+  ports:
+    - { name: internal, port: 9443, targetPort: internal }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ga-app-internal
+  namespace: ga-ingress-internal
+spec:
+  type: ExternalName
+  externalName: ga-app-internal.ga-disclosure.svc.cluster.local
+  ports:
+    - { name: http, port: 8081 }
+---
+# 인증서 주체 헤더(ga.api.client-cert.subject-header)는 진입점에서 언제나 지운다 — 밖에서 온 같은 이름 헤더를 앱이 믿지 않게.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-client-cert
+  namespace: ga-ingress-internal
+spec:
+  headers:
+    customRequestHeaders:
+      X-Client-Cert-Subject: ""
+---
+# 이 네임스페이스의 기본 TLS 옵션 = mTLS(클라이언트 인증서 필수, CA는 Secret ga-internal-client-ca). 이름이 default라 SNI가 무엇이든(없어도) 적용된다 —
+# 내부 컨트롤러는 이 네임스페이스만 지켜보므로 공개 컨트롤러에는 닿지 않는다.
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: default
+  namespace: ga-ingress-internal
+spec:
+  minVersion: VersionTLS12
+  clientAuth:
+    secretNames: [ga-internal-client-ca]
+    clientAuthType: RequireAndVerifyClientCert
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: internal
+  namespace: ga-ingress-internal
+  annotations:
+    kubernetes.io/ingress.class: ga-internal
+spec:
+  entryPoints: [internal]
+  routes:
+    - match: PathPrefix(`/internal/`)
+      kind: Rule
+      middlewares: [{ name: strip-client-cert }]
+      services: [{ name: ga-app-internal, port: 8081 }]
+  tls:
+    secretName: ga-tls-internal

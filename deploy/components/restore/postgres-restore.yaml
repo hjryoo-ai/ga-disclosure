@@ -1,0 +1,53 @@
+- op: add
+  path: /spec/template/spec/initContainers
+  value:
+    - name: restore
+      image: ga-disclosure/app:dev
+      imagePullPolicy: Never
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          D=/var/lib/postgresql/18/docker
+          if [ -f "$D/PG_VERSION" ]; then echo "RESTORE_SKIPPED data directory exists"; exit 0; fi
+          cli() { (cd /app && java org.springframework.boot.loader.launch.JarLauncher "$@"); }
+          cli backup download --run "$GA_RESTORE_RUN" --out /restore/db.gabk
+          cli backup open --in /restore/db.gabk --out /restore/base.tar
+          rm -f /restore/db.gabk
+          mkdir -p "$D"
+          tar -xf /restore/base.tar -C "$D"
+          rm -f /restore/base.tar
+          chmod 700 "$D"
+          echo "RESTORE_EXTRACTED run=$GA_RESTORE_RUN"
+      envFrom:
+        - configMapRef: { name: ga-app-config }
+        - configMapRef: { name: ga-restore }
+        - secretRef: { name: ga-backup-s3 }
+      env:
+        - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+        - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+      resources:
+        requests: { cpu: 100m, memory: 512Mi }
+        limits: { memory: 1Gi }
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      volumeMounts:
+        - { name: data, mountPath: /var/lib/postgresql }
+        - { name: tmp, mountPath: /tmp }
+        - { name: restore, mountPath: /restore }
+        - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+- op: add
+  path: /spec/template/spec/volumes/-
+  value: { name: restore, emptyDir: { sizeLimit: 8Gi } }
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: ga-secrets
+    secret:
+      secretName: ga-secrets
+      defaultMode: 0440
+      items:
+        - { key: backup.key, path: backup/key }

@@ -294,7 +294,7 @@ public class CustomerVaultRepository extends TenantScopedRepository implements C
     private StoredKey createKey(Instant at) {
         TenantId tenant = TenantContext.current();
         String keyId = "DEK-" + UUID.randomUUID().toString().replace("-", "");
-        String kekId = keys.currentKekId();
+        String kekId = keys.currentKekId(tenant);
         byte[] dek = AesGcm.newKey();
         byte[] wrapped;
         try {

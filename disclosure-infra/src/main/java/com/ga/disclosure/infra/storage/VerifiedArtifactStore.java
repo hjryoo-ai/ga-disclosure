@@ -31,6 +31,26 @@ public final class VerifiedArtifactStore implements ArtifactStore {
                 new ArtifactStoreBootstrap(S3ArtifactStore.client(settings), settings.bucket()), createIfMissing);
     }
 
+    /**
+     * 준비성 확인(Phase 8 — 첫 사용 때 하던 확인을 준비성으로 앞당긴다): 기대와 다른 점 목록, 비어 있으면 준비됨. 저장소에 닿지 못하면 그 사실 한 줄
+     * (SDK 메시지·엔드포인트를 싣지 않는다). 통과하면 첫 사용 확인도 끝난 것으로 본다.
+     */
+    public List<String> readinessProblems() {
+        List<String> problems;
+        try {
+            if (createIfMissing) {
+                bootstrap.createIfMissing();
+            }
+            problems = bootstrap.problems();
+        } catch (RuntimeException e) {
+            return List.of("storage unreachable (" + e.getClass().getSimpleName() + ")");
+        }
+        if (problems.isEmpty()) {
+            verified = true;
+        }
+        return problems;
+    }
+
     private ArtifactStore ready() {
         if (!verified) {
             synchronized (this) {

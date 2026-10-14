@@ -64,7 +64,7 @@ final class JobSetup implements AutoCloseable {
 
     JobRunner runner(Executor executor, Map<JobKind, Function<ObjectNode, JobWork<?>>> handlers) {
         return new JobRunner(jobs, locks, cipher, s.bucket, s.w.audit, s.w.tx, s.w.clock, UUID::randomUUID, Callers.authz(s.w.clock), executor,
-                new JobHandlers(handlers));
+                new JobHandlers(handlers), com.ga.disclosure.workflow.metrics.OperationalMetrics.NONE);
     }
 
     JobRunner runner() {

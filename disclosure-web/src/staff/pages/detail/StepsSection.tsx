@@ -4,7 +4,8 @@ import { useState, type SubmitEvent } from 'react';
 import type { components } from '../../../gen/disclosure-api';
 import { staff } from '../../../shared/messages.ko.json';
 import { useApi, write } from '../../api/useApi';
-import { Choice, formText, label, ResultLine, Section, useShown } from '../../components/ui';
+import { useCodes } from '../../api/vocabulary';
+import { Choice, CodeChoice, formText, label, ResultLine, Section, useShown } from '../../components/ui';
 
 const STAGES = ['COMPARE', 'GRADE', 'REASON', 'SEAL'] as const;
 type Results = components['schemas']['ValidationReceipt']['results'];
@@ -13,6 +14,7 @@ export function StepsSection({ id, reload }: { id: string; reload: () => void })
   const api = useApi();
   const [shown, show] = useShown();
   const [results, setResults] = useState<Results | null>(null);
+  const abandonReasons = useCodes((v) => v.draftAbandonReasons);
   const opts = (key: string) => ({ params: { path: { disclosureId: id }, header: { 'Idempotency-Key': key } } });
   const done = (text: string) => (o: Parameters<typeof show>[0]) => { if (show(o, text)) reload(); };
 
@@ -75,8 +77,7 @@ export function StepsSection({ id, reload }: { id: string; reload: () => void })
         </div>
       )}
       <form onSubmit={abandon} autoComplete="off">
-        <label htmlFor="ab-code">{staff.steps.abandonCode}</label>
-        <input id="ab-code" name="reasonCode" autoComplete="off" />
+        <CodeChoice id="ab-code" name="reasonCode" legend={staff.steps.abandonCode} codes={abandonReasons} />
         <button type="submit">{staff.steps.abandon}</button>
       </form>
       <ResultLine shown={shown} />

@@ -8,7 +8,7 @@ import com.ga.disclosure.infra.engine.EngineCredentialPort;
 import com.ga.disclosure.infra.engine.EngineEndpoints;
 import com.ga.disclosure.infra.engine.EngineGradeClient;
 import com.ga.disclosure.infra.engine.EngineTransport;
-import com.ga.disclosure.infra.engine.EnvironmentEngineCredentials;
+import com.ga.disclosure.infra.engine.SecretEngineCredentials;
 import com.ga.disclosure.infra.engine.HttpEngineTransport;
 import com.ga.disclosure.infra.engine.stub.StubEngineTransport;
 import com.ga.disclosure.infra.engine.stub.TableEngineStub;
@@ -35,7 +35,6 @@ import com.ga.disclosure.workflow.identity.AgentDirectory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.Environment;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -47,7 +46,7 @@ import java.time.Duration;
 
 /**
  * Phase 3A 조립: 확인서 유스케이스, 고객 등록, 엔진 클라이언트. 엔진 전송은 {@code ga.engine.mode}가 고른다 —
- * {@code http}(기본, 테넌트별 {@code engine_base_url} + 배포 설정의 서비스 토큰 {@code ga.engine.credentials.<TENANT>}) 또는
+ * {@code http}(기본, 테넌트별 {@code engine_base_url} + 비밀 {@code engine/<TENANT>}의 서비스 토큰 — Phase 8) 또는
  * {@code stub}(데모: 고정표 {@code ga.engine.stub-table}을 프로세스 안에서 응답). 어느 쪽이든 응답은 계약 스키마·정합성 검증을 거친다.
  */
 @Configuration
@@ -66,8 +65,8 @@ public class WorkflowConfiguration {
     }
 
     @Bean
-    public EngineCredentialPort engineCredentials(Environment environment) {
-        return new EnvironmentEngineCredentials(environment);
+    public EngineCredentialPort engineCredentials(com.ga.disclosure.workflow.secret.SecretSource secrets) {
+        return new SecretEngineCredentials(secrets);
     }
 
     /** 테넌트 행의 엔진 주소(엔진 호출은 트랜잭션 밖이므로 짧은 읽기 트랜잭션으로 읽는다). */

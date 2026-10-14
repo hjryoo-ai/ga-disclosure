@@ -28,6 +28,8 @@ import java.util.zip.ZipOutputStream;
  * 빌더는 입력 정합을 먼저 검사한다: 서명의 두 귀속 해시 = canonical·봉인 PDF 해시, 서명본의 접두 = 봉인 PDF, 감사 행 seq 증가. 매니페스트와 서명
  * 파일은 스키마 검증을 통과해야 한다. ZIP은 STORED(압축 없음 — Deflate 출력은 플랫폼 zlib에 따라 다를 수 있다), DOS 시각 고정,
  * extra 필드·주석 없음({@link #ENTRY_TIME}) — 같은 입력이면 어느 환경에서든 같은 바이트다.
+ * <p>(Phase 8) 매니페스트 2판 = 1판 + {@code rendererVersion}(문서에 고정된 렌더러 판). 새 패키지는 언제나 2판이고, 이미 저장된 1판 패키지는 그대로
+ * 유효하다(검증기가 둘 다 받는다, 1판의 판은 1).
  */
 public final class EvidencePackageBuilder {
 
@@ -83,7 +85,8 @@ public final class EvidencePackageBuilder {
         }
 
         ObjectNode manifest = JSON.objectNode();
-        manifest.put("manifestVersion", 1);
+        manifest.put("manifestVersion", 2);
+        manifest.put("rendererVersion", in.rendererVersion());
         manifest.put("tenantId", in.tenantId());
         manifest.put("disclosureId", in.disclosureId());
         manifest.put("disclosureNo", in.disclosureNo());

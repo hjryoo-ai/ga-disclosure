@@ -1,7 +1,7 @@
 package com.ga.disclosure.app.api;
 
 import com.ga.disclosure.app.DisclosureApplication;
-import com.ga.disclosure.app.config.ClientCertHeaderGuard;
+import com.ga.disclosure.app.config.ProdStartupGuard;
 import com.ga.disclosure.compliance.rules.RuleActivationJob;
 import com.ga.disclosure.compliance.rules.RuleDistributionService;
 import com.ga.disclosure.infra.testing.SeedData;
@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Profile;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -19,8 +18,6 @@ import java.util.UUID;
 
 import static com.ga.disclosure.app.api.ApiTestSupport.DB;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 6B 계획 §6 Q11 mTLS 주체 대조: 설정 {@code ga.api.client-cert.subject-header}가 켜지면 게이트·계약 연결 경로는 인그레스가 넣은 그 헤더가 토큰 주체와
@@ -38,7 +35,7 @@ class ClientCertGuardIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         ApiTestSupport.properties(registry);
-        registry.add(ClientCertHeaderGuard.PROPERTY, () -> HEADER);
+        registry.add("ga.api.client-cert.subject-header", () -> HEADER);
     }
 
     @Value("${local.server.port}")
@@ -101,13 +98,14 @@ class ClientCertGuardIT {
         assertThat(ApiTestSupport.get(port, "/internal/v1/jobs", TestJwts.token(t, SCHEDULER)).status()).isEqualTo(200);
     }
 
+    /** 운영 기동 가드(Phase 8에서 ProdStartupGuard의 필수 키 목록으로 흡수 — 전수 시험은 ProdStartupGuardIT). */
     @Test
     void theProdProfileDoesNotStartWithoutTheHeaderSetting() {
-        assertThat(ClientCertHeaderGuard.class.getAnnotation(Profile.class).value()).containsExactly("prod");
-        assertThatThrownBy(() -> new ClientCertHeaderGuard(new MockEnvironment())).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining(ClientCertHeaderGuard.PROPERTY);
-        assertThatThrownBy(() -> new ClientCertHeaderGuard(new MockEnvironment().withProperty(ClientCertHeaderGuard.PROPERTY, " ")))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatCode(() -> new ClientCertHeaderGuard(new MockEnvironment().withProperty(ClientCertHeaderGuard.PROPERTY, HEADER))).doesNotThrowAnyException();
+        assertThat(ProdStartupGuard.REQUIRED).contains("ga.api.client-cert.subject-header");
+        assertThat(ProdStartupGuard.problems(new MockEnvironment())).contains("ga.api.client-cert.subject-header");
+        assertThat(ProdStartupGuard.problems(new MockEnvironment().withProperty("ga.api.client-cert.subject-header", " ")))
+                .contains("ga.api.client-cert.subject-header");
+        assertThat(ProdStartupGuard.problems(new MockEnvironment().withProperty("ga.api.client-cert.subject-header", HEADER)))
+                .doesNotContain("ga.api.client-cert.subject-header");
     }
 }

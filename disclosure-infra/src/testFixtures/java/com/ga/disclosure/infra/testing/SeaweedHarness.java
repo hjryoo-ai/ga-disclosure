@@ -33,6 +33,11 @@ public final class SeaweedHarness {
      */
     public static final List<String> VOLUME_LIMITS = List.of("-volume.max=2000", "-master.volumeSizeLimitMB=64");
     private static final int S3_PORT = 8333;
+    /**
+     * 컨테이너에 복사하는 파일의 모드(0644 — 컨테이너의 비루트 프로세스가 읽는다). 지정하지 않으면 원본 파일 모드를 따른다 — umask 077로 뜬 Gradle 데몬이
+     * 처리한 자원은 0600이 되고 SeaweedFS가 {@code s3.json}을 못 읽어 종료했다(11단계 — kind.sh 안에서 데몬이 떴다). 다른 하네스도 이 값을 쓴다.
+     */
+    public static final int FILE_MODE = 0644;
 
     private static SeaweedHarness instance;
 
@@ -41,7 +46,7 @@ public final class SeaweedHarness {
     @SuppressWarnings("resource")
     private SeaweedHarness() {
         container = new GenericContainer<>(DockerImageName.parse(IMAGE).asCompatibleSubstituteFor("chrislusf/seaweedfs"))
-                .withCopyFileToContainer(MountableFile.forClasspathResource("seaweedfs/s3.json"), "/etc/seaweedfs/s3.json")
+                .withCopyFileToContainer(MountableFile.forClasspathResource("seaweedfs/s3.json", FILE_MODE), "/etc/seaweedfs/s3.json")
                 .withCommand(command().toArray(String[]::new))
                 .withExposedPorts(S3_PORT)
                 .waitingFor(Wait.forListeningPorts(S3_PORT).withStartupTimeout(Duration.ofMinutes(2)));

@@ -26,6 +26,7 @@ import com.ga.disclosure.seal.canonical.CanonicalDocument;
 import com.ga.disclosure.seal.canonical.CanonicalDocumentBuilder;
 import com.ga.disclosure.seal.canonical.CanonicalInput;
 import com.ga.disclosure.seal.renderer.DisclosurePdfRenderer;
+import com.ga.disclosure.seal.renderer.RendererVersion;
 import com.ga.disclosure.workflow.Actor;
 import com.ga.disclosure.workflow.RejectionCategory;
 import com.ga.disclosure.workflow.WorkflowTransactions;
@@ -145,6 +146,8 @@ public final class SealService {
     private final RetentionLocks locks;
     private final AuthorizationPort authz;
     private final LinkCarry carry;
+    /** 새 봉인을 그리는 판 — 운영 배선은 언제나 {@link RendererVersion#CURRENT}(설정 키 없음). */
+    private final RendererVersion sealWith;
 
     public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
                        ArtifactStore storage, DisclosurePdfRenderer renderer, LinkCarry carry) {
@@ -153,6 +156,21 @@ public final class SealService {
 
     public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
                        ArtifactStore storage, DisclosurePdfRenderer renderer, LinkCarry carry, Duration transactionTimeout) {
+        this(RendererVersion.CURRENT, deps, ledger, crypto, records, storage, renderer, carry, transactionTimeout);
+    }
+
+    /**
+     * 봉인 판을 지정하는 생성자 — 시험이 "앞 판 바이너리가 봉인한 문서"(Phase 3B~7 문서 = 판 1)를 만들 때만 쓴다. 운영 배선({@code SealConfiguration})은
+     * 위의 생성자로 현재 판을 쓰며, 아키텍처 시험이 앱 모듈의 이 생성자 호출을 막는다.
+     */
+    public SealService(DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto, DocumentRecordStore records,
+                       ArtifactStore storage, DisclosurePdfRenderer renderer, LinkCarry carry, Duration transactionTimeout, RendererVersion sealWith) {
+        this(sealWith, deps, ledger, crypto, records, storage, renderer, carry, transactionTimeout);
+    }
+
+    private SealService(RendererVersion sealWith, DisclosureServiceDeps deps, SealLedgerPort ledger, DocumentCryptoPort crypto,
+                        DocumentRecordStore records, ArtifactStore storage, DisclosurePdfRenderer renderer, LinkCarry carry, Duration transactionTimeout) {
+        this.sealWith = Objects.requireNonNull(sealWith, "sealWith");
         this.transactionTimeout = Objects.requireNonNull(transactionTimeout, "transactionTimeout");
         this.carry = Objects.requireNonNull(carry, "carry");
         this.store = deps.store();
@@ -258,7 +276,9 @@ public final class SealService {
         CanonicalDocument canonical = CanonicalDocumentBuilder.build(canonicalInput(tenant, l), name);
         LocalDate sealDate = now.atZone(SEOUL).toLocalDate();
         DisclosureNo number = new DisclosureNo(tenant, sealDate.getYear(), ledger.issueNumber(sealDate.getYear()));
-        DisclosurePdfRenderer.Rendered pdf = renderer.render(canonical, l.template(), number.value());
+        // 새 봉인은 현재 판으로 그리고 그 판을 산출물 행에 고정한다(Phase 8 — 이후 서명본·미리보기·재렌더는 저장된 판)
+        RendererVersion rendererVersion = sealWith;
+        DisclosurePdfRenderer.Rendered pdf = renderer.render(rendererVersion, canonical, l.template(), number.value());
 
         Map<ArtifactKind, byte[]> plaintexts = new EnumMap<>(ArtifactKind.class);
         plaintexts.put(ArtifactKind.CANONICAL_JSON, canonical.bytes());
@@ -271,7 +291,7 @@ public final class SealService {
             String key = ArtifactRecord.storageKey(tenant.value(), id, e.getKey(), cipherHash);
             storage.put(key, cipher);
             artifacts.add(new ArtifactRecord(id, e.getKey(), key, Sha256.of(com.ga.platform.canonical.Sha256.of(e.getValue())), e.getValue().length, cipherHash,
-                    cipher.length, sealed.key().keyId(), now, null));
+                    cipher.length, sealed.key().keyId(), now, null, rendererVersion));
         }
 
         Optional<SealLedgerPort.ChainLink> head = ledger.lockChainHead();
@@ -293,7 +313,8 @@ public final class SealService {
 
         ObjectNode detail = identity(l).put("from", from.name()).put("to", d.status().name()).put("disclosureNo", number.value())
                 .put("canonicalHash", canonical.sha256()).put("pdfHash", pdf.sha256()).put("chainSeq", chainSeq).put("chainHash", chainHash)
-                .put("retentionUntil", retentionUntil.toString()).put("documentKeyId", sealed.key().keyId());
+                .put("retentionUntil", retentionUntil.toString()).put("documentKeyId", sealed.key().keyId())
+                .put("rendererVersion", rendererVersion.number());
         results(detail, results, unapproved);
         record(actor, AuditAction.DISCLOSURE_SEAL, id, detail);
         resolveOverrideFlags(actor, d, results, approvals, now);

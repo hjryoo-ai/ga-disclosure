@@ -1,0 +1,118 @@
+# 정기 백업(Phase 8 ⑤, 승인 Q3 — JobKind가 아니다: DB 밖 저장소 작업이라 앱의 작업 실행기·감사를 지나지 않는다, deploy 린트의 닫힌 예외 하나).
+#   준비 컨테이너: pg_basebackup — 복제 롤 disclosure_backup(REPLICATION, 표 권한 0)의 비밀번호만(ga-db-backup), postgres 이미지(tools.lock digest)
+#   본 컨테이너(app 이미지 CLI, 앱 컨텍스트 없이): 산출물 모든 버전 복제 → DB tar 봉투(백업 키 — ga-secrets에서 backup/key 하나만) → 평문 tar 삭제 →
+#     업로드(보존 기한 auto = 같은 실행 산출물의 가장 늦은 보존 기한 이상)
+# 순서: DB 스냅숏이 먼저 — 그 뒤 생긴 객체는 고아(GC 대상)일 뿐 빠진 객체가 아니다. 파기 배치(DESTROY)와 겹치지 않는 시각에 둔다(운영 문서).
+# 이 파드에는 앱 DB 롤·마이그레이터·테넌트 KEK가 없다(deploy 린트). 평문 tar는 이 파드의 emptyDir에만 잠깐 있다.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-backup
+  labels:
+    app.kubernetes.io/name: ga-backup
+    app.kubernetes.io/part-of: ga-disclosure
+spec:
+  schedule: "40 1 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-backup
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-backup
+        spec:
+          serviceAccountName: ga-backup
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: basebackup
+              image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+              command: ["sh", "-c", "pg_basebackup -h \"$PGHOST\" -U disclosure_backup -D /work/db -Ft -X fetch --no-sync"]
+              env:
+                - name: PGHOST
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: DISCLOSURE_DB_HOST } }
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: ga-db-backup, key: PGPASSWORD } }
+                # 복제 연결도 앱 JDBC(sslmode=verify-full)와 같게: 서버 인증서 검증 + SCRAM 채널 바인딩 — DB 전체 사본이 지나는 연결이다(10d 보안 검토).
+                # kind 데모는 TLS 없는 PostgreSQL이라 오버레이가 명시적으로 끈다(deploy 린트: 운영은 verify-full만)
+                - { name: PGSSLMODE, value: verify-full }
+                - { name: PGSSLROOTCERT, value: /var/run/ga-db-ca/ca.crt }
+                - { name: PGCHANNELBINDING, value: require }
+              resources:
+                requests: { cpu: 100m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work }
+                - { name: ga-db-ca, mountPath: /var/run/ga-db-ca, readOnly: true }
+          containers:
+            - name: backup
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  RUN="$(date -u +%Y%m%dT%H%M%SZ)"
+                  cli() { java org.springframework.boot.loader.launch.JarLauncher "$@"; }
+                  cli backup objects export --run "$RUN"
+                  cli backup seal --in /work/db/base.tar --out /work/db.gabk
+                  rm -f /work/db/base.tar
+                  cli backup upload --file /work/db.gabk --run "$RUN" --retain-until auto
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-s3 }
+                - secretRef: { name: ga-backup-s3 }
+              env:
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+                - { name: work, mountPath: /work }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+                items:
+                  - { key: backup.key, path: backup/key }
+            - name: work
+              emptyDir: { sizeLimit: 8Gi }
+            # DB 서버 인증서의 CA(공개 인증서 — ESO ga-db-ca)
+            - name: ga-db-ca
+              secret:
+                secretName: ga-db-ca
+                items:
+                  - { key: ca.crt, path: ca.crt }

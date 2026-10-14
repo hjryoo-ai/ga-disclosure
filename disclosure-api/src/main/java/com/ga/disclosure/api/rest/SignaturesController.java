@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 확인서별 서명 경로(6A 계획 §4.1): 고객 서명 세션 발급, 설계사 서명, 관리자 확인, 종이 스캔 검토, 완료. 세션 발급 응답은 {@code no-store}(현장 기기 토큰 —
- * 멱등 재생하지 않는다).
+ * 멱등 재생하지 않는다). 현장 기기 토큰에는 서명 창 주소({@code signUrl} — 서명 호스트, Phase 8)가 따른다.
  */
 @RestController
 @RequestMapping("/api/v1/disclosures")

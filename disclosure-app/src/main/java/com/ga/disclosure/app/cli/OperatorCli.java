@@ -18,7 +18,6 @@ import com.ga.disclosure.domain.enums.RuleScope;
 import com.ga.disclosure.domain.enums.RuleStatus;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.RuleVersionId;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
 import com.ga.disclosure.infra.persistence.IdentityLinkRepository;
 import com.ga.disclosure.infra.persistence.TenantRepository;
 import com.ga.disclosure.rules.bundle.Bundle;
@@ -97,7 +96,8 @@ import java.util.stream.Stream;
  * customer rekey   --tenant T1 --operator &lt;id&gt; [--batch 500]
  * customer import  --tenant T1 --file &lt;customers.json&gt; --operator &lt;id&gt;
  * demo disclosures --tenant T1 --file &lt;disclosures.json&gt; --operator &lt;id&gt; [--agent demo-agent]
- * crypto init-kek  --file &lt;path outside the repo&gt; [--kek-id KEK-LOCAL-1]
+ * crypto kek register|rewrap — {@link KekCommands}(Phase 8 테넌트 KEK) · db migrate·secrets init·crypto kek init — {@link OfflineCli}(Phase 8, 앱 컨텍스트 없이 —
+ *                  진입점이 먼저 가로챈다. 이 컨텍스트에 닿으면(같은 프로세스 시험) 같은 구현으로 넘긴다)
  * disclosure seal       --tenant T1 --id &lt;uuid&gt; --operator &lt;id&gt; (거부면 종료 코드 2와 거부 코드 목록)
  * disclosure void       --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
  * disclosure supersede  --tenant T1 --id &lt;uuid&gt; --reason-code &lt;CODE&gt; [--reason-file &lt;path&gt;] --operator &lt;id&gt;
@@ -108,7 +108,7 @@ import java.util.stream.Stream;
  * demo signatures  --tenant T1 --file &lt;signatures.json&gt; [--agent demo-agent] [--manager demo-manager]
  * sign …·disclosure complete|expire — {@link SignCommands}(Phase 4)
  * anchor run|receipt export·verify package|tenant·retention destroy·legal-hold place|release — {@link RetentionCommands}(Phase 5)
- * jobs list|show|report — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다)
+ * jobs list|show|report|run — {@link JobCommands}(6A — 배치 명령은 전부 작업 실행기를 지난다; Phase 8 {@code jobs run}은 CronJob의 진입점)
  * contract-links import|purge-unmatched — {@link ContractLinkCommands}(6B) · drafts abandon|abandon-idle — {@link DraftCommands}(6B) · flags list|resolve — {@link FlagCommands}(6B)
  * collection-rates snapshot|list — {@link CollectionRateCommands}(6B, 내부 지표 — 규제 정의 없음) · gate check — {@link GateCommands}(6B)
  * </pre>
@@ -144,6 +144,7 @@ public class OperatorCli implements ApplicationRunner {
     private final DemoSignatureSeeder demoSignatures;
     private final ContractLinkCommands contractLinks;
     private final DraftCommands drafts;
+    private final KekCommands kek;
     private final FlagCommands flagCommands;
     private final com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon;
     private final CollectionRateCommands collectionRates;
@@ -167,7 +168,9 @@ public class OperatorCli implements ApplicationRunner {
                        com.ga.disclosure.workflow.disclosure.DraftAbandonService draftAbandon,
                        com.ga.disclosure.workflow.rate.CollectionRateService collectionRates, com.ga.disclosure.workflow.gate.GateService gate,
                        com.ga.disclosure.workflow.disclosure.RetentionRecomputeService retentionRecompute,
-                       com.ga.disclosure.workflow.flag.FlagQueryService flagQueries, com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService) {
+                       com.ga.disclosure.workflow.flag.FlagQueryService flagQueries, com.ga.disclosure.workflow.flag.FlagCommandService flagCommandService,
+                       com.ga.disclosure.workflow.kek.TenantKekService keks, com.ga.disclosure.workflow.metrics.OperationalMetrics metrics,
+                       com.ga.disclosure.workflow.job.JobHandlers jobHandlers) {
         this.distribution = distribution;
         this.approval = approval;
         this.activation = activation;
@@ -186,24 +189,29 @@ public class OperatorCli implements ApplicationRunner {
         this.lifecycle = lifecycle;
         this.artifacts = artifacts;
         this.identityLinks = identityLinks;
-        this.jobs = new JobCommands(jobRunner, jobQueries, out);
+        this.jobs = new JobCommands(jobRunner, jobQueries, jobHandlers, this::tenants, out);
         this.dispatcher = notifications;
         this.demoOidc = demoOidc;
         this.sign = new SignCommands(signSessions, signing, expiry, notifications, jobs, flags, workflowTransactions, this::tenants, clock, out);
         this.demoSignatures = new DemoSignatureSeeder(workflowTransactions, lookup, customers, signSessions, signing, signatures, flags, out);
         this.retention = new RetentionCommands(anchorJob, receiptExporter, tenantVerifier, destructionJob, legalHolds, retentionRecompute, jobs, this::tenants,
-                clock, out);
+                clock, out, metrics);
         this.contractLinks = new ContractLinkCommands(contractLinks, jobs, out);
         this.drafts = new DraftCommands(draftAbandon, jobs, out);
         this.draftAbandon = draftAbandon;
         this.flagCommands = new FlagCommands(flagQueries, flagCommandService, out);
         this.collectionRates = new CollectionRateCommands(collectionRates, jobs, out);
         this.gate = new GateCommands(gate, out);
+        this.kek = new KekCommands(keks, jobs, this::tenants, out);
     }
 
     @Override
     public void run(ApplicationArguments arguments) {
         CliArguments args = CliArguments.parse(arguments.getSourceArgs());
+        if (OfflineCli.COMMANDS.contains(args.command())) {
+            OfflineCli.run(arguments.getSourceArgs(), out);
+            return;
+        }
         if (sign.handles(args.command())) {
             sign.run(args);
             return;
@@ -232,6 +240,10 @@ public class OperatorCli implements ApplicationRunner {
             gate.run(args);
             return;
         }
+        if (kek.handles(args.command())) {
+            kek.run(args);
+            return;
+        }
         if (contractLinks.handles(args.command())) {
             contractLinks.run(args);
             return;
@@ -248,7 +260,6 @@ public class OperatorCli implements ApplicationRunner {
             case "customer rekey" -> rekey(args);
             case "customer import" -> importCustomers(args);
             case "demo disclosures" -> demoDisclosures(args);
-            case "crypto init-kek" -> initKek(args);
             case "disclosure seal" -> sealDisclosure(args);
             case "disclosure void" -> voidDisclosure(args);
             case "disclosure supersede" -> supersede(args);
@@ -412,17 +423,6 @@ public class OperatorCli implements ApplicationRunner {
                 .seed(tenant, agent, manager, read(Path.of(args.required("file"))));
     }
 
-    private void initKek(CliArguments args) {
-        Path file = Path.of(args.required("file"));
-        String kekId = args.optional("kek-id").orElse("KEK-LOCAL-1");
-        try {
-            LocalFileKeyProvider.initialize(file, kekId);
-        } catch (IllegalStateException e) {
-            throw new CliFailure(e.getMessage());
-        }
-        out.println("KEK_INIT " + kekId + " " + file.toAbsolutePath() + " (owner read/write only; keep it outside the repository)");
-    }
-
     /**
      * Phase 4 데모 서명(3자 터치·종이 스캔 완료, 원격 링크 발급 — 고객 경로는 스크립트가 콘솔 토큰으로 잇는다). 파일 경로는 서명 파일 기준. 6A: 원격 링크는
      * 아웃박스에 적재되므로 끝에 그 테넌트의 통지 발송(작업 NOTIFY)을 한 번 돌린다 — 콘솔 통지가 {@code SIGN LINK} 줄을 찍는다.
@@ -502,11 +502,7 @@ public class OperatorCli implements ApplicationRunner {
         switch (view) {
             case ArtifactService.View.Granted g -> {
                 Path target = Path.of(args.required("out"));
-                try {
-                    Files.write(target, g.plaintext());
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
+                CliFiles.replace(target, g.plaintext());
                 out.println("ARTIFACT_GET " + tenant + " " + g.record().disclosureId() + " " + kind + " sha256=" + g.record().sha256() + " bytes="
                         + g.record().bytes() + " -> " + target);
             }

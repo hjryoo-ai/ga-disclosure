@@ -20,8 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 부팅 스모크: 애플리케이션이 disclosure_app 데이터소스와 disclosure_migrator Flyway로 뜨고,
- * /actuator/health가 UP이며, 트랜잭션 매니저가 TenantSessionBinder다. 보안 체인 밖 경로는 헬스 외 전부 내부 404와 같은 본문이다(6A 계획 §5.1).
+ * 부팅 스모크: 애플리케이션이 disclosure_app 데이터소스로 뜨고(스키마는 하네스가 먼저 적용 — 앱은 마이그레이션하지 않는다, Phase 8),
+ * 관리 포트의 /actuator/health가 UP이며, 트랜잭션 매니저가 TenantSessionBinder다. 보안 체인 밖 경로는 전부 내부 404와 같은 본문이다(6A 계획 §5.1) —
+ * Phase 8부터 앱 포트의 /actuator/health도 그렇다(관리 포트 분리). 준비성·활성 분리는 HealthEndpointsIT.
  * 컨트롤러 배치 규칙은 ApiLayerRulesTest (a)가 맡는다(자리표시 단언 noApplicationControllersExist 폐기 — 6A 계획 §9.4).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -35,13 +36,16 @@ class DisclosureApplicationIT {
     @Value("${local.server.port}")
     int port;
 
+    @Value("${local.management.port}")
+    int managementPort;
+
     @Autowired
     ApplicationContext context;
 
     @Test
     void healthIsUpAndTenantBinderIsTheTransactionManager() throws Exception {
         HttpResponse<String> response = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/actuator/health")).GET().build(),
+                HttpRequest.newBuilder(URI.create("http://localhost:" + managementPort + "/actuator/health")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("\"status\":\"UP\"");
@@ -58,6 +62,9 @@ class DisclosureApplicationIT {
         assertThat(ApiTestSupport.get(port, "/", null).fingerprint()).isEqualTo(notFound.fingerprint());
         assertThat(ApiTestSupport.get(port, "/sign/abc", null).fingerprint()).isEqualTo(notFound.fingerprint());
         assertThat(ApiTestSupport.send(port, "POST", "/actuator/health", null, "{}", java.util.Map.of()).status()).isEqualTo(404);
+        assertThat(managementPort).isNotEqualTo(port);
+        assertThat(ApiTestSupport.get(port, "/actuator/health", null).fingerprint()).isEqualTo(notFound.fingerprint());
+        assertThat(ApiTestSupport.get(port, "/actuator/health/readiness", null).fingerprint()).isEqualTo(notFound.fingerprint());
     }
 
     /** Phase 2 P5: 앱이 쓰는 JSON 매퍼(Boot 자동 구성)는 개인정보 값객체 직렬화를 거부한다(가드 모듈 등록 확인). */

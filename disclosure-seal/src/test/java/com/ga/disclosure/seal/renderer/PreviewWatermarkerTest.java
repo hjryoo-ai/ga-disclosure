@@ -22,7 +22,7 @@ class PreviewWatermarkerTest {
 
     @Test
     void everyPageCarriesTheMarkAndTheInputBytesAreUntouched() throws Exception {
-        byte[] sealed = new DisclosurePdfRenderer().render(RenderFixtures.canonical(SealFixtures.case02()), RenderFixtures.STANDARD,
+        byte[] sealed = new DisclosurePdfRenderer().render(RendererVersion.CURRENT, RenderFixtures.canonical(SealFixtures.case02()), RenderFixtures.STANDARD,
                 RenderFixtures.number(7)).pdf();
         byte[] copy = sealed.clone();
         String mark = "PREVIEW-MARK <&> 2026-10-10 09:30";

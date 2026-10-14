@@ -60,7 +60,15 @@ class ArchitectureRulesTest {
                             + "함수 → RESET ROLE. 테넌트 데이터를 읽지 않는다(6B 계획 Q10)"),
             new Allowed(P + "infra.jobs.JobLockGateway",
                     "작업 잠금 — 전용 롤 disclosure_job_lock(테이블·스키마 권한 0, V12 단언)으로 풀 없이 연 커넥션의 세션 advisory lock과 "
-                            + "pg_locks 보유 확인만. 테넌트 데이터를 읽지 않는다(6A 계획 §6.1, 승인 Q8·B1)"));
+                            + "pg_locks 보유 확인만. 테넌트 데이터를 읽지 않는다(6A 계획 §6.1, 승인 Q8·B1)"),
+            new Allowed(P + "app.health.DatabaseHealthIndicator",
+                    "DB 헬스·스키마 버전 가드(설계서 §9 표의 예정 항목, 지시문 G7 '다섯째 항목') — 전용 롤 disclosure_health(V22: CONNECT·스키마 USAGE와 "
+                            + "flyway_schema_history(version, success) SELECT만, 테넌트 표 권한 0 단언)로 풀 없이 연 커넥션에서 SELECT 1과 최고 성공 버전만. "
+                            + "테넌트 데이터를 읽지 않는다. 지시문의 '앱 롤'은 규칙 5 '각 항목은 전용 롤'과 충돌해 전용 롤(8 계획 승인 Q1)"));
+
+    /** Flyway({@code org.flywaydb..})를 참조할 수 있는 유일한 운영 클래스 — 마이그레이션 경로는 운영자 명령 db migrate 하나(Phase 8). */
+    static final Allowed MIGRATOR = new Allowed(P + "infra.migration.SchemaMigrator",
+            "운영자 명령 db migrate의 적용(마이그레이터 롤 — 운영은 마이그레이션 Job에만 자격 증명)·배포물 최고 버전. 앱 기동은 Flyway를 부르지 않는다(8 계획 ③)");
 
     /** BigDecimal·BigInteger 참조 허용 패키지(CLAUDE.md 절대 규칙 1: JSON 매핑 외 참조 금지). */
     static final List<Allowed> BIG_NUMBER_PACKAGES = List.of(
@@ -175,6 +183,16 @@ class ArchitectureRulesTest {
         ArchRules.dbAccessOnlyVia(REPOSITORY_BASE.fqn(), DB_INFRASTRUCTURE).check(classes);
     }
 
+    // (d') Phase 8: 마이그레이션 경로는 하나 — Flyway는 SchemaMigrator만(앱 기동·다른 명령이 스키마를 바꾸지 않는다)
+    @Test
+    void flywayOnlyInTheMigrator() {
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that().doNotHaveFullyQualifiedName(MIGRATOR.fqn())
+                .should().dependOnClassesThat().resideInAnyPackage("org.flywaydb..")
+                .because(MIGRATOR.reason())
+                .check(classes);
+    }
+
     // (e)① BigDecimal·BigInteger는 disclosure-infra의 ..infra.json.. 에서만
     @Test
     void bigDecimalOnlyInInfraJson() {
@@ -258,10 +276,72 @@ class ArchitectureRulesTest {
                 .check(classes);
     }
 
+    // (l) Phase 8 승인 Q9: 새 봉인은 언제나 현재 렌더러 판 — 판을 지정하는 SealService 생성자는 시험("앞 판이 봉인한 문서" 재현) 전용이다
+    @Test
+    void productionSealsOnlyWithTheCurrentRendererVersion() {
+        String w = P + "workflow.disclosure.";
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .should().callConstructor(w + "SealService", w + "DisclosureServiceDeps", w + "SealLedgerPort",
+                        P + "workflow.artifact.DocumentCryptoPort", P + "workflow.artifact.DocumentRecordStore", P + "workflow.artifact.ArtifactStore",
+                        P + "seal.renderer.DisclosurePdfRenderer", w + "LinkCarry", "java.time.Duration", P + "seal.renderer.RendererVersion")
+                .because("8 계획 승인 Q9: 봉인 판은 바이너리의 현재 판으로 정해져 산출물 행에 고정된다 — 운영 코드가 판을 고르지 않는다")
+                .check(classes);
+    }
+
+    /**
+     * 파일 쓰기 API를 부르는 운영 클래스(닫힌 FQN 목록 — 10단계 보안 검토 TOCTOU·수용 회신 "생성 후 열기 패턴 전반"). 비밀·백업 평문·열어 본 산출물
+     * (고객 성명이 든 PDF)·보고서는 소유자 전용으로 만들기·열기를 한 번에({@code CREATE_NEW}) 하고, 덮어쓰기는 새 파일 + 원자적 이름 바꾸기로 한다
+     * (경로에 놓인 심볼릭 링크를 따라가지 않는다). {@code Files.write} 기본 옵션은 링크를 따라가고 umask 권한(보통 0644)으로 만든다.
+     */
+    static final List<Allowed> FILE_WRITERS = List.of(
+            new Allowed(P + "app.cli.CliFiles", "운영자 CLI 출력 — CREATE_NEW 소유자 전용, 덮어쓰기는 새 파일 + 원자적 이름 바꾸기"),
+            new Allowed(P + "infra.secret.FileSecretSource", "로컬·kind 비밀 파일 생성 — CREATE_NEW 소유자 전용"),
+            new Allowed(P + "audit.tsa.stub.LocalStubTsa", "스텁 TSA 키 저장소(CREATE_NEW 소유자 전용)와 신뢰 앵커 인증서 PEM(공개 — 기동마다 다시 쓴다)"),
+            new Allowed(P + "app.demo.DemoOidcIssuer", "데모 OIDC 공개키 PEM(공개 — 토큰마다 다시 쓴다, 데모 프로파일만)"),
+            new Allowed(P + "seal.renderer.RerenderMain", "골든 재렌더 도구의 출력 PDF(허구 데이터 — 개발·CI 전용 main)"));
+
+    /** 파일을 만들거나 쓰는 JDK API(대상: {@code java.nio.file.Files}의 메서드, {@code java.io} 파일 스트림 생성자). */
+    static final java.util.Set<String> FILE_WRITE_METHODS = java.util.Set.of("write", "writeString", "newOutputStream", "newBufferedWriter", "newByteChannel",
+            "createFile", "createTempFile", "copy");
+    static final java.util.Set<String> FILE_WRITE_CONSTRUCTORS = java.util.Set.of("java.io.FileOutputStream", "java.io.FileWriter", "java.io.RandomAccessFile",
+            "java.io.PrintStream", "java.io.PrintWriter");
+
+    @Test
+    void fileWritesGoThroughOwnerOnlyCreation() {
+        java.util.Set<String> allowed = FILE_WRITERS.stream().map(Allowed::fqn).collect(java.util.stream.Collectors.toSet());
+        com.tngtech.archunit.lang.ArchCondition<com.tngtech.archunit.core.domain.JavaClass> writesFiles =
+                new com.tngtech.archunit.lang.ArchCondition<>("call a file-writing API") {
+                    @Override
+                    public void check(com.tngtech.archunit.core.domain.JavaClass c, com.tngtech.archunit.lang.ConditionEvents events) {
+                        for (var call : c.getMethodCallsFromSelf()) {
+                            if (call.getTargetOwner().getName().equals("java.nio.file.Files") && FILE_WRITE_METHODS.contains(call.getName())) {
+                                events.add(com.tngtech.archunit.lang.SimpleConditionEvent.satisfied(c, call.getDescription()));
+                            }
+                        }
+                        for (var call : c.getConstructorCallsFromSelf()) {
+                            String owner = call.getTargetOwner().getName();
+                            // PrintStream·PrintWriter는 파일·경로 인자일 때만(메모리 버퍼 위의 출력은 파일이 아니다)
+                            boolean fileArg = call.getTarget().getRawParameterTypes().stream()
+                                    .anyMatch(t -> t.getName().equals("java.lang.String") || t.getName().equals("java.io.File"));
+                            if (FILE_WRITE_CONSTRUCTORS.contains(owner) && (!owner.startsWith("java.io.Print") || fileArg)) {
+                                events.add(com.tngtech.archunit.lang.SimpleConditionEvent.satisfied(c, call.getDescription()));
+                            }
+                        }
+                    }
+                };
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .that(com.tngtech.archunit.base.DescribedPredicate.describe("are not file writers " + allowed, (com.tngtech.archunit.core.domain.JavaClass c) ->
+                        !allowed.contains(c.getName()) && !allowed.contains(c.getName().replaceAll("\\$.*$", ""))))
+                .should(writesFiles)
+                .because("create-then-reopen or default-option writes follow a symlink planted at the path and create umask-readable files; use CliFiles "
+                        + "(owner-only CREATE_NEW, replace by atomic rename)")
+                .check(classes);
+    }
+
     // 허용 목록의 폐기 항목 0: 목록의 모든 FQN이 실제로 존재한다(Phase 0 심사 R1)
     @Test
     void allowlistsHaveNoStaleEntries() {
-        List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE), DB_INFRASTRUCTURE, ORDERING_CLASSES)
+        List<Allowed> classAllowlist = Stream.of(List.of(REPOSITORY_BASE, MIGRATOR), DB_INFRASTRUCTURE, ORDERING_CLASSES, FILE_WRITERS)
                 .flatMap(List::stream).toList();
         List<Allowed> packageAllowlist = Stream.of(BIG_NUMBER_PACKAGES, RATIO_LABEL_VALUE_PACKAGES, PII_REVEAL_PACKAGES, List.of(CRYPTO_PACKAGE),
                         BOUNCY_CASTLE_PACKAGES)

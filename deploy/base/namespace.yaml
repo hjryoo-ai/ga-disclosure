@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ga-disclosure
+  labels:
+    app.kubernetes.io/part-of: ga-disclosure
+    # 파드 보안 표준 restricted — 비루트·권한 상승 없음·읽기 전용 루트를 매니페스트가 지키는지 API 서버가 거부로 검사한다
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

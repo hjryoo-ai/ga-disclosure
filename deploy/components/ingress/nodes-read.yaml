@@ -1,0 +1,22 @@
+# Traefik의 쿠버네티스 CRD 공급자는 네임스페이스를 좁혀도 Node 목록을 지켜본다(클러스터 범위 — kind에서 확인: 이 권한이 없으면 공급자가 동기화를 끝내지
+# 못해 라우트·TLS를 하나도 싣지 않는다). Node는 비밀이 아니다 — 클러스터 범위 권한은 이것 하나(nodes get/list/watch)뿐이고 deploy 린트가 그 모양을 닫는다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ga-traefik-nodes
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ga-traefik-nodes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ga-traefik-nodes
+subjects:
+  - { kind: ServiceAccount, name: traefik, namespace: ga-ingress }
+  - { kind: ServiceAccount, name: traefik, namespace: ga-ingress-internal }

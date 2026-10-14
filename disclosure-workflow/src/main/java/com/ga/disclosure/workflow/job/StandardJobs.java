@@ -254,8 +254,13 @@ public final class StandardJobs {
     }
 
     /** SLA 경과 표시(6B 계획 §7): 보고서는 표시한 플래그 ID·유형·기한(개인정보 없음). */
-    public static JobWork<FlagCommandService.SweepReport> flagSlaSweep(FlagCommandService flags, int limit) {
-        return single(c -> flags.sweepSla(c, limit), r -> {
+    public static JobWork<FlagCommandService.SweepReport> flagSlaSweep(FlagCommandService flags, int limit,
+                                                                      com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
+        return single(c -> {
+            FlagCommandService.SweepReport r = flags.sweepSla(c, limit);
+            com.ga.disclosure.workflow.metrics.OperationalMetrics.safely(() -> metrics.slaBreached(c.tenant(), r.breached().size()));
+            return r;
+        }, r -> {
             ObjectNode o = JSON.createObjectNode().put("kind", JobKind.FLAG_SLA_SWEEP.name());
             ArrayNode marked = o.putArray("breached");
             r.breached().forEach(b -> marked.addObject().put("flagId", b.flagId().toString()).put("type", b.type()).put("dueAt", b.dueAt().toString()));
@@ -271,14 +276,19 @@ public final class StandardJobs {
 
     /**
      * 앵커(CLI 전용, 승인 Q7): 잡은 테넌트들로 한 번(한 트리). 테넌트 보고서에는 그 테넌트의 생성·변경 없음·재시도·실패와 배치 전체 실패(테넌트 없음), 배치
-     * 루트만 싣는다(다른 테넌트 ID는 싣지 않는다).
+     * 루트만 싣는다(다른 테넌트 ID는 싣지 않는다). 실행 뒤 아직 TSA 고정이 없는 가장 오래된 앵커의 경과 일수를 미터로(Phase 8 G8 "미고정 앵커 일수").
      */
-    public static JobWork<AnchorJob.Report> anchor(AnchorJob job, Optional<LocalDate> date, String operator) {
+    public static JobWork<AnchorJob.Report> anchor(AnchorJob job, Optional<LocalDate> date, String operator,
+                                                   com.ga.disclosure.workflow.metrics.OperationalMetrics metrics) {
         return new JobWork<>() {
             @Override
             public AnchorJob.Report run(List<Caller> acquired) {
                 List<TenantId> tenants = acquired.stream().map(Caller::tenant).toList();
-                return date.map(d -> job.run(tenants, d, operator)).orElseGet(() -> job.run(tenants, operator));
+                AnchorJob.Report r = date.map(d -> job.run(tenants, d, operator)).orElseGet(() -> job.run(tenants, operator));
+                if (r.unstampedDays() >= 0) {
+                    com.ga.disclosure.workflow.metrics.OperationalMetrics.safely(() -> metrics.unstampedAnchorDays(r.unstampedDays()));
+                }
+                return r;
             }
 
             @Override
@@ -333,5 +343,29 @@ public final class StandardJobs {
             throw new IllegalArgumentException("job parameter limit must be 1.." + max);
         }
         return v.asInt();
+    }
+
+    /** Phase 8 {@code KEK_REWRAP}(단일 테넌트, 운영자 CLI만): 작업 ID를 행 감사에 남긴다. 보고서는 행 식별자와 KEK ID뿐(키 바이트 0). */
+    public static JobWork<com.ga.disclosure.workflow.kek.TenantKekService.Report> kekRewrap(com.ga.disclosure.workflow.kek.TenantKekService service,
+                                                                                             boolean apply) {
+        return new JobWork<>() {
+            @Override
+            public com.ga.disclosure.workflow.kek.TenantKekService.Report run(List<Caller> acquired) {
+                throw new IllegalStateException("the KEK rewrap records its job id — run(acquired, jobIds)");
+            }
+
+            @Override
+            public com.ga.disclosure.workflow.kek.TenantKekService.Report run(List<Caller> acquired, List<UUID> jobIds) {
+                if (acquired.size() != 1 || jobIds.size() != 1) {
+                    throw new IllegalArgumentException("a single-tenant job runs with exactly one caller");
+                }
+                return service.rewrap(acquired.getFirst(), apply, jobIds.getFirst());
+            }
+
+            @Override
+            public byte[] report(com.ga.disclosure.workflow.kek.TenantKekService.Report r, TenantId tenant) {
+                return Canonicalizer.canonicalize(r.toJson());
+            }
+        };
     }
 }

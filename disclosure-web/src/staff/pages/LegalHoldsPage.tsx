@@ -1,11 +1,12 @@
-// 법적 보존(준법): 목록·걸기(확인서 ID 또는 고객 가명 참조 중 정확히 하나 — 서버가 판정)·해제(사유 코드).
+// 법적 보존(준법): 목록·걸기(확인서 ID 또는 고객 가명 참조 중 정확히 하나 — 서버가 판정)·해제(사유 코드 — 둘 다 룰 어휘에서 고른다, G9).
 // 해제는 건 사람과 다른 준법 담당자만 할 수 있다(4-eyes, 서버 판정) — 화면은 버튼을 막지 않고 거부 코드를 보인다.
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type { components } from '../../gen/disclosure-api';
 import { staff } from '../../shared/messages.ko.json';
 import { outcome, useApi, write, type Outcome } from '../api/useApi';
 import { ProblemView } from '../components/ProblemView';
-import { formText, ResultLine, useShown } from '../components/ui';
+import { useCodes } from '../api/vocabulary';
+import { CodeChoice, formText, ResultLine, useShown } from '../components/ui';
 
 type Hold = components['schemas']['LegalHold'];
 type Receipt = components['schemas']['LegalHoldReceipt'];
@@ -16,6 +17,8 @@ export function LegalHoldsPage() {
   const [page, setPage] = useState<Outcome<components['schemas']['LegalHoldPage']> | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [shown, show] = useShown();
+  const holdReasons = useCodes((v) => v.legalHoldReasons);
+  const releaseReasons = useCodes((v) => v.legalHoldReleaseReasons);
 
   const load = useCallback((after: string | null) => {
     void api.GET('/api/v1/legal-holds', { params: { query: after === null ? { limit: 50 } : { limit: 50, after } } }).then((r) => {
@@ -59,8 +62,7 @@ export function LegalHoldsPage() {
           <input id="h-disc" name="disclosureId" autoComplete="off" spellCheck={false} />
           <label htmlFor="h-cref">{staff.holds.customerRef}</label>
           <input id="h-cref" name="customerRef" autoComplete="off" spellCheck={false} />
-          <label htmlFor="h-code">{staff.holds.reasonCode}</label>
-          <input id="h-code" name="reasonCode" autoComplete="off" spellCheck={false} />
+          <CodeChoice id="h-code" name="reasonCode" legend={staff.holds.reasonCode} codes={holdReasons} />
           <label htmlFor="h-text">{staff.holds.reasonText}</label>
           <textarea id="h-text" name="reasonText" autoComplete="off" />
           <button type="submit">{staff.holds.placeSubmit}</button>
@@ -92,8 +94,7 @@ export function LegalHoldsPage() {
                   <td>{h.releasedAt === null ? '—' : <>{h.releasedAt} · <code>{h.releasedBy}</code> · <code>{h.releaseReasonCode}</code></>}</td>
                   <td>
                     <form onSubmit={(e) => { release(e, h.holdId); }} autoComplete="off">
-                      <label htmlFor={`rl-${h.holdId}`}>{staff.holds.releaseCode}</label>
-                      <input id={`rl-${h.holdId}`} name="reasonCode" autoComplete="off" spellCheck={false} />
+                      <CodeChoice id={`rl-${h.holdId}`} name="reasonCode" legend={staff.holds.releaseCode} codes={releaseReasons} />
                       <button type="submit">{staff.holds.release}</button>
                     </form>
                   </td>

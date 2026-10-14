@@ -24,14 +24,14 @@ class RenderTimingTest {
     void measureSequentialAndConcurrent() throws Exception {
         CanonicalDocument doc = RenderFixtures.canonical(SealFixtures.case02());
         String no = RenderFixtures.number(7);
-        byte[] reference = RENDERER.render(doc, RenderFixtures.STANDARD, no).pdf();
+        byte[] reference = RENDERER.render(RendererVersion.CURRENT, doc, RenderFixtures.STANDARD, no).pdf();
         for (int i = 0; i < 5; i++) {
-            RENDERER.render(doc, RenderFixtures.STANDARD, no);
+            RENDERER.render(RendererVersion.CURRENT, doc, RenderFixtures.STANDARD, no);
         }
         List<Long> sequential = new ArrayList<>();
         for (int i = 0; i < 50; i++) {
             long t0 = System.nanoTime();
-            RENDERER.render(doc, RenderFixtures.STANDARD, no);
+            RENDERER.render(RendererVersion.CURRENT, doc, RenderFixtures.STANDARD, no);
             sequential.add((System.nanoTime() - t0) / 1_000_000);
         }
         List<Long> concurrent = new ArrayList<>();
@@ -43,7 +43,7 @@ class RenderTimingTest {
                 java.util.concurrent.CompletableFuture<byte[]> out = new java.util.concurrent.CompletableFuture<>();
                 futures.add(pool.submit(() -> {
                     long t0 = System.nanoTime();
-                    out.complete(RENDERER.render(doc, RenderFixtures.STANDARD, no).pdf());
+                    out.complete(RENDERER.render(RendererVersion.CURRENT, doc, RenderFixtures.STANDARD, no).pdf());
                     return new long[] {(System.nanoTime() - t0) / 1_000_000};
                 }));
                 bytes.add(out);

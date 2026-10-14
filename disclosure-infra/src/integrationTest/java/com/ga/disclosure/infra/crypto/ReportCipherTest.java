@@ -1,6 +1,8 @@
 package com.ga.disclosure.infra.crypto;
 
+import com.ga.disclosure.infra.testing.TestKeks;
 import com.ga.disclosure.workflow.artifact.ArtifactUnreadableException;
+import com.ga.disclosure.workflow.customer.KeyProviderPort;
 import com.ga.disclosure.workflow.job.ReportCryptoPort;
 import com.ga.platform.core.tenant.TenantId;
 import org.junit.jupiter.api.Test;
@@ -16,24 +18,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 작업 보고서 암호화(6A 계획 §2.6, 설계서 §6.10): 보고서마다 새 키(키 ID {@code RPT-{job}}로 감싼다), 본문 AAD = JCS
- * {@code {jobId, kind:"REPORT", tenantId, v:1}}. 다른 작업·테넌트로 옮긴 바이트는 같은 DEK로도 풀리지 않는다. DB 없음(로컬 KEK 파일).
+ * {@code {jobId, kind:"REPORT", tenantId, v:1}}. 다른 작업·테넌트로 옮긴 바이트는 같은 DEK로도 풀리지 않는다. DB 없음(시험 테넌트 KEK).
  */
 class ReportCipherTest {
 
-    final LocalFileKeyProvider keys = LocalFileKeyProvider.load(kekFile());
+    final KeyProviderPort keys = TestKeks.shared().standalone();
     final ReportCipher cipher = new ReportCipher(keys);
     final TenantId tenant = TenantId.of("RPT_T1");
     final byte[] report = "{\"kind\":\"VERIFY_TENANT\"}".getBytes(StandardCharsets.UTF_8);
-
-    static Path kekFile() {
-        try {
-            Path file = Files.createTempDirectory("ga-kek").resolve("kek.json");
-            LocalFileKeyProvider.initialize(file, "KEK-TEST-1");
-            return file;
-        } catch (IOException e) {
-            throw new java.io.UncheckedIOException(e);
-        }
-    }
 
     @Test
     void theBodyAadIsTheSpecifiedJcs() {

@@ -27,15 +27,20 @@ class SealWriteScanTest {
     static final Map<String, Pattern> KINDS = new LinkedHashMap<>();
 
     static {
-        for (String table : List.of("disclosure_counter", "disclosure_chain_head", "document_key", "document_artifact", "signature_evidence")) {
+        for (String table : List.of("disclosure_counter", "disclosure_chain_head", "document_key", "document_artifact", "signature_evidence", "tenant_kek")) {
             KINDS.put("INSERT " + table, Pattern.compile("\\binsert\\s+into\\s+" + table + "\\b"));
             KINDS.put("UPDATE " + table, Pattern.compile("\\bupdate\\s+(?:only\\s+)?" + table + "\\b"));
             KINDS.put("DELETE " + table, Pattern.compile("\\bdelete\\s+from\\s+(?:only\\s+)?" + table + "\\b"));
         }
+        // (Phase 8) 감싼 키를 바꾸는 유일한 DB 함수 — 운영 코드에서 부르는 곳은 재래핑 저장소 한 메서드뿐(보안 검토 반영: 앱 롤이 실행할 수 있는 함수라
+        // 요청 경로가 닿지 않게 호출 지점을 닫는다)
+        KINDS.put("CALL ga_kek_rewrap", Pattern.compile("\\bga_kek_rewrap\\s*\\("));
     }
 
     private static final String LEDGER = "com.ga.disclosure.infra.persistence.SealLedgerRepository";
     private static final String RECORDS = "com.ga.disclosure.infra.persistence.DocumentRecordRepository";
+    private static final String KEKS = "com.ga.disclosure.infra.persistence.TenantKekRepository";
+    private static final String REWRAP = "com.ga.disclosure.infra.persistence.KekRewrapRepository";
 
     /** 허용 목록: FQN#메서드 → 허용 문장 종류. */
     static final Map<String, Set<String>> ALLOWED = Map.of(
@@ -45,7 +50,9 @@ class SealWriteScanTest {
             RECORDS + "#insertArtifact", Set.of("INSERT document_artifact"),
             RECORDS + "#markArtifactRetention", Set.of("UPDATE document_artifact"),      // 첫 적용 시각 1회, 적용 기한 증가만(V8)
             RECORDS + "#insertEvidence", Set.of("INSERT signature_evidence"),
-            RECORDS + "#markEvidenceRetention", Set.of("UPDATE signature_evidence"));    // 같은 규칙(V8 GD105)
+            RECORDS + "#markEvidenceRetention", Set.of("UPDATE signature_evidence"),    // 같은 규칙(V8 GD105)
+            KEKS + "#register", Set.of("UPDATE tenant_kek", "INSERT tenant_kek"),          // CURRENT → RETIRED 1회 + 새 CURRENT(V21 GD140)
+            REWRAP + "#rewrap", Set.of("CALL ga_kek_rewrap"));                            // 재래핑 작업만(Phase 8 승인 Q2)
 
     private static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
 

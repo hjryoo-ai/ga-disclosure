@@ -1,0 +1,15 @@
+# kind 복구(Phase 8 ⑤): kind 데모 + 복구 컴포넌트. 앱은 새 산출물 버킷을 본다(복구된 객체 — 옛 버킷은 Object Lock이라 지울 수 없고 남아 있다).
+# 버킷 이름은 실행마다 ga-restore가 준다(아래 값은 그 ConfigMap이 없을 때의 자리 — 복구 Job은 언제나 ga-restore를 읽는다).
+# deploy/scripts/kind.sh restore가 쓴다(PostgreSQL StatefulSet·볼륨을 지운 뒤 적용). 렌더는 kind 데모와 같이 --load-restrictor LoadRestrictionsNone.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../kind-demo
+components:
+  - ../../components/restore
+configMapGenerator:
+  - name: ga-app-config
+    namespace: ga-disclosure
+    behavior: merge
+    literals:
+      - GA_S3_BUCKET=ga-disclosure-kind-restored

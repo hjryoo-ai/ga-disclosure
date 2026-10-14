@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ga.example/contracts/verify/v1/kek-rewrap-report.schema.json",
+  "title": "KEK rewrap report (v1)",
+  "description": "테넌트 KEK 재래핑 작업(KEK_REWRAP) 보고서 — Phase 8 계획 승인 Q2. 한 테넌트의 한 실행: 대상 KEK(그 테넌트의 CURRENT), 적용 여부(기본 dry-run), CURRENT가 아닌 KEK로 감싼 살아 있는 키마다 대상 표·행 식별자·이전 KEK·결과(REWRAPPED 옮김, PENDING dry-run, SKIPPED 그 사이 옮겨졌거나 파기됨, FAILED 풀 수 없음 — 그대로 둠)와 결과별 수. 키 바이트·DEK·개인정보 없음 — ID와 수뿐. 모든 객체는 닫혀 있다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reportVersion", "kind", "toKekId", "apply", "items", "rewrapped", "pending", "skipped", "failed"],
+  "properties": {
+    "reportVersion": { "const": 1 },
+    "kind": { "const": "KEK_REWRAP" },
+    "toKekId": { "$ref": "#/$defs/tenantKekId" },
+    "apply": { "type": "boolean" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "rowKey", "fromKekId", "outcome"],
+        "properties": {
+          "target": { "enum": ["DOCUMENT_KEY", "CUSTOMER_DATA_KEY", "JOB_REPORT"] },
+          "rowKey": { "type": "string", "pattern": "^(DOC-[0-9a-f]{32}|DEK-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$" },
+          "fromKekId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "outcome": { "enum": ["REWRAPPED", "PENDING", "SKIPPED", "FAILED"] }
+        }
+      }
+    },
+    "rewrapped": { "type": "integer", "minimum": 0 },
+    "pending": { "type": "integer", "minimum": 0 },
+    "skipped": { "type": "integer", "minimum": 0 },
+    "failed": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "tenantKekId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_]{0,31}-KEK-[1-9][0-9]{0,5}$" }
+  }
+}

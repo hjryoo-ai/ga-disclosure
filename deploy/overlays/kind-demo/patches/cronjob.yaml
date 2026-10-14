@@ -1,0 +1,40 @@
+# kind 데모 파드(앱·CronJob 공통): 로컬 이미지만(받지 않는다), 시작 전 준비 컨테이너가 ① 스텁 TSA 키 저장소를 Secret 볼륨(0440 — 스텁은 소유자 전용을
+# 요구한다)에서 소유자 전용 사본으로 ② 데모 OIDC 공개키 PEM을 쓰기 가능한 /tmp로(발급자가 토큰마다 다시 쓴다 — 웹 앱은 기동 때 읽는다) 옮긴다.
+# 모든 파드가 같은 TSA 키를 쓴다 — 파드마다 만들면 앵커 토큰의 신뢰 앵커가 파드마다 갈린다.
+- { op: replace, path: /spec/jobTemplate/spec/template/spec/containers/0/imagePullPolicy, value: Never }
+- op: add
+  path: /spec/jobTemplate/spec/template/spec/initContainers
+  value:
+    - name: demo-files
+      image: ga-disclosure/app:dev
+      imagePullPolicy: Never
+      command: ["sh", "-c", "cp /var/run/ga-secrets/demo/tsa-stub.p12 /var/run/ga-tsa/tsa-stub.p12 && chmod 600 /var/run/ga-tsa/tsa-stub.p12 && cp /etc/ga-demo-oidc/demo-oidc.pem /tmp/demo-oidc.pem"]
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits: { memory: 32Mi }
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      volumeMounts:
+        - { name: tmp, mountPath: /tmp }
+        - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+        - { name: ga-tsa, mountPath: /var/run/ga-tsa }
+        - { name: ga-demo-oidc, mountPath: /etc/ga-demo-oidc, readOnly: true }
+- op: add
+  path: /spec/jobTemplate/spec/template/spec/volumes/-
+  value: { name: ga-tsa, emptyDir: { sizeLimit: 1Mi } }
+- op: add
+  path: /spec/jobTemplate/spec/template/spec/volumes/-
+  value: { name: ga-demo-files, configMap: { name: ga-demo-files } }
+- op: add
+  path: /spec/jobTemplate/spec/template/spec/volumes/-
+  value: { name: ga-demo-oidc, configMap: { name: ga-demo-oidc-public } }
+- op: add
+  path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+  value: { name: ga-tsa, mountPath: /var/run/ga-tsa, readOnly: true }
+- op: add
+  path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+  value: { name: ga-demo-files, mountPath: /etc/ga-demo, readOnly: true }
+# 데모는 주기 실행을 멈춘다(노트북에서 1분마다 JVM을 띄우지 않는다) — 스모크·데모가 kubectl create job --from=cronjob/<이름>으로 부른다(런북과 같은 원형)
+- { op: replace, path: /spec/suspend, value: true }

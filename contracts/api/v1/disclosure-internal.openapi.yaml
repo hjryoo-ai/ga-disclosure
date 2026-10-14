@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ga-disclosure — 서비스 주체 API(작업·이벤트 피드·청약 게이트·계약 연결)
-  version: 4.0.0
+  version: 4.1.0
   description: |
     설계서 §4.4·§4.5·§7, 6A 계획 §4. 접두 `/internal/v1`은 서비스 주체(SCHEDULER·FEED_CONSUMER·(6B) CONTRACT_FEED·GATE_CLIENT) — 사람 역할은 404(승인 Q15).
     클러스터 밖에 열지 않는다. 인증은 `/api`와 같은 JWT 체인(역할은 `identity_link`). 오류·멱등·커서 규약은 `disclosure-api.openapi.yaml`과 같다.
@@ -202,7 +202,7 @@ components:
       bearerFormat: JWT
   responses:
     Problem:
-      description: 오류(`disclosure-api.openapi.yaml`의 Problem과 같다)
+      description: 오류(`disclosure-api.openapi.yaml`의 Problem과 같다 — 4.1.0부터 룰 없는 테넌트의 쓰기 503 `TENANT_RULES_NOT_ACTIVE` 포함)
       content: { application/json: { schema: { $ref: 'disclosure-api.openapi.yaml#/components/schemas/Problem' } } }
   schemas:
     GateRequest:

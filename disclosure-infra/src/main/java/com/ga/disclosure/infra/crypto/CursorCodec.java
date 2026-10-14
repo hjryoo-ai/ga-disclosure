@@ -1,5 +1,7 @@
 package com.ga.disclosure.infra.crypto;
 
+import com.ga.disclosure.workflow.secret.SecretName;
+import com.ga.disclosure.workflow.secret.SecretSource;
 import com.ga.disclosure.workflow.page.CursorPort;
 import com.ga.disclosure.workflow.page.InvalidCursorException;
 import com.ga.platform.canonical.Canonicalizer;
@@ -9,7 +11,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -23,8 +24,8 @@ import javax.crypto.spec.SecretKeySpec;
  * 서명된 목록 커서(6A 계획 §4.2): {@code base64url(JCS{v:1, s:stream, q:position}) "." base64url(HMAC-SHA256(key, tenant ‖ 0x00 ‖ 앞부분)[0..16])}.
  * 테넌트를 MAC에 묶어 다른 테넌트의 커서는 열리지 않는다. 비교는 상수 시간. 커서는 위치만 담는다(검색 조건·개인정보 없음).
  * <ul>
- *   <li>웹: 키 파일 {@code ga.api.cursor-key-file}(저장소 밖) — 없으면 소유자 전용(600)으로 32바이트 무작위 키를 만들고, 있으면 그룹·기타 권한이 있거나
- *       길이가 틀리면 기동 실패(로컬 KEK와 같은 규약).</li>
+ *   <li>웹: 비밀 {@code api/cursor}(Phase 8 — {@link SecretSource}, base64 32바이트). 없거나 길이가 틀리면 기동 실패 — 만들지 않는다(생성은
+ *       {@code secrets init}·비밀 저장소).</li>
  *   <li>CLI: 프로세스마다 새 키({@link #ephemeral()}) — CLI는 커서를 받지 않는다.</li>
  * </ul>
  */
@@ -52,9 +53,11 @@ public final class CursorCodec implements CursorPort {
         return new CursorCodec(key);
     }
 
-    /** 키 파일을 읽는다(없으면 소유자 전용으로 만든다 — {@link OwnerOnlyKeyFile}). */
-    public static CursorCodec fromKeyFile(Path file) {
-        return new CursorCodec(OwnerOnlyKeyFile.loadOrCreate(file, KEY_BYTES, "cursor"));
+    public static final SecretName SECRET = SecretName.of("api/cursor");
+
+    /** 비밀 출처에서 읽는다(없으면 실패). */
+    public static CursorCodec fromSecret(SecretSource secrets) {
+        return new CursorCodec(secrets.key(SECRET, KEY_BYTES));
     }
 
     @Override

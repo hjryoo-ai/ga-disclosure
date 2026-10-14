@@ -15,7 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.List;
 
 /**
- * MVC 조립: 컨트롤러 인자 {@code Caller}, 쓰기 POST의 Idempotency-Key 인터셉터({@code /api}·{@code /internal}), JSON 응답의 JCS 직렬화(재생 바이트 동일 —
+ * MVC 조립: 컨트롤러 인자 {@code Caller}, 룰 없는 테넌트의 쓰기 503(Phase 8), 쓰기 POST의 Idempotency-Key 인터셉터({@code /api}·{@code /internal}), JSON 응답의 JCS 직렬화(재생 바이트 동일 —
  * 승인 Q4).
  */
 @Configuration(proxyBeanMethods = false)
@@ -25,8 +25,11 @@ public class ApiWebConfiguration implements WebMvcConfigurer {
     private final IdempotencyService idempotency;
     private final RequestHashPort requestHashes;
     private final JsonMapper mapper;
+    private final com.ga.disclosure.workflow.onboarding.TenantRulesStatus rulesStatus;
 
-    public ApiWebConfiguration(IdempotencyService idempotency, RequestHashPort requestHashes, JsonMapper mapper) {
+    public ApiWebConfiguration(IdempotencyService idempotency, RequestHashPort requestHashes, JsonMapper mapper,
+                               com.ga.disclosure.workflow.onboarding.TenantRulesStatus rulesStatus) {
+        this.rulesStatus = rulesStatus;
         this.idempotency = idempotency;
         this.requestHashes = requestHashes;
         this.mapper = mapper;
@@ -34,6 +37,8 @@ public class ApiWebConfiguration implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // Phase 8(6B 이월 ①): 룰 없는 테넌트의 쓰기는 멱등 청구 전에 503 — 순서가 곧 "키를 묶지 않는다"
+        registry.addInterceptor(new TenantRulesInterceptor(rulesStatus)).addPathPatterns("/api/**", "/internal/**");
         registry.addInterceptor(new IdempotencyInterceptor(idempotency, requestHashes)).addPathPatterns("/api/**", "/internal/**");
     }
 

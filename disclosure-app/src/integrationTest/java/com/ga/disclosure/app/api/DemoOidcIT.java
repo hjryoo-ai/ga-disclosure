@@ -48,12 +48,22 @@ class DemoOidcIT {
     @Test
     void demoTokensWorkAgainstAWebAppThatTrustsTheExportedKey() throws Exception {
         FlowSupport.prepare(T);
-        Path key = dir.resolve("keys").resolve("demo-oidc.key");
+        // Phase 8: 서명 키는 비밀 출처의 demo/oidc-signing — 앱은 만들지 않는다(secrets init --demo yes)
+        String init = ApiTestSupport.cli("secrets", "init", "--secrets-dir", ApiTestSupport.SECRETS.toString(), "--demo", "yes");
+        Path key = ApiTestSupport.SECRETS.resolve("demo/oidc-signing");
+        // (Phase 8 9c) 스텁 TSA 키 저장소도 비밀로 — kind 데모의 모든 파드가 같은 키(소유자 전용, 스텁이 그대로 읽는다, 값은 출력하지 않는다)
+        Path tsa = ApiTestSupport.SECRETS.resolve("demo/tsa-stub.p12");
+        assertThat(init).containsPattern("SECRET demo/tsa-stub.p12 (CREATED|EXISTS)");
+        assertThat(Files.getPosixFilePermissions(tsa)).containsExactlyInAnyOrder(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+        byte[] before = Files.readAllBytes(tsa);
+        var stub = com.ga.disclosure.audit.tsa.stub.LocalStubTsa.loadOrCreate(tsa, dir.resolve("tsa-trust.pem"), java.time.Clock.systemUTC());
+        assertThat(Files.readAllBytes(tsa)).as("loaded, not recreated").isEqualTo(before);
+        assertThat(Files.readString(dir.resolve("tsa-trust.pem"))).isEqualTo(stub.trustAnchors().toPem());
         Path pem = dir.resolve("demo-oidc.pem");
 
         assertThatThrownBy(() -> ApiTestSupport.cli("demo", "token", "--tenant", T, "--subject", "compliance-1"))
                 .hasStackTraceContaining("demo token needs the demo profile");
-        String out = ApiTestSupport.cli("--spring.profiles.active=cli,demo", "--ga.demo.oidc-key-file=" + key, "--ga.demo.oidc-public-pem=" + pem,
+        String out = ApiTestSupport.cli("--spring.profiles.active=cli,demo", "--ga.demo.oidc-public-pem=" + pem,
                 "demo", "token", "--tenant", T, "--subject", "compliance-1", "--ttl", "PT10M");
         String jwt = out.lines().filter(l -> l.matches("[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")).reduce((a, b) -> b).orElseThrow();
 
@@ -70,7 +80,7 @@ class DemoOidcIT {
         assertThat(Files.readString(pem)).startsWith("-----BEGIN PUBLIC KEY-----");
         // 두 번째 발급은 같은 키(만들지 않는다)
         String keyBefore = Files.readString(key);
-        ApiTestSupport.cli("--spring.profiles.active=cli,demo", "--ga.demo.oidc-key-file=" + key, "--ga.demo.oidc-public-pem=" + pem,
+        ApiTestSupport.cli("--spring.profiles.active=cli,demo", "--ga.demo.oidc-public-pem=" + pem,
                 "demo", "token", "--tenant", T, "--subject", "agent-1");
         assertThat(Files.readString(key)).isEqualTo(keyBefore);
 
@@ -94,7 +104,7 @@ class DemoOidcIT {
 
     @Test
     void demoKeysOutsideTheDemoProfileStopTheBoot() {
-        assertThatThrownBy(() -> ApiTestSupport.cli("--ga.demo.oidc-key-file=" + dir.resolve("k"), "demo", "token", "--tenant", T, "--subject", "x"))
-                .hasStackTraceContaining("demo-only keys are set outside the demo profile").hasStackTraceContaining("ga.demo.oidc-key-file");
+        assertThatThrownBy(() -> ApiTestSupport.cli("--ga.demo.oidc-public-pem=" + dir.resolve("k"), "demo", "token", "--tenant", T, "--subject", "x"))
+                .hasStackTraceContaining("demo-only keys are set outside the demo profile").hasStackTraceContaining("ga.demo.oidc-public-pem");
     }
 }

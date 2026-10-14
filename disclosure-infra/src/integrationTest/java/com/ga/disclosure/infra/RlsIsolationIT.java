@@ -31,10 +31,10 @@ class RlsIsolationIT {
 
     /**
      * V12 기준 테넌트 테이블 수(V8 signature_evidence·outbox_head·outbox_event 추가, V9 anchor·anchor_receipt·legal_hold 추가와 audit_anchor 제거,
-     * V12 idempotency_key·async_job·notification_outbox 추가, V14 contract_link·contract_link_unmatched·collection_rate_snapshot 추가). 테이블을 추가하는
+     * V12 idempotency_key·async_job·notification_outbox 추가, V14 contract_link·contract_link_unmatched·collection_rate_snapshot 추가, V21 tenant_kek 추가). 테이블을 추가하는
      * 마이그레이션은 이 값을 함께 고친다(추가가 조용히 지나가지 않게).
      */
-    private static final int EXPECTED_TABLE_COUNT = 36;
+    private static final int EXPECTED_TABLE_COUNT = 37;                 // (Phase 8 V21) + tenant_kek
 
     static final List<String> TABLES = catalogTables();
 
@@ -60,7 +60,7 @@ class RlsIsolationIT {
     void catalogListsEveryTenantTableAndTheCountIsPinned() {
         assertThat(TABLES).hasSize(EXPECTED_TABLE_COUNT)
                 .contains("tenant", "customer_ref", "customer_data_key", "catalog_import", "product_catalog", "compliance_flag", "review",
-                        "disclosure_counter", "disclosure_chain_head", "document_key");
+                        "disclosure_counter", "disclosure_chain_head", "document_key", "tenant_kek");
     }
 
     /** 모든 테이블의 첫 컬럼은 tenant_id다(설계서 §5). */

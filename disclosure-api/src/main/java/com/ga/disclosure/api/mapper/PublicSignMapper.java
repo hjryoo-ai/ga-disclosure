@@ -57,7 +57,8 @@ public final class PublicSignMapper {
         if (!o.rejections().isEmpty()) {
             throw new RejectedOutcomeException(RejectionCategory.INVALID, o.rejections().stream().map(r -> new Problem.Rejection(r.name(), null)).toList());
         }
-        return new PublicIdentityResult(o.missing().isEmpty(), o.missing().stream().map(Enum::name).toList());
+        // 닫힌 세션의 결과는 통과일 수 없다(이중 방어). 마지막 실패도 앞선 실패와 같은 응답 — 남은 시도 수를 드러내지 않는다
+        return new PublicIdentityResult(!o.revoked() && o.missing().isEmpty(), o.missing().stream().map(Enum::name).toList());
     }
 
     public static PublicCaptureReceipt captured(SignService.Outcome o) {

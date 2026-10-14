@@ -4,6 +4,7 @@ import com.ga.disclosure.domain.enums.ArtifactKind;
 import com.ga.disclosure.domain.enums.SignatureEvidenceKind;
 import com.ga.disclosure.domain.vo.DisclosureId;
 import com.ga.disclosure.domain.vo.Sha256;
+import com.ga.disclosure.seal.renderer.RendererVersion;
 import com.ga.disclosure.workflow.artifact.ArtifactRecord;
 import com.ga.disclosure.workflow.artifact.DocumentCryptoPort;
 import com.ga.disclosure.workflow.artifact.DocumentRecordStore;
@@ -56,17 +57,20 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
         p.put("cipherBytes", r.cipherBytes());
         p.put("keyId", r.keyId());
         p.put("createdAt", Timestamp.from(r.createdAt()));
+        p.put("rendererVersion", (short) r.rendererVersion().number());
         update("""
                 INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256, cipher_bytes,
-                                               key_id)
-                VALUES (:tenantId, :disclosureId, :kind, :storageKey, :sha256, :bytes, :createdAt, :cipherSha256, :cipherBytes, :keyId)
+                                               key_id, renderer_version)
+                VALUES (:tenantId, :disclosureId, :kind, :storageKey, :sha256, :bytes, :createdAt, :cipherSha256, :cipherBytes, :keyId,
+                        :rendererVersion)
                 """, p);
     }
 
     @Override
     public List<ArtifactRecord> artifacts(DisclosureId disclosure) {
         return query("""
-                SELECT disclosure_id, kind, storage_key, sha256, bytes, cipher_sha256, cipher_bytes, key_id, created_at, retention_applied_at
+                SELECT disclosure_id, kind, storage_key, sha256, bytes, cipher_sha256, cipher_bytes, key_id, created_at, retention_applied_at,
+                       renderer_version
                   FROM document_artifact
                  WHERE tenant_id = :tenantId
                    AND disclosure_id = :disclosureId
@@ -160,7 +164,7 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
     public List<Unretained> unretained(int limit) {
         return query("""
                 SELECT a.disclosure_id, NULL::uuid AS signature_id, a.kind, a.storage_key, a.sha256, a.bytes, a.cipher_sha256, a.cipher_bytes,
-                       a.key_id, a.created_at, a.retention_applied_at, d.retention_until, 'ARTIFACT' AS source
+                       a.key_id, a.created_at, a.retention_applied_at, a.renderer_version, d.retention_until, 'ARTIFACT' AS source
                   FROM document_artifact a
                   JOIN disclosure d ON d.tenant_id = a.tenant_id AND d.disclosure_id = a.disclosure_id
                  WHERE a.tenant_id = :tenantId
@@ -168,7 +172,7 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
                    AND (a.retention_applied_until IS NULL OR a.retention_applied_until < d.retention_until)
                 UNION ALL
                 SELECT e.disclosure_id, e.signature_id, e.kind, e.storage_key, e.sha256, e.bytes, e.cipher_sha256, e.cipher_bytes,
-                       e.key_id, e.created_at, e.retention_applied_at, d.retention_until, 'EVIDENCE' AS source
+                       e.key_id, e.created_at, e.retention_applied_at, NULL::smallint AS renderer_version, d.retention_until, 'EVIDENCE' AS source
                   FROM signature_evidence e
                   JOIN disclosure d ON d.tenant_id = e.tenant_id AND d.disclosure_id = e.disclosure_id
                  WHERE e.tenant_id = :tenantId
@@ -214,6 +218,6 @@ public class DocumentRecordRepository extends TenantScopedRepository implements 
         return new ArtifactRecord(DisclosureId.of(rs.getObject("disclosure_id", UUID.class)), ArtifactKind.valueOf(rs.getString("kind")),
                 rs.getString("storage_key"), Sha256.of(rs.getString("sha256")), rs.getLong("bytes"), Sha256.of(rs.getString("cipher_sha256")),
                 rs.getLong("cipher_bytes"), rs.getString("key_id"), rs.getTimestamp("created_at").toInstant(),
-                retained == null ? null : retained.toInstant());
+                retained == null ? null : retained.toInstant(), RendererVersion.of(rs.getShort("renderer_version")));
     }
 }

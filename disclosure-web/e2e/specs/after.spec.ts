@@ -3,26 +3,19 @@
 //     같은 상태·같은 본문 해시)이거나, 현장 기기 토큰을 담은 세션 발급이면 409 IDEMPOTENCY_NOT_REPLAYABLE(일회용 자격은 저장하지 않는다 — 설계서 §7).
 //     전후 테이블별 행 수가 같다(슈퍼유저 psql — RLS 밖에서 전부 센다).
 //  ② G5 누출 합계 — 시험마다의 스캔 결과를 모아 적중 0, 프로젝트마다 센티널이 실제로 입력됐음(요청 본문 횟수 > 0), 산출 파일·데모 스크린샷 이름에 센티널 0,
-//     앱 로그(server.log)에 개인정보 센티널 0.
+//     앱 로그(server.log — 클러스터는 앱 파드 로그)에 개인정보 센티널 0.
 //  ③ G10 — axe 예외 목록의 항목이 한 번 이상 쓰였다(안 쓰인 예외는 지운다).
 import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { exceptions } from '../support/axe';
-import { DEMO_SHOTS, env, OUT, RUN, sentinelForms, sentinels } from '../support/env';
+import { DEMO_SHOTS, env, OUT, psql, RUN, sentinelForms, sentinels, serverLog } from '../support/env';
 import type { WriteRecord } from '../support/fixtures';
 
 const readAll = <T>(dir: string): T[] => readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(resolve(dir, f), 'utf8')) as T);
 
 function rowCounts(): Record<string, number> {
-  const psql = (sql: string) => {
-    const r = spawnSync('docker', ['exec', '-i', env().pg, 'psql', '-q', '-tA', '-U', 'postgres', '-d', 'disclosure', '-v', 'ON_ERROR_STOP=1'],
-      { input: sql, encoding: 'utf8' });
-    if (r.status !== 0) throw new Error(`psql failed: ${r.stderr.slice(0, 500)}`);
-    return r.stdout.trim();
-  };
   const tables = psql("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1;").split('\n');
   expect(tables.length).toBeGreaterThan(20);
   const counts = psql(tables.map((t) => `SELECT '${t}', count(*) FROM public."${t}"`).join(' UNION ALL ') + ';');
@@ -69,8 +62,8 @@ test('browser-side leak scan found nothing, after the sentinels were really ente
   const forms = sentinelForms(sentinels());
   expect(forms.map((f, i) => (names.some((n) => n.includes(f)) ? i : -1)).filter((i) => i >= 0), 'sentinel numbers in file names').toEqual([]);
   // 서버 쪽 보충(서버 평문 스캔은 6A·6B 시험 그대로 돈다): 이번 실행의 앱 로그에 허구 개인정보 0 — 데모 통지 포트의 SIGN LINK 줄(토큰)은 설계된 데모 출력
-  const serverLog = readFileSync(resolve(OUT, 'server.log'), 'utf8');
-  expect(forms.map((f, i) => (serverLog.includes(f) ? i : -1)).filter((i) => i >= 0), 'sentinel numbers in server.log').toEqual([]);
+  const log = serverLog();                                                 // 클러스터는 앱 파드 로그 전부
+  expect(forms.map((f, i) => (log.includes(f) ? i : -1)).filter((i) => i >= 0), 'sentinel numbers in server.log').toEqual([]);
   writeFileSync(resolve(OUT, 'leak-scan-summary.json'), JSON.stringify({
     tests: scans.length, hits: 0, files: names.length,
     scanned: scans.reduce<Record<string, number>>((a, s) => { for (const [k, v] of Object.entries(s.scanned)) a[k] = (a[k] ?? 0) + v; return a; }, {}),

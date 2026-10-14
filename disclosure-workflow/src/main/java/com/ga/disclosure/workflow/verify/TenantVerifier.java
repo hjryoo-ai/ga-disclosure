@@ -32,6 +32,8 @@ import com.ga.disclosure.workflow.authz.AuthorizationPort;
 import com.ga.disclosure.workflow.authz.Caller;
 import com.ga.disclosure.workflow.authz.Target;
 import com.ga.disclosure.workflow.authz.UseCaseEntry;
+import com.ga.disclosure.workflow.customer.KeyProviderPort;
+import com.ga.disclosure.workflow.kek.KekRewrapStore;
 import com.ga.disclosure.workflow.disclosure.DisclosureFlagPort;
 import com.ga.platform.canonical.Sha256;
 import com.ga.platform.core.tenant.TenantId;
@@ -59,18 +61,19 @@ import static com.ga.disclosure.audit.verify.ReportBuilder.map;
 /**
  * {@code verify tenant}(지시문 §4, 5 계획 §8.4). 읽기는 REPEATABLE READ 트랜잭션 하나(한 스냅샷)에서 흘려 읽는다 — 감사·봉인 체인은 페이지 단위,
  * 앵커 대조용 머리는 checkpoint seq에서 다시 계산한 값만 기억한다. 순서: 감사 체인 → 봉인 체인 → 채번(연도별) → 파기 감사({@code destroyed_at} ↔
- * {@code DISCLOSURE_DESTROYED}) → 객체(복호화·평문 해시, 파기 건은 버전·마커 0) → 앵커(잎·두 머리) → 영수증(경로·루트·토큰) → 미고정 기간.
+ * {@code DISCLOSURE_DESTROYED}) → 객체(복호화·평문 해시, 파기 건은 버전·마커 0) → (Phase 8) KEK(레지스트리 밖 KEK로 감싼 살아 있는 키 0, 살아 있는 키 전부 풀림) → 앵커(잎·두 머리) → 영수증(경로·루트·토큰) → 미고정 기간.
  *
  * <p>쓰기는 끝에 별도 트랜잭션 하나: 감사 {@code VERIFY_RUN}(보고서 해시)과, 무결성 불일치가 있으면 {@code CHAIN_BROKEN} 플래그 — 끊긴 지점의
  * 확인서마다, 확인서를 정할 수 없으면 {@code disclosure_id NULL}로 그 지점을 대상으로(감사 체인 = {@code AUDIT_LOG}·seq, 앵커·영수증 =
- * {@code ANCHOR}·앵커 순번, 그 밖 = {@code TENANT}, 5 계획 §1.6). {@code ANCHOR_UNSTAMPED}·{@code TSA_UNTRUSTED}·{@code ANCHOR_MISSING_DAY}는 무결성이 아니라 운영·설정 신호라
+ * {@code ANCHOR}·앵커 순번, 그 밖 = {@code TENANT}, 5 계획 §1.6). {@code ANCHOR_UNSTAMPED}·{@code TSA_UNTRUSTED}·{@code ANCHOR_MISSING_DAY}·{@code KEK_UNREGISTERED}는 무결성이 아니라 운영·설정 신호라
  * 보고서는 불일치(종료 2)지만 플래그를 올리지 않는다.
  */
 public final class TenantVerifier {
 
     public static final int PAGE = 500;
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
-    static final Set<FindingCode> OPERATIONAL = Set.of(FindingCode.ANCHOR_UNSTAMPED, FindingCode.TSA_UNTRUSTED, FindingCode.ANCHOR_MISSING_DAY);
+    static final Set<FindingCode> OPERATIONAL = Set.of(FindingCode.ANCHOR_UNSTAMPED, FindingCode.TSA_UNTRUSTED, FindingCode.ANCHOR_MISSING_DAY,
+            FindingCode.KEK_UNREGISTERED);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final AuditPort audit;
@@ -84,10 +87,12 @@ public final class TenantVerifier {
     private final WorkflowTransactions transactions;
     private final Clock clock;
     private final AuthorizationPort authz;
+    private final KekRewrapStore keks;
+    private final KeyProviderPort keyProvider;
 
     public TenantVerifier(AuditPort audit, SealChainReader chain, AnchorStore anchors, DocumentRecordStore records, DocumentCryptoPort crypto,
                           ArtifactStore storage, RuleResolver rules, DisclosureFlagPort flags, WorkflowTransactions transactions, Clock clock,
-                          AuthorizationPort authz) {
+                          AuthorizationPort authz, KekRewrapStore keks, KeyProviderPort keyProvider) {
         this.audit = Objects.requireNonNull(audit, "audit");
         this.chain = Objects.requireNonNull(chain, "chain");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
@@ -99,6 +104,8 @@ public final class TenantVerifier {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.authz = Objects.requireNonNull(authz, "authz");
+        this.keks = Objects.requireNonNull(keks, "keks");
+        this.keyProvider = Objects.requireNonNull(keyProvider, "keyProvider");
     }
 
     /**
@@ -198,6 +205,33 @@ public final class TenantVerifier {
             objectCount += objects(r, tenant, row);
         }
         objects.counted(objectCount).close();
+
+        // (Phase 8) KEK: 살아 있는 감싼 키는 전부 그 테넌트 레지스트리의 KEK로 감싸져 있고(아니면 재래핑하지 않은 전역 시절 키 — 운영 신호) 실제로 풀린다
+        // (아니면 무결성 — 재래핑 함수는 새 바이트가 같은 DEK를 감쌌는지 DB에서 확인할 수 없다, 보안 검토 반영). DEK는 어댑터 밖으로 나가지 않는다.
+        ReportBuilder.CheckScope kekCheck = r.check("KEKS");
+        Set<String> unregisteredPairs = new HashSet<>();
+        for (KekRewrapStore.UnregisteredUse u : keks.unregisteredUses()) {
+            r.finding(FindingCode.KEK_UNREGISTERED, map("target", u.target().name(), "kekId", u.kekId()), map("rows", u.rows()));
+            unregisteredPairs.add(u.target() + "|" + u.kekId());
+        }
+        int wrappedKeys = 0;
+        for (KekRewrapStore.Target target : KekRewrapStore.Target.values()) {
+            Optional<String> after = Optional.empty();
+            while (true) {
+                List<KekRewrapStore.Wrapped> page = keks.notUnder(target, "", after, PAGE);
+                for (KekRewrapStore.Wrapped w : page) {
+                    wrappedKeys++;
+                    if (!unregisteredPairs.contains(target + "|" + w.kekId()) && !keyProvider.unwraps(tenant, w.keyId(), w.kekId(), w.wrapped())) {
+                        r.finding(FindingCode.KEK_UNWRAP_FAILED, map("target", target.name(), "rowKey", w.rowKey()), map("kekId", w.kekId()));
+                    }
+                }
+                if (page.size() < PAGE) {
+                    break;
+                }
+                after = Optional.of(page.getLast().rowKey());
+            }
+        }
+        kekCheck.counted(wrappedKeys).close();
 
         // 5. 앵커 · 6. 영수증 · 7. 미고정 기간
         ReportBuilder.CheckScope anchorCheck = r.check("ANCHORS").counted(all.size());

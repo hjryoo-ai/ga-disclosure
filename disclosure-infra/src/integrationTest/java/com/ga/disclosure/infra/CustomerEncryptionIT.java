@@ -7,7 +7,9 @@ import com.ga.disclosure.domain.pii.CustomerName;
 import com.ga.disclosure.domain.pii.PhoneNumber;
 import com.ga.disclosure.domain.vo.CustomerRef;
 import com.ga.disclosure.infra.crypto.CiphertextRejectedException;
-import com.ga.disclosure.infra.crypto.LocalFileKeyProvider;
+import com.ga.disclosure.infra.secret.FileSecretSource;
+import com.ga.disclosure.workflow.secret.SecretName;
+import com.ga.disclosure.infra.testing.TestKeks;
 import com.ga.disclosure.infra.persistence.CustomerVaultRepository;
 import com.ga.disclosure.infra.testing.PostgresHarness;
 import com.ga.disclosure.infra.testing.SeedData;
@@ -166,10 +168,14 @@ class CustomerEncryptionIT {
                 return rs.getBytes(1);
             }
         });
-        assertThatThrownBy(() -> s.keys.unwrap(t2, k2, "KEK-TEST-1", wrapped1)).isInstanceOf(CiphertextRejectedException.class);
-        assertThatThrownBy(() -> s.keys.unwrap(t1, k2, "KEK-TEST-1", wrapped1)).as("key id is bound too")
+        String kek1 = TestKeks.firstKekId(t1.value());
+        assertThatThrownBy(() -> s.keys.unwrap(t2, k2, kek1, wrapped1)).as("another tenant may not use this tenant's KEK")
                 .isInstanceOf(CiphertextRejectedException.class);
-        assertThat(s.keys.unwrap(t1, k1, "KEK-TEST-1", wrapped1)).hasSize(32);
+        assertThatThrownBy(() -> s.keys.unwrap(t2, k2, TestKeks.firstKekId(t2.value()), wrapped1)).as("nor unwrap with its own KEK")
+                .isInstanceOf(CiphertextRejectedException.class);
+        assertThatThrownBy(() -> s.keys.unwrap(t1, k2, kek1, wrapped1)).as("key id is bound too")
+                .isInstanceOf(CiphertextRejectedException.class);
+        assertThat(s.keys.unwrap(t1, k1, kek1, wrapped1)).hasSize(32);
     }
 
     // ------------------------------------------------------------------ 최초 DEK 생성 경합 (Phase 2 D3 → Phase 3A 선행 B)
@@ -305,16 +311,24 @@ class CustomerEncryptionIT {
     void anotherMasterKeyCannotUnwrapTheDataKeys() {
         TenantId t = s.freshTenant("ENC_KEK");
         CustomerRef ref = register(t, "홍길동", null, null);
-        CatalogCustomerSetup otherKek = new CatalogCustomerSetup("2026-09-01T00:00:00Z", CatalogCustomerSetup.newKekFile());
+        CatalogCustomerSetup otherKek = new CatalogCustomerSetup("2026-09-01T00:00:00Z", TestKeks.fresh());
         assertThatThrownBy(() -> otherKek.customers.lookup(t, CatalogCustomerSetup.OPERATOR, ref)).isInstanceOf(CiphertextRejectedException.class);
     }
 
+    /** (Phase 8) 테넌트 KEK 비밀 파일도 소유자 전용이 아니면 거부하고, 만들 때 덮어쓰지 않는다. */
     @Test
-    void keyFileReadableByOthersIsRefused() throws Exception {
-        Path file = CatalogCustomerSetup.newKekFile();
+    void kekSecretReadableByOthersIsRefused() throws Exception {
+        TestKeks keks = TestKeks.fresh();
+        TenantId t = TenantId.of("ENC_PERM");
+        keks.ensure(t, TestKeks.firstKekId(t.value()));
+        Path file = keks.dir().resolve("kek/" + t.value() + "/" + TestKeks.firstKekId(t.value()));
         Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-r--r--"));
-        assertThatThrownBy(() -> LocalFileKeyProvider.load(file)).isInstanceOf(IllegalStateException.class).hasMessageContaining("chmod 600");
-        assertThatThrownBy(() -> LocalFileKeyProvider.initialize(file, "KEK-X")).as("never overwrite an existing KEK")
+        SecretName name = SecretName.of("kek/" + t.value() + "/" + TestKeks.firstKekId(t.value()));
+        assertThatThrownBy(() -> new FileSecretSource(keks.dir(), false).read(name)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chmod 600");
+        assertThatThrownBy(() -> new FileSecretSource(keks.dir(), true).read(name)).as("other-readable is refused even for a mounted secret")
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> FileSecretSource.create(keks.dir(), name, new byte[]{1})).as("never overwrite an existing KEK")
                 .isInstanceOf(IllegalStateException.class);
     }
 

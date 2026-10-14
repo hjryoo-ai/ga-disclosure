@@ -169,5 +169,11 @@ public enum AuditAction {
      */
     DISCLOSURE_VIEW,
     /** 이벤트 피드 ack(대상 없음, 같은 트랜잭션): 요청한 {@code upToSeq}, 이번에 발행 기록한 행 수, 이제 ack한 지점. 읽기는 감사하지 않는다(상태 불변·개인정보 없음). */
-    EVENT_FEED_ACK
+    EVENT_FEED_ACK,
+
+    // ---------------------------------------------------------------- Phase 8: 테넌트 KEK
+    /** 테넌트 KEK 등록(대상 TENANT_KEK = 새 KEK ID): 물러난 이전 CURRENT(없으면 null). 키 바이트는 없다. */
+    KEK_REGISTERED,
+    /** 감싼 키 하나의 재래핑(대상 DOCUMENT_KEY·CUSTOMER_DATA_KEY·JOB = 행 식별자): 이전·이후 KEK ID, 작업 ID. 행마다 1행(8 계획 승인 Q2). */
+    KEK_REWRAPPED
 }

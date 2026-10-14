@@ -120,6 +120,7 @@ class SignSessionIT {
         }
         SignSessionService.IdentityOutcome fifth = x.sessionService.verify(token, IdentityInputs.birthDate("not a date"));
         assertThat(fifth.revoked()).as("maxFailures = 5").isTrue();
+        assertThat(fifth.missing()).as("the method was not passed — revoking does not empty the missing list").containsExactly(IdentityMethod.BIRTH_DATE);
         assertThat(x.openFlags(id)).extracting(DisclosureFlagPort.OpenFlag::type).containsExactly(DisclosureFlagPort.Type.IDENTITY_FAILED);
         rejected(() -> x.sessionService.verify(token, IdentityInputs.birthDate(SignSetup.BIRTH)));
         assertThat(x.s.audit().stream().filter(r -> r.entry().action() == AuditAction.SIGN_IDENTITY_CHECK).count()).isEqualTo(5);

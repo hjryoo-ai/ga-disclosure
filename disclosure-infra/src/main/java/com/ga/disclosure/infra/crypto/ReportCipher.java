@@ -38,7 +38,7 @@ public final class ReportCipher implements ReportCryptoPort {
 
     @Override
     public Sealed seal(TenantId tenant, UUID jobId, byte[] plaintext) {
-        String kekId = keys.currentKekId();
+        String kekId = keys.currentKekId(tenant);
         byte[] dek = AesGcm.newKey();
         try {
             byte[] ciphertext = AesGcm.encrypt(dek, plaintext, aad(tenant, jobId));

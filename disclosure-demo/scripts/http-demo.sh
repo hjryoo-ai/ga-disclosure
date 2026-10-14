@@ -8,7 +8,7 @@
 # 토큰(JWT·서명 토큰)은 소유자 전용 헤더 파일(build/demo/http, gitignore)로 curl에 넘긴다(프로세스 목록에 남지 않게).
 # 몇 번을 돌려도 같다: 쓰기마다 Idempotency-Key = "http-demo-<날짜>-<단계>"라 같은 날 두 번째 실행은 전부 재생(부작용 0)이고 재생 여부를 출력한다.
 # 전제: seed.sh를 같은 DB에 한 번 돌렸다(DEMO1·고객·카탈로그·룰). jq·curl 필요. 값은 전부 예시다(설계서 부록 B).
-# 사용: disclosure-demo/scripts/http-demo.sh   (HTTP_DEMO_PORT 기본 18080, HTTP_DEMO_RUN 기본 오늘 날짜)
+# 사용: disclosure-demo/scripts/http-demo.sh   (HTTP_DEMO_PORT 기본 18080, HTTP_DEMO_MANAGEMENT_PORT 기본 18082, HTTP_DEMO_INTERNAL_PORT 기본 18081, HTTP_DEMO_RUN 기본 오늘 날짜)
 #   (GA_DEMO_* 이름은 쓰지 않는다 — Spring이 ga.demo.* 키로 읽어 데모가 아닌 CLI 프로파일에서 DemoKeysGuard가 기동을 멈춘다)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -19,13 +19,19 @@ done
 
 PORT="${HTTP_DEMO_PORT:-18080}"
 BASE="http://localhost:$PORT"
+# 관리 포트(Phase 8): 헬스는 여기서만 — 앱 포트의 /actuator/**는 404
+MGMT_PORT="${HTTP_DEMO_MANAGEMENT_PORT:-18082}"
+READY="http://localhost:$MGMT_PORT/actuator/health/readiness"
+# 내부 포트(Phase 8 Q5): /internal/**은 여기서만 — 앱 포트의 /internal은 없는 경로와 같은 404
+INTERNAL_PORT="${HTTP_DEMO_INTERNAL_PORT:-18081}"
+INTERNAL="http://localhost:$INTERNAL_PORT"
 RUN="http-demo-${HTTP_DEMO_RUN:-$(date +%F)}"
 TENANT="DEMO1"
 OPERATOR="http-demo"
 DEMO="disclosure-demo/src/main/resources"
 SIGN="$DEMO/demo/sign"
 OUT="build/demo/http"
-export GA_LOCAL_KEK_FILE="${GA_LOCAL_KEK_FILE:-$HOME/.ga-disclosure/kek.json}"
+export GA_SECRETS_DIR="${GA_SECRETS_DIR:-$HOME/.ga-disclosure/secrets}"
 ENGINE_STUB=(--ga.engine.mode=stub "--ga.engine.stub-table=$DEMO/demo/engine-table.json")
 LOCAL_BUCKET=(--ga.storage.s3.create-bucket=true)
 TSA_STUB=(--ga.tsa.mode=stub --ga.tsa.trust-pem=build/demo/tsa-trust.pem)
@@ -42,6 +48,10 @@ cli() { "$JAVA" -jar "$JAR" --spring.profiles.active=cli "$@"; }
 cli_demo() { "$JAVA" -jar "$JAR" --spring.profiles.active=cli,demo "$@"; }
 
 # ------------------------------------------------------------------------------------------------ 준비
+# 스키마(Phase 8): 앱은 기동 때 마이그레이션하지 않는다 — db migrate가 먼저(멱등)
+cli db migrate
+# 비밀(Phase 8): 없는 것만 만든다 — 앱은 비밀을 만들지 않는다(seed.sh를 먼저 돌렸으면 전부 EXISTS)
+cli secrets init --secrets-dir "$GA_SECRETS_DIR" --demo yes
 cli demo seed --file "$DEMO/demo/phase6a-seed.json" --operator "$OPERATOR" | grep '^SEED '
 SEEDED_REF="$(cli customer import --tenant "$TENANT" --file "$DEMO/customers.json" --operator "$OPERATOR" \
   | sed -n "s/^CUSTOMER_IMPORT $TENANT C01 .* ref=\(.*\)$/\1/p")"
@@ -58,16 +68,16 @@ done
 echo "TOKENS agent manager compliance scheduler feed (claims: sub, tenant_id, iss, aud, exp — no role claim)"
 
 # ------------------------------------------------------------------------------------------------ 웹 앱
-"$JAVA" -jar "$JAR" --spring.profiles.active=demo --server.port="$PORT" "${ENGINE_STUB[@]}" "${LOCAL_BUCKET[@]}" "${TSA_STUB[@]}" \
+"$JAVA" -jar "$JAR" --spring.profiles.active=demo --server.port="$PORT" --management.server.port="$MGMT_PORT" --ga.internal.port="$INTERNAL_PORT" "${ENGINE_STUB[@]}" "${LOCAL_BUCKET[@]}" "${TSA_STUB[@]}" \
   > "$OUT/server.log" 2>&1 &
 SERVER=$!
 trap 'kill "$SERVER" 2>/dev/null || true; wait "$SERVER" 2>/dev/null || true' EXIT
 for _ in $(seq 1 120); do
-  if curl -sf "$BASE/actuator/health" >/dev/null 2>&1; then break; fi
+  if curl -sf "$READY" >/dev/null 2>&1; then break; fi
   kill -0 "$SERVER" 2>/dev/null || { echo "web app exited — see $OUT/server.log" >&2; exit 1; }
   sleep 1
 done
-curl -sf "$BASE/actuator/health" >/dev/null || { echo "web app did not become healthy — see $OUT/server.log" >&2; exit 1; }
+curl -sf "$READY" >/dev/null || { echo "web app did not become ready — see $OUT/server.log" >&2; exit 1; }
 echo "WEB UP $BASE (profile demo)"
 
 # call METHOD PATH ROLE KEY BODYFILE — 상태 코드를 출력하고, 본문은 $OUT/last.body, 헤더는 $OUT/last.headers
@@ -76,7 +86,7 @@ call() {
   local args=(-sS -o "$OUT/last.body" -D "$OUT/last.headers" -w '%{http_code}' -X "$method" -H @"$OUT/auth-$role")
   if [ -n "$key" ]; then args+=(-H "Idempotency-Key: $RUN-$key"); fi
   if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' --data-binary @"$body"); fi
-  curl "${args[@]}" "$BASE$path"
+  case "$path" in /internal/*) curl "${args[@]}" "$INTERNAL$path" ;; *) curl "${args[@]}" "$BASE$path" ;; esac
 }
 replayed() { grep -qi '^idempotency-replayed: true' "$OUT/last.headers" && echo yes || echo no; }
 # write METHOD PATH ROLE KEY BODYFILE EXPECTED — 쓰기 한 단계(상태 확인 + 재생 여부 출력)

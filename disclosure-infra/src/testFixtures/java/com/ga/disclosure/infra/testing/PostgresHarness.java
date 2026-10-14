@@ -27,17 +27,22 @@ import javax.sql.DataSource;
  */
 public final class PostgresHarness {
 
-    public static final String IMAGE = "postgres:18.6";
+    /** postgres:18.6 — digest는 2026-10-10 실측(다중 아키텍처 인덱스, Phase 8 — 태그만 쓰던 것을 SeaweedFS처럼 고정). */
+    public static final String IMAGE = "postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336";
     public static final String DATABASE = "disclosure";
     public static final String MIGRATOR = "disclosure_migrator";
     public static final String APP = "disclosure_app";
     public static final String OPERATOR = "disclosure_operator";
     public static final String JOB_LOCK = "disclosure_job_lock";
+    public static final String HEALTH = "disclosure_health";
+    public static final String BACKUP = "disclosure_backup";
     // init-roles.sql과 짝을 이루는 로컬 전용 자격 증명
     static final String MIGRATOR_PASSWORD = "migrator_local_only";
     static final String APP_PASSWORD = "app_local_only";
     public static final String OPERATOR_PASSWORD = "operator_local_only";
     public static final String JOB_LOCK_PASSWORD = "job_lock_local_only";
+    public static final String HEALTH_PASSWORD = "health_local_only";
+    public static final String BACKUP_PASSWORD = "backup_local_only";
 
     private static PostgresHarness instance;
 
@@ -46,6 +51,7 @@ public final class PostgresHarness {
     private final DataSource migrator;
     private final DataSource operator;
     private final DataSource jobLock;
+    private final DataSource health;
     private final DataSource superuser;
 
     private PostgresHarness() {
@@ -53,11 +59,11 @@ public final class PostgresHarness {
         if (!Files.isRegularFile(initRoles)) {
             throw new IllegalStateException("init-roles.sql not found: " + initRoles);
         }
-        container = new PostgreSQLContainer(DockerImageName.parse(IMAGE))
+        container = new PostgreSQLContainer(DockerImageName.parse(IMAGE).asCompatibleSubstituteFor("postgres"))
                 .withDatabaseName(DATABASE)
                 .withUsername("postgres")
                 .withPassword("postgres")
-                .withCopyFileToContainer(MountableFile.forHostPath(initRoles), "/docker-entrypoint-initdb.d/00-init-roles.sql");
+                .withCopyFileToContainer(MountableFile.forHostPath(initRoles, SeaweedHarness.FILE_MODE), "/docker-entrypoint-initdb.d/00-init-roles.sql");
         container.start();
 
         superuser = dataSource("postgres", "postgres");
@@ -65,6 +71,7 @@ public final class PostgresHarness {
         app = dataSource(APP, APP_PASSWORD);
         operator = dataSource(OPERATOR, OPERATOR_PASSWORD);
         jobLock = dataSource(JOB_LOCK, JOB_LOCK_PASSWORD);
+        health = dataSource(HEALTH, HEALTH_PASSWORD);
 
         Flyway.configure()
                 .dataSource(migrator)
@@ -103,6 +110,26 @@ public final class PostgresHarness {
         return jobLock;
     }
 
+    /** 헬스·스키마 버전 가드 전용 롤(이력 표 두 컬럼만, V22). */
+    public DataSource healthDataSource() {
+        return health;
+    }
+
+    /** 데이터베이스의 일반 세션 데이터 소스(롤·비밀번호 임의 — 접속 거부 시험용). */
+    public DataSource dataSourceAs(String role, String password) {
+        return dataSource(role, password);
+    }
+
+    /** 같은 컨테이너의 다른 데이터베이스({@link #emptyDatabase})의 앱 롤 데이터 소스(Phase 8 — 질의 계획 실측). */
+    public DataSource appDataSource(String database) {
+        return dataSource(APP, APP_PASSWORD, database);
+    }
+
+    /** 같은 컨테이너의 다른 데이터베이스({@link #emptyDatabase})의 superuser 데이터 소스. */
+    public DataSource superuserDataSource(String database) {
+        return dataSource("postgres", "postgres", database);
+    }
+
     public DataSource superuserDataSource() {
         return superuser;
     }
@@ -121,6 +148,7 @@ public final class PostgresHarness {
             s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + APP);
             s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + OPERATOR);
             s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + JOB_LOCK);
+            s.execute("GRANT CONNECT ON DATABASE " + name + " TO " + HEALTH);
         } catch (SQLException e) {
             throw new UncheckedSqlException(e);
         }

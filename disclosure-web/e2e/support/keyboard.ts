@@ -41,17 +41,36 @@ export async function type(page: Page, target: Locator, text: string): Promise<v
   }
 }
 
-/** 라디오 묶음(Choice): Tab은 묶음의 선택된 칸에 닿고, ↓ 로 다음 칸을 고른다(끝에서 처음으로 돈다). */
+/**
+ * 라디오 묶음(Choice): Tab은 묶음의 선택된 칸에 닿고, ↓ 로 다음 칸을 고른다(끝에서 처음으로 돈다). 아무 칸도 선택되지 않은 묶음(룰 어휘 — 기본 선택
+ * 없음, Phase 8)은 Tab이 첫 칸에 닿고 Space가 그 칸을 고른다.
+ */
 export async function choose(page: Page, group: Locator, optionLabel: string): Promise<void> {
-  const target = group.getByLabel(optionLabel, { exact: true });
-  await tabTo(page, group.locator('input[type="radio"]:checked'));
-  const count = await group.locator('input[type="radio"]').count();
+  await chooseIn(page, group, group.getByLabel(optionLabel, { exact: true }));
+}
+
+/** 같은 묶음에서 값(코드)으로 고른다 — 표기가 룰 데이터인 어휘 선택지(시험에 표기 리터럴을 두지 않는다). */
+export async function chooseValue(page: Page, group: Locator, value: string): Promise<void> {
+  await chooseIn(page, group, group.locator(`input[type="radio"][value="${value}"]`));
+}
+
+async function chooseIn(page: Page, group: Locator, target: Locator): Promise<void> {
+  const radios = group.locator('input[type="radio"]');
+  await expect(radios.first()).toBeVisible();          // 묶음이 그려진 뒤(어휘 선택지는 어휘를 읽은 뒤) 센다
+  const count = await radios.count();
+  if ((await group.locator('input[type="radio"]:checked').count()) === 0) {
+    await tabTo(page, radios.first());
+    await page.keyboard.press('Space');
+  } else {
+    await tabTo(page, group.locator('input[type="radio"]:checked'));
+  }
   for (let i = 0; i <= count && !(await target.isChecked()); i++) await page.keyboard.press('ArrowDown');
   await expect(target).toBeChecked();
 }
 
 /** 선택 상자(값이 코드인 긴 목록 — 작업 종류): 초점을 옮긴 뒤 코드를 입력해 고른다(Chromium 닫힌 select의 입력 탐색, ASCII). */
 export async function chooseCode(page: Page, select: Locator, code: string): Promise<void> {
+  await expect(select.locator(`option[value="${code}"]`)).toHaveCount(1);     // 선택지가 그려진 뒤(어휘 선택지는 어휘를 읽은 뒤) 입력한다
   await tabTo(page, select);
   await page.keyboard.type(code);
   await expect(select).toHaveValue(code);

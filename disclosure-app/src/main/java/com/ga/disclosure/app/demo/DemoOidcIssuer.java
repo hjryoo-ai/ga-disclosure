@@ -8,11 +8,10 @@ import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
+import com.ga.disclosure.workflow.secret.SecretName;
+import com.ga.disclosure.workflow.secret.SecretSource;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -27,14 +26,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * 데모 OIDC 발급자(6A 계획 §10, 데모 프로파일만): 로컬 RSA 키로 RS256 JWT를 만든다. 클레임은 {@code sub}·{@code tenant_id}·{@code iss}
  * ({@value #ISSUER})·{@code aud}({@value #AUDIENCE})·{@code exp}뿐 — 역할 클레임은 없다(역할은 {@code identity_link}).
  * <ul>
- *   <li>서명 키 {@code ga.demo.oidc-key-file}(기본 {@code ~/.ga-disclosure/demo-oidc.key}, 저장소 밖): 첫 사용에 만든다(소유자 전용 600), 권한이 넓으면
- *       거부. PKCS#8 PEM이다 — PKCS#12에 개인키를 넣으려면 인증서가 필요하고, 인증서를 만드는 BouncyCastle은 {@code ..audit.tsa..}에만 허용된다.</li>
+ *   <li>서명 키: 비밀 {@code demo/oidc-signing}(Phase 8 {@link SecretSource} — 만들지 않는다, 생성은 {@code secrets init --demo yes}). PKCS#8 PEM이다 —
+ *       PKCS#12에 개인키를 넣으려면 인증서가 필요하고, 인증서를 만드는 BouncyCastle은 {@code ..audit.tsa..}에만 허용된다.</li>
  *   <li>공개키 {@code ga.demo.oidc-public-pem}(기본 {@code build/demo/demo-oidc.pem}, gitignore): 쓸 때마다 다시 내보낸다. 데모 웹 앱의
  *       {@code ga.api.jwt.public-key-location}이 이 파일이다({@code application-demo.yaml}).</li>
  * </ul>
@@ -49,12 +47,14 @@ public class DemoOidcIssuer {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Base64.Encoder URL = Base64.getUrlEncoder().withoutPadding();
 
-    private final Path keyFile;
+    public static final SecretName SECRET = SecretName.of("demo/oidc-signing");
+
+    private final SecretSource secrets;
     private final Path publicPem;
     private final Clock clock;
 
-    public DemoOidcIssuer(DemoClockConfiguration.DemoProperties properties, Clock clock) {
-        this.keyFile = properties.oidcKeyFile();
+    public DemoOidcIssuer(DemoClockConfiguration.DemoProperties properties, SecretSource secrets, Clock clock) {
+        this.secrets = Objects.requireNonNull(secrets, "secrets");
         this.publicPem = properties.oidcPublicPem();
         this.clock = Objects.requireNonNull(clock, "clock");
     }
@@ -87,24 +87,15 @@ public class DemoOidcIssuer {
         return URL.encodeToString(json.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 키를 읽거나(없으면 만든다) 공개키 PEM을 내보낸다. */
+    /** 키를 읽고 공개키 PEM을 내보낸다. */
     KeyPair keys() {
         try {
-            if (!Files.exists(keyFile)) {
-                create();
-            }
-            if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                for (PosixFilePermission p : Files.getPosixFilePermissions(keyFile)) {
-                    if (p.name().startsWith("GROUP_") || p.name().startsWith("OTHERS_")) {
-                        throw new IllegalStateException("demo OIDC key " + keyFile + " must be readable by its owner only (chmod 600)");
-                    }
-                }
-            }
-            String base64 = Files.readString(keyFile).replaceAll("-----(BEGIN|END) PRIVATE KEY-----", "").replaceAll("\\s", "");
+            String base64 = new String(secrets.read(SECRET), StandardCharsets.US_ASCII).replaceAll("-----(BEGIN|END) PRIVATE KEY-----", "")
+                    .replaceAll("\\s", "");
             KeyFactory rsa = KeyFactory.getInstance("RSA");
             PrivateKey privateKey = rsa.generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(base64)));
             if (!(privateKey instanceof RSAPrivateCrtKey crt)) {
-                throw new IllegalStateException("demo OIDC key " + keyFile + " is not an RSA CRT private key");
+                throw new IllegalStateException("secret " + SECRET + " is not an RSA CRT private key");
             }
             PublicKey publicKey = rsa.generatePublic(new RSAPublicKeySpec(crt.getModulus(), crt.getPublicExponent()));
             if (publicPem.getParent() != null) {
@@ -113,29 +104,21 @@ public class DemoOidcIssuer {
             Files.writeString(publicPem, pem("PUBLIC KEY", publicKey.getEncoded()));
             return new KeyPair(publicKey, privateKey);
         } catch (IOException e) {
-            throw new UncheckedIOException("demo OIDC key files are not usable", e);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("demo OIDC key " + keyFile + " is not a PKCS#8 RSA key", e);
+            throw new UncheckedIOException("demo OIDC public key cannot be exported", e);
+        } catch (GeneralSecurityException | IllegalArgumentException e) {
+            throw new IllegalStateException("secret " + SECRET + " is not a PKCS#8 RSA key", e);
         }
     }
 
-    private void create() throws IOException, GeneralSecurityException {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
-        KeyPair pair = generator.generateKeyPair();
-        if (keyFile.getParent() != null) {
-            Files.createDirectories(keyFile.getParent());
-        }
+    /** 새 서명 키(PKCS#8 PEM, RSA 2048) — {@code secrets init --demo yes}가 비밀 디렉터리에 소유자 전용으로 쓴다. */
+    public static byte[] newSigningKeyPem() {
         try {
-            if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-                Files.createFile(keyFile, PosixFilePermissions.asFileAttribute(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
-            } else {
-                Files.createFile(keyFile);
-            }
-        } catch (FileAlreadyExistsException raced) {
-            return;
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return pem("PRIVATE KEY", generator.generateKeyPair().getPrivate().getEncoded()).getBytes(StandardCharsets.US_ASCII);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("RSA unavailable", e);
         }
-        Files.writeString(keyFile, pem("PRIVATE KEY", pair.getPrivate().getEncoded()));
     }
 
     private static String pem(String type, byte[] der) {

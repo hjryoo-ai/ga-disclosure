@@ -80,6 +80,7 @@ class SigningFlowIT {
                 Map.of("Idempotency-Key", key));
         assertThat(issued.status()).as(issued.text()).isEqualTo(201);
         assertThat(json(issued).get("deviceToken").isNull()).isTrue();
+        assertThat(json(issued).get("signUrl").isNull()).as("a remote link token never reaches the screen").isTrue();
         ApiTestSupport.Response again = ApiTestSupport.post(port, base + "/sign-sessions", TestJwts.token(T, "agent-1"), "{\"channel\":\"REMOTE_LINK\"}",
                 Map.of("Idempotency-Key", key));
         assertThat(again.status()).isEqualTo(201);
@@ -108,6 +109,8 @@ class SigningFlowIT {
         assertThat(issued.headers().get("cache-control")).contains("no-store");
         String token = json(issued).get("deviceToken").asString();
         assertThat(token).isNotBlank();
+        // Phase 8: 서명 창 주소는 배포 설정의 서명 호스트(이 시험은 기본값) + 조각 토큰 — 화면은 이 주소를 연다
+        assertThat(json(issued).get("signUrl").asString()).isEqualTo("https://sign.example.invalid/s#" + token);
 
         ApiTestSupport.Response again = ApiTestSupport.post(port, base + "/sign-sessions", TestJwts.token(T, "agent-1"), "{\"channel\":\"TOUCH_PAD\"}",
                 Map.of("Idempotency-Key", key));

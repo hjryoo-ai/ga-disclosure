@@ -407,7 +407,31 @@
             "unavailableText": {
               "type": "string",
               "minLength": 1,
-              "description": "산출불가 항목의 인쇄 문구(ENGINE 결속 필수)"
+              "description": "산출불가 항목의 인쇄 문구(ENGINE 결속 필수, columns가 있으면 필수 — 열 키가 값에 없을 때)"
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "description": "(Phase 8, 렌더러 판 2부터) 객체 배열 값을 머리행 + 이 순서의 열로 그린다. key = 값 객체의 키(서식 데이터 — 렌더러에 열 키 리터럴 없음), label = 열 머리 인쇄 문구. 값에 그 키가 없으면 unavailableText를 인쇄한다(지어내지 않는다). 판 1은 이 키가 있는 서식을 그리지 않는다(거부).",
+              "items": {
+                "type": "object",
+                "required": [
+                  "key",
+                  "label"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]{0,31}$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
             }
           }
         }
@@ -923,6 +947,29 @@
                     "const": "PER_ITEM"
                   }
                 }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "render": {
+                "required": [
+                  "columns"
+                ]
+              }
+            },
+            "required": [
+              "render"
+            ]
+          },
+          "then": {
+            "properties": {
+              "render": {
+                "required": [
+                  "unavailableText"
+                ]
               }
             }
           }

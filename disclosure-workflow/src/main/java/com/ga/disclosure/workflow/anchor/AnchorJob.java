@@ -67,8 +67,12 @@ public final class AnchorJob {
     public record Failure(String stage, TenantId tenant, LocalDate anchorDate, String code) {
     }
 
+    /**
+     * {@code unstampedDays}: 실행 뒤에도 TSA 고정(영수증)이 없는 가장 오래된 앵커가 오늘(KST)로부터 며칠 전인지, 없으면 0, 거부된 실행(날짜 불일치 —
+     * 아무것도 읽지 않는다)은 -1(Phase 8 운영 미터).
+     */
     public record Report(LocalDate date, List<TenantId> created, List<TenantId> unchanged, Map<TenantId, Integer> retries, List<Batch> batches,
-                         int receipts, List<Failure> failures) {
+                         int receipts, List<Failure> failures, long unstampedDays) {
         public Report {
             created = List.copyOf(created);
             unchanged = List.copyOf(unchanged);
@@ -141,7 +145,7 @@ public final class AnchorJob {
             // 5 수용심사 R1: 앵커 날짜 = 생성 시각의 KST 날짜(V12 CHECK). A단계는 지금의 머리를 읽으므로 다른 날짜의 라벨은 그 날의 머리가
             // 아니다 — 소급(지난 날)도 미래도 거부한다. 빠진 날은 다음 앵커가 덮고 verify tenant가 ANCHOR_MISSING_DAY로 알린다.
             List<Failure> refused = tenants.stream().map(t -> new Failure("A", t, date, "DATE_NOT_TODAY")).toList();
-            return new Report(date, List.of(), List.of(), Map.of(), List.of(), 0, refused);
+            return new Report(date, List.of(), List.of(), Map.of(), List.of(), 0, refused, -1);
         }
         List<TenantId> created = new ArrayList<>();
         List<TenantId> unchanged = new ArrayList<>();
@@ -174,7 +178,7 @@ public final class AnchorJob {
         }
         List<Batch> batches = new ArrayList<>();
         int receipts = stampUnstamped(List.copyOf(tenants), actor, createdLeaves, batches, failures);
-        return new Report(date, created, unchanged, retries, batches, receipts, failures);
+        return new Report(date, created, unchanged, retries, batches, receipts, failures, unstampedDays(tenants));
     }
 
     private sealed interface Outcome {
@@ -211,6 +215,21 @@ public final class AnchorJob {
     }
 
     private record Leaf(TenantId tenant, StoredAnchor anchor, int depth) {
+    }
+
+    /** 그 테넌트들(이미 인가된 실행)에서 TSA 고정이 아직 없는 가장 오래된 앵커가 오늘(KST)로부터 며칠 전인지 — 없으면 0. */
+    private long unstampedDays(List<TenantId> tenants) {
+        LocalDate today = clock.instant().atZone(SEOUL).toLocalDate();
+        LocalDate oldest = null;
+        for (TenantId tenant : tenants) {
+            for (StoredAnchor a : transactions.inTenant(tenant, store::unstamped)) {
+                LocalDate d = a.record().anchorDate();
+                if (oldest == null || d.isBefore(oldest)) {
+                    oldest = d;
+                }
+            }
+        }
+        return oldest == null ? 0 : Math.max(0, java.time.temporal.ChronoUnit.DAYS.between(oldest, today));
     }
 
     private int stampUnstamped(List<TenantId> tenants, Actor actor, Set<String> createdLeaves, List<Batch> batches, List<Failure> failures) {

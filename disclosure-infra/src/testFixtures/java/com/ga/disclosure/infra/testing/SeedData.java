@@ -81,6 +81,14 @@ public final class SeedData {
     public static void tenant(Connection c, String tenant) throws SQLException {
         exec(c, "INSERT INTO tenant (tenant_id, name, engine_base_url, status, large_ga) VALUES (?, ?, ?, 'ACTIVE', true)",
                 tenant, "GA " + tenant, "http://engine.invalid/" + tenant);
+        // Phase 8 테넌트 KEK(V21): 첫 KEK {tenant}-KEK-1을 CURRENT로 등록하고 그 키 바이트를 공유 시험 비밀 디렉터리에 만든다(앱·CLI 시험은
+        // ga.secrets.dir = TestKeks.shared().dir())
+        // (V21 이전 판을 시험하는 마이그레이션 IT에는 표가 없다 — 있을 때만)
+        if (longValue(c, "SELECT count(*) FROM pg_class WHERE relname = 'tenant_kek' AND relnamespace = 'public'::regnamespace") == 1) {
+            exec(c, "INSERT INTO tenant_kek (tenant_id, kek_id, status, registered_at, registered_by) VALUES (?, ?, 'CURRENT', now(), 'seed')",
+                    tenant, TestKeks.firstKekId(tenant));
+        }
+        TestKeks.shared().ensure(com.ga.platform.core.tenant.TenantId.of(tenant), TestKeks.firstKekId(tenant));
     }
 
     /** 산출 전 상태(스냅샷 헤더가 없어야 한다, V6 {@code ck_disclosure_snapshot_state}). */
@@ -367,8 +375,8 @@ public final class SeedData {
     public static void documentKey(Connection c, String tenant, UUID disclosure) throws SQLException {
         exec(c, """
                 INSERT INTO document_key (tenant_id, key_id, disclosure_id, kek_key_id, wrapped_dek, created_at)
-                VALUES (?, ?, ?, 'KEK-SEED', decode('01' || repeat('00', 28), 'hex'), TIMESTAMPTZ '2026-09-23 10:00:00+09')
-                """, tenant, documentKeyId(disclosure), disclosure);
+                VALUES (?, ?, ?, ?, decode('01' || repeat('00', 28), 'hex'), TIMESTAMPTZ '2026-09-23 10:00:00+09')
+                """, tenant, documentKeyId(disclosure), disclosure, TestKeks.firstKekId(tenant));
     }
 
     /** 산출물 행 1건(V7 형식: 평문·암호문 해시, 길이 + 29, 객체 키 = 테넌트/확인서/종류/암호문 해시). 문서 키가 없으면 만든다. */
@@ -379,8 +387,8 @@ public final class SeedData {
         String cipher = hash('9');
         exec(c, """
                 INSERT INTO document_artifact (tenant_id, disclosure_id, kind, storage_key, sha256, bytes, created_at, cipher_sha256,
-                                               cipher_bytes, key_id)
-                VALUES (?, ?, ?, ?, ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09', ?, 39, ?)
+                                               cipher_bytes, key_id, renderer_version)
+                VALUES (?, ?, ?, ?, ?, 10, TIMESTAMPTZ '2026-09-23 10:00:00+09', ?, 39, ?, 1)
                 """, tenant, disclosure, kind, tenant + "/" + disclosure + "/" + kind + "/" + cipher, hash('f'), cipher,
                 documentKeyId(disclosure));
     }
@@ -607,8 +615,8 @@ public final class SeedData {
     public static void dataKey(Connection c, String tenant, String keyId) throws SQLException {
         exec(c, """
                 INSERT INTO customer_data_key (tenant_id, key_id, kek_id, wrapped_key, status, created_at)
-                VALUES (?, ?, 'KEK-SEED', decode(repeat('00', 32), 'hex'), 'ACTIVE', TIMESTAMPTZ '2026-09-01 00:00:00+09')
-                """, tenant, keyId);
+                VALUES (?, ?, ?, decode(repeat('00', 32), 'hex'), 'ACTIVE', TIMESTAMPTZ '2026-09-01 00:00:00+09')
+                """, tenant, keyId, TestKeks.firstKekId(tenant));
     }
 
     public static long longValue(Connection c, String sql, Object... params) throws SQLException {

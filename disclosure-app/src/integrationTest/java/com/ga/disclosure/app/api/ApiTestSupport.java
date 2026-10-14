@@ -23,26 +23,22 @@ import java.util.stream.Collectors;
 public final class ApiTestSupport {
 
     public static final PostgresHarness DB = PostgresHarness.get();
-    /** 앱과 CLI가 같이 쓰는 시험 KEK 파일(고객 수입은 CLI, 봉인은 웹 — 같은 키여야 한다). */
-    public static final Path KEK = kek();
+    /** 앱과 CLI가 같이 쓰는 시험 비밀 디렉터리(테넌트 KEK — 시드 테넌트마다 {@code {T}-KEK-1}, 고객 수입은 CLI·봉인은 웹이라 같은 키여야 한다). */
+    public static final Path SECRETS = com.ga.disclosure.infra.testing.TestKeks.shared().dir();
     public static final Path ROOT = Path.of(System.getProperty("ga.repoRoot"));
     public static final Path DEMO = ROOT.resolve("disclosure-demo/src/main/resources");
-    /** 커서 키 파일 경로(없는 파일 — 앱이 첫 기동에 소유자 전용으로 만든다). */
-    public static final Path CURSOR_KEY = tempPath("ga-api-cursor", "cursor.key");
-    public static final Path REQUEST_HASH_KEY = tempPath("ga-api-request-hash", "request-hash.key");
-    public static final Path RECEIPT_KEY = tempPath("ga-api-customer-receipt", "customer-receipt.key");
+    static {
+        // Phase 8: 앱은 비밀을 만들지 않는다 — 웹 앱의 커서·요청 해시·영수증 키를 시험 비밀 디렉터리에 먼저 둔다(secrets init과 같은 이름·형식)
+        for (String name : java.util.List.of("api/cursor", "api/request-hash", "api/customer-receipt")) {
+            com.ga.disclosure.infra.testing.TestKeks.shared().ensureKey(com.ga.disclosure.workflow.secret.SecretName.of(name));
+        }
+    }
+    /** 웹 앱이 읽는 키 파일(시험이 HMAC을 다시 계산할 때 — 비밀 디렉터리 안). */
+    public static final Path CURSOR_KEY = SECRETS.resolve("api/cursor");
+    public static final Path REQUEST_HASH_KEY = SECRETS.resolve("api/request-hash");
+    public static final Path RECEIPT_KEY = SECRETS.resolve("api/customer-receipt");
 
     private ApiTestSupport() {
-    }
-
-    private static Path kek() {
-        try {
-            Path file = Files.createTempDirectory("ga-api-kek").resolve("kek.json");
-            com.ga.disclosure.infra.crypto.LocalFileKeyProvider.initialize(file, "KEK-API-TEST");
-            return file;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     private static Path tempPath(String prefix, String name) {
@@ -62,7 +58,10 @@ public final class ApiTestSupport {
         SeaweedHarness s3 = SeaweedHarness.get();
         java.util.Map<String, java.util.function.Supplier<Object>> p = new java.util.LinkedHashMap<>();
         p.put("spring.datasource.url", DB::jdbcUrl);
-        p.put("spring.flyway.url", DB::jdbcUrl);
+        p.put("ga.health.url", DB::jdbcUrl);
+        // Phase 8: 액추에이터는 관리 포트에만 — 시험 컨텍스트가 여럿 캐시되므로 임의 포트
+        p.put("management.server.port", () -> "0");
+        p.put("ga.internal.port", () -> "0");
         // 웹 IT 클래스마다 컨텍스트가 캐시에 남고 각자 풀을 쥔다 — 기본 풀(최소 유휴 = 최대 10)이면 컨텍스트 14개에서 서버 연결 100개를 넘는다(53300)
         p.put("spring.datasource.hikari.maximum-pool-size", () -> "5");
         p.put("spring.datasource.hikari.minimum-idle", () -> "1");
@@ -72,10 +71,7 @@ public final class ApiTestSupport {
         p.put("ga.api.jwt.issuer", () -> TestJwts.ISSUER);
         p.put("ga.api.jwt.audience", () -> TestJwts.AUDIENCE);
         p.put("ga.api.jwt.public-key-location", TestJwts::publicKeyPem);
-        p.put("ga.crypto.local-kek-file", KEK::toString);
-        p.put("ga.api.cursor-key-file", CURSOR_KEY::toString);
-        p.put("ga.api.request-hash-key-file", REQUEST_HASH_KEY::toString);
-        p.put("ga.api.receipt-key-file", RECEIPT_KEY::toString);
+        p.put("ga.secrets.dir", SECRETS::toString);
         p.put("ga.public-sign.min-response-millis", () -> "30");
         p.put("ga.engine.mode", () -> "stub");
         p.put("ga.engine.stub-table", () -> DEMO.resolve("demo/engine-table.json").toString());
@@ -122,10 +118,10 @@ public final class ApiTestSupport {
         java.util.List<String> all = new java.util.ArrayList<>(java.util.List.of(
                 "--spring.profiles.active=cli",
                 "--spring.datasource.url=" + DB.jdbcUrl(),
-                "--spring.flyway.url=" + DB.jdbcUrl(),
+                "--ga.health.url=" + DB.jdbcUrl(),
                 "--ga.tenant-directory.url=" + DB.jdbcUrl(),
                 "--ga.job-lock.url=" + DB.jdbcUrl(),
-                "--ga.crypto.local-kek-file=" + KEK));
+                "--ga.secrets.dir=" + SECRETS));
         all.addAll(java.util.List.of(args));
         java.io.PrintStream original = System.out;
         java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
@@ -166,7 +162,19 @@ public final class ApiTestSupport {
         return send(port, "POST", path, tokenOrNull, jsonOrNull, headers);
     }
 
+    /**
+     * 앱 포트 → 그 앱의 내부 포트(Phase 8 Q5 — {@code /internal/**}은 내부 포트에만 있다). 시험 수신기 {@code InternalPortRecorder}가 기동 때 채운다.
+     * {@link #send}는 {@code /internal} 경로를 같은 앱의 내부 포트로 보낸다(클러스터 안 진입점 C가 하는 일) — 포트를 그대로 쓰려면 {@link #sendExact}.
+     */
+    public static final java.util.Map<Integer, Integer> INTERNAL_PORTS = new java.util.concurrent.ConcurrentHashMap<>();
+
     public static Response send(int port, String method, String path, String tokenOrNull, String jsonOrNull, Map<String, String> headers) {
+        int target = path.startsWith("/internal/") || path.equals("/internal") ? INTERNAL_PORTS.getOrDefault(port, port) : port;
+        return sendExact(target, method, path, tokenOrNull, jsonOrNull, headers);
+    }
+
+    /** 주어진 포트로 그대로 보낸다(포트 분리 시험). */
+    public static Response sendExact(int port, String method, String path, String tokenOrNull, String jsonOrNull, Map<String, String> headers) {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
         if (tokenOrNull != null) {
             b.header("Authorization", "Bearer " + tokenOrNull);

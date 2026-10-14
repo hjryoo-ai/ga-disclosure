@@ -19,6 +19,9 @@ dependencies {
     implementation(libs.json.schema.validator)
     implementation(libs.jackson.dataformat.yaml)
     runtimeOnly(libs.postgresql)
+    // Phase 8: 마이그레이션은 운영자 CLI db migrate(SchemaMigrator)만 — 앱 기동은 Flyway를 부르지 않는다(Boot 스타터 없음)
+    implementation(libs.flyway.core)
+    runtimeOnly(libs.flyway.postgresql)
     // Phase 3B 산출물 저장: 벤더 무관 표준 S3 API(AWS SDK v2, 승인 Q12). HTTP 클라이언트는 JDK URLConnection 하나만 — Apache(4·5)·Netty 클라이언트는 제외한다.
     implementation(platform(libs.awssdk.bom))
     implementation(libs.awssdk.s3) {
@@ -97,6 +100,8 @@ testing {
                 implementation(project(":disclosure-compliance"))
                 implementation(project(":disclosure-workflow"))
                 implementation(testFixtures(project(":disclosure-rules")))
+                // 질의 계획 실측·플래너 시험의 허구 데이터(Phase 8 ③-x-2 — 시드 고정 생성기)
+                implementation(testFixtures(project(":platform-core")))
                 implementation(platform(libs.spring.boot.bom))
                 implementation(libs.junit.jupiter)
                 implementation(libs.assertj.core)
@@ -119,6 +124,15 @@ testing {
             targets.all {
                 testTask.configure {
                     shouldRunAfter(tasks.test)
+                    // 소스셋 밖에서 읽는 파일(verifyTestInputs): 계약, 이미지·compose·E2E 하네스의 digest 고정, 설계서 표, 데모 고객 파일, 버전 카탈로그, 롤 초기화
+                    inputs.dir(rootProject.layout.projectDirectory.dir("contracts")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("deploy/images")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docker-compose.yml")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("disclosure-web/e2e/env.mjs")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docs/설계서.md")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("disclosure-demo/src/main/resources/customers.json")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("gradle/libs.versions.toml")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docker/postgres/init-roles.sql")).withPathSensitivity(PathSensitivity.RELATIVE)
                     // 같은 JVM에서 컨테이너를 재사용한다(PostgresHarness 싱글턴).
                     maxParallelForks = 1
                     val scanReport = layout.buildDirectory.file("reports/elapsed-retention-scan.txt")
@@ -134,4 +148,22 @@ testing {
 
 tasks.named("check") {
     dependsOn(testing.suites.named("integrationTest"))
+}
+
+// 단위 시험 클래스패스에도 시험 픽스처(PostgresHarness — 롤 초기화 파일을 읽는다)가 오른다(verifyTestInputs)
+tasks.test {
+    inputs.file(rootProject.layout.projectDirectory.file("docker/postgres/init-roles.sql")).withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+// Phase 8 ③-x-2: 질의 계획 실측(수동 — 빌드·CI가 부르지 않는다). 허구 데이터(테넌트 하나에 확인서 10만·플래그 3만·감사 10만 — 감사는 체인을 지키는
+// 실제 경로)를 V23까지의 스키마에 만들고 실제 질의를 EXPLAIN (ANALYZE, BUFFERS)한 뒤, 최신 마이그레이션(인덱스)을 적용해 같은 데이터로 다시 잰다.
+// 결과: build/reports/query-plans.md(전후 표)·query-plans.json. Docker 필요.
+tasks.register<JavaExec>("queryPlanReport") {
+    group = "verification"
+    description = "Measures the screen/API queries on generated fictional data before and after the latest migration (manual)."
+    val suite = sourceSets.named("integrationTest")
+    classpath(suite.map { it.runtimeClasspath })
+    mainClass = "com.ga.disclosure.infra.perf.QueryPlanReport"
+    args(layout.buildDirectory.dir("reports").get().asFile.absolutePath)
+    systemProperty("ga.repoRoot", rootDir.absolutePath)
 }

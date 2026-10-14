@@ -14,11 +14,12 @@ import java.util.Objects;
 /**
  * 증거 패키지 입력(완료 트랜잭션이 모은다, 4 계획 §4·§7.3). 바이트 세 개(canonical·봉인 PDF·서명본)는 해시를 빌더가 다시 계산해 서명 레코드의
  * 귀속 해시와 대조한다. 감사 행은 이 확인서 대상 행 전부(seq 순, {@code entry_hash} 포함), 완료 감사 행 직전까지 — 매니페스트 {@code toSeq}가 경계.
+ * {@code rendererVersion}(Phase 8)은 문서에 고정된 렌더러 판 — 매니페스트 2판의 {@code rendererVersion}.
  */
 public record EvidenceInput(String tenantId, String disclosureId, String disclosureNo, int version, byte[] canonicalJson, byte[] pdf,
                             byte[] signedPdf, String chainHash, long chainSeq, Pinned pinned, Snapshot snapshot, Instant sealedAt,
                             Instant completedAt, LocalDate retentionUntil, List<SignatureRecord> signatures, List<AuditRow> audit,
-                            AnchorRef anchor) {
+                            AnchorRef anchor, int rendererVersion) {
 
     public EvidenceInput {
         Objects.requireNonNull(tenantId, "tenantId");
@@ -34,6 +35,9 @@ public record EvidenceInput(String tenantId, String disclosureId, String disclos
         Objects.requireNonNull(retentionUntil, "retentionUntil");
         signatures = List.copyOf(signatures);
         audit = List.copyOf(audit);
+        if (rendererVersion < 1) {
+            throw new IllegalArgumentException("rendererVersion must be >= 1");
+        }
     }
 
     @Override

@@ -24,12 +24,11 @@ public class DemoClockConfiguration {
 
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
-    /** 데모 키({@code ga.demo.*}): 시계 오프셋, 데모 OIDC 서명 키 파일(저장소 밖)과 공개키 PEM 내보내기 위치({@link DemoOidcIssuer}, 6A). */
+    /** 데모 키({@code ga.demo.*}): 시계 오프셋과 공개키 PEM 내보내기 위치({@link DemoOidcIssuer}, 6A — 서명 키는 Phase 8부터 비밀 출처). */
     @ConfigurationProperties("ga.demo")
-    public record DemoProperties(Duration clockOffset, Path oidcKeyFile, Path oidcPublicPem) {
+    public record DemoProperties(Duration clockOffset, Path oidcPublicPem) {
         public DemoProperties {
             clockOffset = clockOffset == null ? Duration.ZERO : clockOffset;
-            oidcKeyFile = oidcKeyFile == null ? Path.of(System.getProperty("user.home"), ".ga-disclosure", "demo-oidc.key") : oidcKeyFile;
             oidcPublicPem = oidcPublicPem == null ? Path.of("build", "demo", "demo-oidc.pem") : oidcPublicPem;
         }
     }

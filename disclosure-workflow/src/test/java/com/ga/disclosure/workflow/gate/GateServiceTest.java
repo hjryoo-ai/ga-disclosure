@@ -110,6 +110,14 @@ class GateServiceTest {
         }
     }
 
+    /** DB 집계의 시험 대역: 그 주체의 since 뒤 판정 감사 행 수(어댑터와 같은 뜻). */
+    static GateLimitStore limits(Audit audit) {
+        return (subject, since) -> (int) audit.rows.stream()
+                .filter(r -> r.entry().action() == com.ga.disclosure.audit.AuditAction.GATE_DECISION && r.entry().actorSubject().equals(subject)
+                        && r.entry().at().isAfter(since))
+                .count();
+    }
+
     static final class Audit implements AuditPort {
         final List<AuditRecord> rows = new ArrayList<>();
 
@@ -224,7 +232,7 @@ class GateServiceTest {
         RuleVersionId rule = requiresManager ? WITH_MANAGER : WITHOUT_MANAGER;
         Audit audit = new Audit();
         GateService gate = new GateService(new Lookup(Map.of("APP-1", List.of(candidate(id, status, CUSTOMER.value(), rule))), Map.of(id, signed)),
-                rules(600), audit, new Tx(), GATE_CLIENT_ONLY, new MutableClock());
+                rules(600), audit, new Tx(), GATE_CLIENT_ONLY, new MutableClock(), limits(audit));
 
         GateView expected = GateFunction.evaluate(status, List.of(SignerRole.CUSTOMER, SignerRole.AGENT, SignerRole.MANAGER), signed, requiresManager);
         GateDecision actual = gate.check(CLIENT, () -> query(GateQuery.Kind.APPLICATION_NO, "APP-1"));
@@ -257,7 +265,7 @@ class GateServiceTest {
                 "APP-TWO", List.of(candidate(a, DisclosureStatus.COMPLETED, CUSTOMER.value(), WITH_MANAGER),
                         candidate(b, DisclosureStatus.COMPLETED, CUSTOMER.value(), WITH_MANAGER)),
                 "POL-OTHER", List.of(candidate(a, DisclosureStatus.COMPLETED, "CR-" + "b".repeat(32), WITH_MANAGER))), Map.of()),
-                rules(600), audit, new Tx(), GATE_CLIENT_ONLY, new MutableClock());
+                rules(600), audit, new Tx(), GATE_CLIENT_ONLY, new MutableClock(), limits(audit));
 
         assertThat(gate.check(CLIENT, () -> query(GateQuery.Kind.POLICY_NO, "POL-NONE"))).isEqualTo(GateDecision.blocked(GateDecision.Reason.NO_DISCLOSURE));
         assertThat(gate.check(CLIENT, () -> query(GateQuery.Kind.APPLICATION_NO, "APP-TWO"))).isEqualTo(GateDecision.blocked(GateDecision.Reason.AMBIGUOUS));
@@ -279,7 +287,7 @@ class GateServiceTest {
     void thePerMinuteLimitIsPerPrincipalAndARefusedRequestIsNotAudited() {
         MutableClock clock = new MutableClock();
         Audit audit = new Audit();
-        GateService gate = new GateService(new Lookup(Map.of(), Map.of()), rules(2), audit, new Tx(), GATE_CLIENT_ONLY, clock);
+        GateService gate = new GateService(new Lookup(Map.of(), Map.of()), rules(2), audit, new Tx(), GATE_CLIENT_ONLY, clock, limits(audit));
         gate.check(CLIENT, () -> query(GateQuery.Kind.APPLICATION_NO, "APP-1"));
         gate.check(CLIENT, () -> query(GateQuery.Kind.APPLICATION_NO, "APP-1"));
         assertThatThrownBy(() -> gate.check(CLIENT, () -> query(GateQuery.Kind.APPLICATION_NO, "APP-1"))).isInstanceOf(GateRateLimitedException.class);
@@ -306,7 +314,7 @@ class GateServiceTest {
             }
         };
         Audit audit = new Audit();
-        GateService gate = new GateService(new Lookup(Map.of(), Map.of()), rules(600), audit, new Tx(), deny, new MutableClock());
+        GateService gate = new GateService(new Lookup(Map.of(), Map.of()), rules(600), audit, new Tx(), deny, new MutableClock(), limits(audit));
         assertThatThrownBy(() -> gate.check(CLIENT, () -> {
             throw new AssertionError("parsed before authorization");
         })).isInstanceOf(com.ga.disclosure.workflow.authz.AuthorizationDenied.class);

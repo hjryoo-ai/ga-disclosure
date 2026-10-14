@@ -4,9 +4,9 @@
     {
       "name": "disclosure-api",
       "contract": "contracts/api/v1/disclosure-api.openapi.yaml",
-      "contractSha256": "1d4493a57b0fca6a8a70dcfdd3a98d9115ccea64fd49b247a8db98236edb6b3e",
+      "contractSha256": "344e59dfcb116463a29cc360f66e020a338becced22a2fc4e0b4c0647c9b3ea2",
       "output": "src/gen/disclosure-api.ts",
-      "outputSha256": "7e1b94a7981561076386ee26cf5c1c5c385e85c9c61b8f1bd447f4246ba35a62"
+      "outputSha256": "4eef2e7d8d8828e3d366fb54f248d5d7e9d351875ffc26f06b898f305a3ae316"
     },
     {
       "name": "disclosure-public",

@@ -17,6 +17,7 @@ import com.ga.disclosure.workflow.disclosure.SignService;
 import com.ga.disclosure.workflow.disclosure.SignSessionService;
 import com.ga.disclosure.workflow.sign.NotificationStore;
 import com.ga.disclosure.workflow.sign.NotifyPort;
+import com.ga.disclosure.workflow.sign.SignLinkBase;
 import com.ga.disclosure.workflow.sign.SignSessionStore;
 import com.ga.disclosure.workflow.sign.SignatureStore;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,11 +42,16 @@ public class SignConfiguration {
         return new ConsoleSignLinkNotifier(System.out);
     }
 
+    /** 서명 화면 기준 주소 — 원격 링크와 현장 기기 창(세션 발급 응답 {@code signUrl})이 같이 쓴다(Phase 8 — 서명 호스트 분리). */
+    @Bean
+    public SignLinkBase signLinkBase(@Value("${ga.sign.link-base-url:https://sign.example.invalid/s#}") String linkBase) {
+        return new SignLinkBase(linkBase);
+    }
+
     @Bean
     public NotificationDispatcher notificationDispatcher(DisclosureServiceDeps deps, NotificationStore outbox, SignSessionStore sessions,
-                                                         CustomerRefService phones, TokenSource tokens, NotifyPort notify,
-                                                         @Value("${ga.sign.link-base-url:https://sign.example.invalid/s#}") String linkBase) {
-        return new NotificationDispatcher(deps, outbox, sessions, phones, tokens, notify, linkBase);
+                                                         CustomerRefService phones, TokenSource tokens, NotifyPort notify, SignLinkBase linkBase) {
+        return new NotificationDispatcher(deps, outbox, sessions, phones, tokens, notify, linkBase.value());
     }
 
     @Bean
@@ -55,8 +61,9 @@ public class SignConfiguration {
 
     @Bean
     public SignSessionService signSessionService(DisclosureServiceDeps deps, SignSessionStore sessions, DocumentRecordStore records,
-                                                 DocumentCryptoPort crypto, ArtifactStore storage, TokenSource tokens, NotificationStore outbox) {
-        return new SignSessionService(deps, sessions, records, crypto, storage, tokens, outbox);
+                                                 DocumentCryptoPort crypto, ArtifactStore storage, TokenSource tokens, NotificationStore outbox,
+                                                 SignLinkBase linkBase) {
+        return new SignSessionService(deps, sessions, records, crypto, storage, tokens, outbox, linkBase);
     }
 
     @Bean

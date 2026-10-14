@@ -1,0 +1,1114 @@
+# CronJob = JobKind 전수 1:1(Phase 8 ③ — deploy 린트가 JobKind ↔ 이 파일을 양방향으로 대조한다). 모두 Asia/Seoul·concurrencyPolicy Forbid·
+# startingDeadlineSeconds·backoffLimit·activeDeadlineSeconds. Forbid는 같은 CronJob의 겹침만 막는다 — 수동 create job --from·복제된 CronJob·
+# 다른 클러스터의 겹침은 앱의 테넌트×종류 advisory 잠금이 막는다(jobs run → 같은 작업 실행기, 바쁜 테넌트는 JOB_BUSY·종료 2).
+# 주기 없는 종류는 suspend: true(런북의 kubectl create job --from=cronjob/<이름> 원형). 명령은 app 이미지의 CLI(cli 프로파일 + 오버레이 프로파일).
+---
+# ANCHOR: 플랫폼 배치 — 모든 테넌트를 한 루트로(테넌트별 아님, 6A Q7)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-anchor
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: ANCHOR
+spec:
+  schedule: "20 0 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: ANCHOR
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: ANCHOR
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "anchor", "run", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# VERIFY_TENANT: §10 체인 검증 일 1회
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-verify-tenant
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: VERIFY_TENANT
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: VERIFY_TENANT
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: VERIFY_TENANT
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "VERIFY_TENANT", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# EXPIRE: 서명 기한 경과
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-expire
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: EXPIRE
+spec:
+  schedule: "*/15 * * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: EXPIRE
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: EXPIRE
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "EXPIRE", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# NOTIFY: 원격 링크 통지(통지 사업자 미연동 — kind는 콘솔)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-notify
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: NOTIFY
+spec:
+  schedule: "* * * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: NOTIFY
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 50
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: NOTIFY
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "NOTIFY", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# FLAG_SLA_SWEEP: 6B — 스케줄은 Phase 8
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-flag-sla-sweep
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: FLAG_SLA_SWEEP
+spec:
+  schedule: "*/15 * * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: FLAG_SLA_SWEEP
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: FLAG_SLA_SWEEP
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "FLAG_SLA_SWEEP", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# IDEMPOTENCY_PURGE: 만료된 멱등 기록
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-idempotency-purge
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: IDEMPOTENCY_PURGE
+spec:
+  schedule: "10 * * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: IDEMPOTENCY_PURGE
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: IDEMPOTENCY_PURGE
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "IDEMPOTENCY_PURGE", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# RECONCILE: 산출물 대사·잠금 재적용
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-reconcile
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: RECONCILE
+spec:
+  schedule: "0 3 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: RECONCILE
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: RECONCILE
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "RECONCILE", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# DESTROY: 보존기간 끝 파기(보류 건너뜀)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-destroy
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: DESTROY
+spec:
+  schedule: "0 4 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: DESTROY
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: DESTROY
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "DESTROY", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# ABANDON_DRAFTS: 룰 draft.abandonAfterDays가 null이면 0건
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-abandon-drafts
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: ABANDON_DRAFTS
+spec:
+  schedule: "0 5 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: ABANDON_DRAFTS
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: ABANDON_DRAFTS
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "ABANDON_DRAFTS", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# CONTRACT_LINK_UNMATCHED_PURGE: 룰 기간이 지난 미매칭 행
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-contract-link-unmatched-purge
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: CONTRACT_LINK_UNMATCHED_PURGE
+spec:
+  schedule: "30 5 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: CONTRACT_LINK_UNMATCHED_PURGE
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: CONTRACT_LINK_UNMATCHED_PURGE
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "CONTRACT_LINK_UNMATCHED_PURGE", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# COLLECTION_RATE_SNAPSHOT: 전월 징구율(내부 지표)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-collection-rate-snapshot
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: COLLECTION_RATE_SNAPSHOT
+spec:
+  schedule: "0 6 1 * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: false
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: COLLECTION_RATE_SNAPSHOT
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: COLLECTION_RATE_SNAPSHOT
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "COLLECTION_RATE_SNAPSHOT", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# DESTROY_DRY_RUN: 정지 — 런북: kubectl create job --from=cronjob/…
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-destroy-dry-run
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: DESTROY_DRY_RUN
+spec:
+  schedule: "0 4 * * *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: DESTROY_DRY_RUN
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: DESTROY_DRY_RUN
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "DESTROY_DRY_RUN", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# RETENTION_RECOMPUTE: 정지 — 런북이 룰 버전을 넣어 수동 실행(기본 dry-run)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-retention-recompute
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: RETENTION_RECOMPUTE
+spec:
+  schedule: "0 0 1 1 *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: RETENTION_RECOMPUTE
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: RETENTION_RECOMPUTE
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "jobs", "run", "RETENTION_RECOMPUTE", "--tenants", "all", "--params", "ruleVersionId=REPLACE_ME", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# CONTRACT_LINK_IMPORT: 정지 — 피드 본문이 필요하다(보통은 /internal 피드)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-contract-link-import
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: CONTRACT_LINK_IMPORT
+spec:
+  schedule: "0 0 1 1 *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: CONTRACT_LINK_IMPORT
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: CONTRACT_LINK_IMPORT
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "contract-links", "import", "--tenant", "REPLACE_ME", "--file", "/var/run/ga-feed/batch.json", "--format", "json", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
+---
+# KEK_REWRAP: 정지 — 키 회전 런북(기본 dry-run, --apply yes는 수동)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ga-job-kek-rewrap
+  labels:
+    app.kubernetes.io/name: ga-job
+    app.kubernetes.io/part-of: ga-disclosure
+    ga/job-kind: KEK_REWRAP
+spec:
+  schedule: "0 0 1 1 *"
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  suspend: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ga-job
+        ga/job-kind: KEK_REWRAP
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ga-job
+            ga/job-kind: KEK_REWRAP
+        spec:
+          serviceAccountName: ga-jobs
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ga-disclosure/app:dev
+              imagePullPolicy: IfNotPresent
+              args: ["--spring.profiles.active=cli,$(GA_PROFILE)", "crypto", "kek", "rewrap", "--tenants", "all", "--operator", "cronjob"]
+              env:
+                - name: GA_PROFILE
+                  valueFrom: { configMapKeyRef: { name: ga-app-config, key: SPRING_PROFILES_ACTIVE } }
+                - { name: GA_SECRETS_DIR, value: /var/run/ga-secrets }
+                - { name: GA_SECRETS_ALLOW_GROUP_READ, value: "true" }
+              envFrom:
+                - configMapRef: { name: ga-app-config }
+                - secretRef: { name: ga-db-app }
+                - secretRef: { name: ga-s3 }
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: ga-secrets, mountPath: /var/run/ga-secrets, readOnly: true }
+          volumes:
+            - name: tmp
+              emptyDir: { sizeLimit: 128Mi }
+            - name: ga-secrets
+              secret:
+                secretName: ga-secrets
+                defaultMode: 0440
