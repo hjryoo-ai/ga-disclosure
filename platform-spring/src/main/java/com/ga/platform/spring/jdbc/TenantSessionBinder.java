@@ -17,7 +17,7 @@ import java.util.Optional;
  * 테넌트 세션 바인딩 트랜잭션 매니저.
  *
  * <p>트랜잭션을 시작할 때 {@link TenantContext#current()}의 값을 PostgreSQL 트랜잭션 로컬 설정
- * {@code app.tenant_id}에 넣는다. RLS 정책 {@code tenant_id = current_setting('app.tenant_id', true)}가 이 값을 읽는다.
+ * {@code app.tenant_id}({@link TenantSession#SETTING_NAME})에 넣는다. RLS 정책 {@code tenant_id = current_setting('app.tenant_id', true)}가 이 값을 읽는다.
  * <ul>
  *   <li>{@code SET LOCAL app.tenant_id = ?}는 바인드 변수를 받지 못하므로 같은 효과의
  *       {@code SELECT set_config('app.tenant_id', ?, true)}(세 번째 인자 true = 트랜잭션 로컬)를 쓴다.
@@ -33,7 +33,7 @@ public class TenantSessionBinder extends JdbcTransactionManager {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    static final String SET_TENANT_SQL = "SELECT set_config('app.tenant_id', ?, true)";
+    static final String SET_TENANT_SQL = "SELECT set_config('" + TenantSession.SETTING_NAME + "', ?, true)";
 
     private static final Object BOUND_TENANT_KEY = new Object() {
         @Override

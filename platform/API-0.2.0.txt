@@ -1,0 +1,169 @@
+# com.ga.platform 0.2.0 공개 API — ./gradlew platformApiDump가 만든다(javap -protected -constants). 손으로 고치지 않는다.
+
+## platform-core
+public final class com.ga.platform.core.arch.ArchRules
+  public static com.tngtech.archunit.lang.ArchRule dbAccessOnlyVia(java.lang.String, java.util.Collection<com.ga.platform.core.arch.ArchRules$Allowed>);
+  public static com.tngtech.archunit.lang.ArchRule layeredDependencies(com.ga.platform.core.arch.ArchRules$Layer...);
+  public static com.tngtech.archunit.lang.ArchRule methodOnlyInvokedFrom(java.lang.Class<?>, java.lang.String, java.util.Collection<com.ga.platform.core.arch.ArchRules$Allowed>);
+  public static com.tngtech.archunit.lang.ArchRule noClassNameContaining(java.lang.String...);
+  public static com.tngtech.archunit.lang.ArchRule noDoubleOrFloat();
+  public static com.tngtech.archunit.lang.ArchRule noOrderingInClassesUsing(java.util.Collection<java.lang.Class<?>>, java.util.Collection<com.ga.platform.core.arch.ArchRules$Allowed>);
+  public static com.tngtech.archunit.lang.ArchRule notComparable(java.lang.Class<?>...);
+  public static com.tngtech.archunit.lang.ArchRule springFreeModules(java.util.Collection<java.lang.String>, java.util.Collection<java.lang.String>);
+  public static com.tngtech.archunit.lang.ArchRule typesOnlyUsedIn(java.util.Collection<java.lang.Class<?>>, java.util.Collection<com.ga.platform.core.arch.ArchRules$Allowed>);
+  public static java.util.List<java.lang.String> staleClasses(com.tngtech.archunit.core.domain.JavaClasses, java.util.Collection<com.ga.platform.core.arch.ArchRules$Allowed>);
+  public static java.util.List<java.lang.String> stalePackages(com.tngtech.archunit.core.domain.JavaClasses, java.util.Collection<com.ga.platform.core.arch.ArchRules$Allowed>);
+public final class com.ga.platform.core.arch.ArchRules$Allowed extends java.lang.Record
+  public com.ga.platform.core.arch.ArchRules$Allowed(java.lang.String, java.lang.String);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public final java.lang.String toString();
+  public java.lang.String fqn();
+  public java.lang.String reason();
+public final class com.ga.platform.core.arch.ArchRules$Layer extends java.lang.Record
+  public com.ga.platform.core.arch.ArchRules$Layer(java.lang.String, java.util.List<java.lang.String>, java.util.Set<java.lang.String>);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public final java.lang.String toString();
+  public java.lang.String name();
+  public java.util.List<java.lang.String> packages();
+  public java.util.Set<java.lang.String> mayBeAccessedBy();
+  public static com.ga.platform.core.arch.ArchRules$Layer of(java.lang.String, java.lang.String, java.lang.String...);
+public final class com.ga.platform.core.money.Ratio extends java.lang.Record
+  public com.ga.platform.core.money.Ratio(long, long);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public java.lang.String toPercentString();
+  public java.lang.String toString();
+  public long denominator();
+  public long numerator();
+  public static com.ga.platform.core.money.Ratio of(long, long);
+public final class com.ga.platform.core.money.Won extends java.lang.Record implements java.lang.Comparable<com.ga.platform.core.money.Won>
+  public boolean isGreaterThan(com.ga.platform.core.money.Won);
+  public boolean isLessThan(com.ga.platform.core.money.Won);
+  public boolean isNegative();
+  public boolean isZero();
+  public com.ga.platform.core.money.Won minus(com.ga.platform.core.money.Won);
+  public com.ga.platform.core.money.Won negate();
+  public com.ga.platform.core.money.Won plus(com.ga.platform.core.money.Won);
+  public com.ga.platform.core.money.Won(long);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public int compareTo(com.ga.platform.core.money.Won);
+  public int compareTo(java.lang.Object);
+  public java.lang.String toString();
+  public long value();
+  public static com.ga.platform.core.money.Won of(long);
+  public static final com.ga.platform.core.money.Won ZERO;
+public final class com.ga.platform.core.tenant.AgentId extends java.lang.Record
+  public com.ga.platform.core.tenant.AgentId(java.lang.String);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public java.lang.String toString();
+  public java.lang.String value();
+  public static com.ga.platform.core.tenant.AgentId of(java.lang.String);
+public final class com.ga.platform.core.tenant.OrgPath extends java.lang.Record
+  public boolean contains(com.ga.platform.core.tenant.OrgPath);
+  public com.ga.platform.core.tenant.OrgPath(java.lang.String);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public java.lang.String toString();
+  public java.lang.String value();
+  public static com.ga.platform.core.tenant.OrgPath of(java.lang.String);
+public final class com.ga.platform.core.tenant.TenantContext
+  public static <T> T runWith(com.ga.platform.core.tenant.TenantId, java.util.concurrent.Callable<T>) throws java.lang.Exception;
+  public static boolean isBound();
+  public static com.ga.platform.core.tenant.TenantId current();
+  public static void runWith(com.ga.platform.core.tenant.TenantId, java.lang.Runnable);
+public final class com.ga.platform.core.tenant.TenantId extends java.lang.Record
+  public com.ga.platform.core.tenant.TenantId(java.lang.String);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public java.lang.String toString();
+  public java.lang.String value();
+  public static com.ga.platform.core.tenant.TenantId of(java.lang.String);
+public final class com.ga.platform.core.tenant.TenantNotBoundException extends java.lang.IllegalStateException
+  public com.ga.platform.core.tenant.TenantNotBoundException();
+public final class com.ga.platform.core.time.Ym extends java.lang.Record implements java.lang.Comparable<com.ga.platform.core.time.Ym>
+  public com.ga.platform.core.time.Ym next();
+  public com.ga.platform.core.time.Ym prev();
+  public com.ga.platform.core.time.Ym(int, int);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public int compareTo(com.ga.platform.core.time.Ym);
+  public int compareTo(java.lang.Object);
+  public int month();
+  public int year();
+  public java.lang.String toString();
+  public java.lang.String value();
+  public static com.ga.platform.core.time.Ym of(int, int);
+  public static com.ga.platform.core.time.Ym parse(java.lang.String);
+  public static java.util.List<com.ga.platform.core.time.Ym> range(com.ga.platform.core.time.Ym, com.ga.platform.core.time.Ym);
+
+## platform-core test-fixtures
+public final class com.ga.platform.core.testing.SeededCases
+  public static final int DEFAULT_COUNT = 500;
+  public static final java.lang.String ALGORITHM = "L64X128MixRandom";
+  public static final java.lang.String SEED_OVERRIDE_ENV = "GA_SEEDED_CASES_SEED";
+  public static java.util.random.RandomGenerator generator(long);
+  public static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> of(long, int, java.util.function.Function<java.util.random.RandomGenerator, java.lang.Object[]>);
+  public static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> of(long, java.util.function.Function<java.util.random.RandomGenerator, java.lang.Object[]>);
+  public static long effectiveSeed(long);
+
+## platform-canonical
+public class com.ga.platform.canonical.CanonicalizationException extends java.lang.RuntimeException
+  public com.ga.platform.canonical.CanonicalizationException(java.lang.String, java.lang.Throwable);
+public final class com.ga.platform.canonical.Canonicalizer
+  public static byte[] canonicalize(java.lang.String);
+  public static byte[] canonicalize(tools.jackson.databind.JsonNode);
+  public static tools.jackson.databind.JsonNode parseStrict(java.lang.String);
+public final class com.ga.platform.canonical.Sha256
+  public static java.lang.String of(byte[]);
+  public static java.lang.String ofCanonical(java.lang.String);
+
+## platform-spring
+public interface com.ga.platform.spring.identity.IdentityResolver
+  public abstract java.util.Optional<com.ga.platform.spring.identity.IdentityResolver$ResolvedIdentity> resolve(java.lang.String);
+public final class com.ga.platform.spring.identity.IdentityResolver$ResolvedIdentity extends java.lang.Record
+  public com.ga.platform.core.tenant.AgentId agentId();
+  public com.ga.platform.spring.identity.IdentityResolver$ResolvedIdentity(com.ga.platform.core.tenant.AgentId, java.util.Set<java.lang.String>, java.lang.String);
+  public final boolean equals(java.lang.Object);
+  public final int hashCode();
+  public final java.lang.String toString();
+  public java.lang.String orgPath();
+  public java.util.Set<java.lang.String> roles();
+public final class com.ga.platform.spring.jdbc.AmbiguousResultException extends java.lang.IllegalStateException
+  public com.ga.platform.spring.jdbc.AmbiguousResultException(int);
+  public int count();
+public final class com.ga.platform.spring.jdbc.MissingTenantPredicateException extends java.lang.IllegalStateException
+  public com.ga.platform.spring.jdbc.MissingTenantPredicateException(java.lang.String);
+public final class com.ga.platform.spring.jdbc.OutsideTenantTransactionException extends java.lang.IllegalStateException
+  public com.ga.platform.spring.jdbc.OutsideTenantTransactionException(java.lang.String);
+public class com.ga.platform.spring.jdbc.PlatformJdbcAutoConfiguration
+  public com.ga.platform.spring.jdbc.PlatformJdbcAutoConfiguration();
+  public com.ga.platform.spring.jdbc.TenantJdbcGateway tenantJdbcGateway(javax.sql.DataSource);
+  public com.ga.platform.spring.jdbc.TenantSessionBinder transactionManager(javax.sql.DataSource);
+public final class com.ga.platform.spring.jdbc.TenantDirectoryReader
+  public com.ga.platform.spring.jdbc.TenantDirectoryReader(java.lang.String, java.lang.String, java.lang.String);
+  public java.util.List<com.ga.platform.core.tenant.TenantId> allTenants();
+public final class com.ga.platform.spring.jdbc.TenantJdbcGateway
+  public com.ga.platform.spring.jdbc.TenantJdbcGateway(javax.sql.DataSource);
+public final class com.ga.platform.spring.jdbc.TenantMismatchException extends java.lang.IllegalStateException
+  public com.ga.platform.spring.jdbc.TenantMismatchException(com.ga.platform.core.tenant.TenantId, com.ga.platform.core.tenant.TenantId);
+public abstract class com.ga.platform.spring.jdbc.TenantScopedRepository
+  protected com.ga.platform.spring.jdbc.TenantScopedRepository(com.ga.platform.spring.jdbc.TenantJdbcGateway);
+  protected final <T> java.util.List<T> query(java.lang.String, java.util.Map<java.lang.String, ?>, org.springframework.jdbc.core.RowMapper<T>);
+  protected final <T> java.util.Optional<T> queryAtMostOne(java.lang.String, java.util.Map<java.lang.String, ?>, org.springframework.jdbc.core.RowMapper<T>);
+  protected final int update(java.lang.String, java.util.Map<java.lang.String, ?>);
+  public static final java.lang.String TENANT_PARAM = "tenantId";
+public final class com.ga.platform.spring.jdbc.TenantSession
+  public static final java.lang.String SETTING_NAME = "app.tenant_id";
+public class com.ga.platform.spring.jdbc.TenantSessionBinder extends org.springframework.jdbc.support.JdbcTransactionManager
+  protected java.lang.Object doSuspend(java.lang.Object);
+  protected void doBegin(java.lang.Object, org.springframework.transaction.TransactionDefinition);
+  protected void doCleanupAfterCompletion(java.lang.Object);
+  protected void doResume(java.lang.Object, java.lang.Object);
+  protected void prepareTransactionalConnection(java.sql.Connection, org.springframework.transaction.TransactionDefinition) throws java.sql.SQLException;
+  public com.ga.platform.spring.jdbc.TenantSessionBinder(javax.sql.DataSource);
+  public static java.util.Optional<com.ga.platform.core.tenant.TenantId> boundTenant();
+resource META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports sha256=159a8ab24b64d71f9f05efd30d9ef67d4b82198046854a475456c50404a0c53d

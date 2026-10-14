@@ -19,6 +19,9 @@ GET /internal/v1/events?afterSeq={n}&limit={1..1000, 기본 100}
 
 - `events`는 seq 오름차순, 갭 없음. 각 항목은 `contracts/events/v1/envelope.schema.json` 그대로다(`eventId`·`seq`·`type`·`version`·`occurredAt`·
   `aggregate{kind,id}`·`payload`).
+- 발행자 공통 핵심은 `contracts/events/v1/envelope-core.schema.json`이다(위 일곱 필드와 형식만, 다른 파일 참조 없음 — 플랫폼 0.2.0 정비). 이 저장소의
+  `envelope.schema.json`은 핵심을 `allOf`로 포함하고 이벤트 종류·aggregate 종류·payload를 좁힌다. 여러 발행자(이 저장소·엔진)를 소비하는 쪽은 핵심을
+  사본으로 가져가 자기 envelope의 바탕으로 쓴다.
 - `nextSeq`는 돌려준 마지막 seq다(빈 쪽이면 시작점 그대로). 다음 호출의 `afterSeq`로 쓴다.
 - `headSeq − nextSeq`가 지연이다. 0이 될 때까지 이어 부른다.
 - `afterSeq`를 **생략하면 ack한 지점부터**다(처음엔 0). 처리 위치를 소비자가 저장하지 않아도 되지만, 저장한다면 그 값을 `afterSeq`로 보내도 된다.

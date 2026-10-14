@@ -111,16 +111,21 @@ E2E(`:disclosure-web:e2e`)는 위 흐름을 데스크톱·모바일로 키보드
 
 ## 플랫폼 아티팩트 소비
 
-`platform-core`·`platform-canonical`·`platform-spring`은 같은 SemVer 버전(현재 `0.1.0`)으로 함께 발행한다(`com.ga.platform`). 소비자(`ga-agent-portal` 등)는 **mavenLocal을 먼저**, 없으면 **GitHub Packages**를 쓴다.
+`platform-core`·`platform-canonical`·`platform-spring`은 같은 SemVer 버전(현재 `0.2.0`)으로 함께 발행한다(`com.ga.platform`). 소비자(`ga-agent-portal` 등)는
+**GitHub Packages의 발행본**을 쓴다. `mavenLocal`은 로컬 개발에서만, 그리고 의존성 검증 메타데이터(`gradle/verification-metadata.xml`)에 고정한 jar SHA-256과
+같은 바이트일 때만 쓴다 — 0.1.0은 발행 뒤 소스가 바뀌어 같은 좌표에 API가 다른 두 아티팩트(발행본과 로컬 재발행)가 생겼다(설계서 §3.3 v1.19).
 
-1. mavenLocal: 이 저장소에서 `./gradlew publishToMavenLocal`(또는 `verifyPublishedPlatform`).
-2. GitHub Packages: 태그 `platform-vX.Y.Z` push 시 `.github/workflows/publish-platform.yml`이 발행한다. 읽으려면 `read:packages` 권한 토큰이 필요하다(공개 저장소도 동일).
+- 공개 API가 바뀌면 버전을 올린다. `platform/API-<버전>.txt`가 그 버전의 공개 API이고, 지금 코드와 다르면 `check`가 실패한다(`verifyPlatformApi`).
+  새 버전이면 `./gradlew platformApiDump`로 새 덤프를 만들어 같은 커밋에 넣는다. 발행된 버전은 다시 발행하지 않는다.
+- 발행: 태그 `platform-vX.Y.Z` push 시 `.github/workflows/publish-platform.yml`이 버전·API 덤프를 확인하고 발행한 뒤, 올린 파일(jar·POM·모듈 메타데이터)의
+  SHA-256과 GitHub Packages에서 다시 받은 jar의 SHA-256(`PLATFORM_SHA256`)을 로그에 남긴다 — 소비자가 고정할 값의 출처다. 읽으려면 `read:packages` 권한
+  토큰이 필요하다(공개 저장소도 동일). 다른 저장소의 Actions가 읽으려면 패키지 설정에서 그 저장소에 읽기 권한을 준다(사용자 조치).
+- 로컬 확인: `./gradlew verifyPublishedPlatform`(mavenLocal에 발행 → 별도 빌드가 그것만으로 컴파일, `PLATFORM_SHA256` 출력).
 
 ```kotlin
 // 소비 측 settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
-        mavenLocal { content { includeGroup("com.ga.platform") } }
         maven {
             url = uri("https://maven.pkg.github.com/hjryoo-ai/ga-disclosure")
             credentials {
@@ -140,9 +145,9 @@ dependencyResolutionManagement {
 
 | 모듈 | 역할 | 의존 제약 |
 |---|---|---|
-| `platform-core` | (공유) `Won`·`Ratio`·`Ym`·`TenantId`·`AgentId`, `TenantContext`(ScopedValue), ArchUnit 규칙 라이브러리 `ArchRules`, 테스트 픽스처 `SeededCases` | Spring·DB 무의존. `com.ga.platform:platform-core:0.1.0` 발행 |
-| `platform-canonical` | (공유) RFC 8785 JCS `Canonicalizer`, `Sha256` | Spring·DB 무의존. rules·seal·audit·compliance가 의존. `com.ga.platform:platform-canonical:0.1.0` 발행 |
-| `platform-spring` | (공유) `TenantSessionBinder`(트랜잭션마다 `app.tenant_id` 설정), `TenantScopedRepository`·`TenantJdbcGateway`, `TenantDirectoryReader`, `IdentityResolver` (Phase 0의 OIDC 골격은 6A에서 폐기 — 보안 체인은 소비 애플리케이션 몫) | infra·api·app만 의존 가능. `com.ga.platform:platform-spring:0.1.0` 발행 |
+| `platform-core` | (공유) `Won`·`Ratio`·`Ym`·`TenantId`·`AgentId`, `TenantContext`(ScopedValue), ArchUnit 규칙 라이브러리 `ArchRules`, 테스트 픽스처 `SeededCases` | Spring·DB 무의존. `com.ga.platform:platform-core:0.2.0` 발행 |
+| `platform-canonical` | (공유) RFC 8785 JCS `Canonicalizer`, `Sha256` | Spring·DB 무의존. rules·seal·audit·compliance가 의존. `com.ga.platform:platform-canonical:0.2.0` 발행 |
+| `platform-spring` | (공유) `TenantSessionBinder`(트랜잭션마다 `app.tenant_id` 설정 — 이름은 공개 상수 `TenantSession.SETTING_NAME`), `TenantScopedRepository`·`TenantJdbcGateway`, `TenantDirectoryReader`, `IdentityResolver` (Phase 0의 OIDC 골격은 6A에서 폐기 — 보안 체인은 소비 애플리케이션 몫) | infra·api·app만 의존 가능. `com.ga.platform:platform-spring:0.2.0` 발행 |
 | `disclosure-domain` | 값객체·상태 열거형·`GradeSnapshot`/`GradeSnapshotItem`/`RatioLabel`, 개인정보 래퍼 `Sensitive<T>`(Phase 2) | Spring·DB 무의존 |
 | `disclosure-rules` | 번들 로더, 기준일 룰 해석기(scope별 단건·Ambiguous fail-fast·`tenantOverridable` 병합), 검증 규칙 12종·단계별 레지스트리(`ValidationStage`), 서식 해석, 마스킹(`MaskedView`), `GradeConsistencyCheck`, 계약 스키마 테스트 | Spring·DB 무의존 |
 | `disclosure-workflow` | 유스케이스·포트: 카탈로그 수입·조회, 고객 참조 등록·조회·재암호화(Phase 2), 확인서(Phase 3~4) | |

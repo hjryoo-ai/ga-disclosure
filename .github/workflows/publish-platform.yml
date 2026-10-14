@@ -37,12 +37,23 @@ jobs:
       - name: Platform module checks
         run: ./gradlew :platform-core:check :platform-canonical:check :platform-spring:check --console=plain
 
+      # 0.2.0(H1): 이 버전의 공개 API가 커밋된 platform/API-<버전>.txt와 같아야 발행한다(같은 버전 + 다른 API 금지).
+      - name: Public API equals the committed dump for this version
+        run: ./gradlew verifyPlatformApi --console=plain
+
       - name: Publish to GitHub Packages
         run: >
           ./gradlew --console=plain
           :platform-core:publishAllPublicationsToGitHubPackagesRepository
           :platform-canonical:publishAllPublicationsToGitHubPackagesRepository
           :platform-spring:publishAllPublicationsToGitHubPackagesRepository
+
+      # 올린 바이트 그대로의 SHA-256(jar·POM·Gradle 모듈 메타데이터) — 소비자가 의존성 검증 메타데이터에 고정할 값의 1차 출처
+      - name: SHA-256 of the uploaded files
+        run: |
+          for m in platform-core platform-canonical platform-spring; do
+            sha256sum "$m"/build/libs/*.jar "$m"/build/publications/*/pom-default.xml "$m"/build/publications/*/module.json
+          done
 
       - name: Consume the published artifacts from GitHub Packages only (no mavenLocal)
         run: |

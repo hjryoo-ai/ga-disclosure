@@ -62,6 +62,13 @@ class TenantSessionBinderTest {
         assertThat(TenantSessionBinder.boundTenant()).isEmpty();
     }
 
+    /** 0.2.0(H6): 바인더가 설정하는 이름이 공개 상수이고, 그 값은 소비 저장소의 RLS 정책이 읽는 이름이다. */
+    @Test
+    void bindsTheSettingNamedByThePublicConstant() {
+        assertThat(TenantSession.SETTING_NAME).isEqualTo("app.tenant_id");
+        assertThat(TenantSessionBinder.SET_TENANT_SQL).isEqualTo("SELECT set_config('app.tenant_id', ?, true)");
+    }
+
     @Test
     void insertGetsTenantInjectedIntoColumn() {
         TenantContext.runWith(TA, () -> tx.executeWithoutResult(s -> repository.insert("n1")));

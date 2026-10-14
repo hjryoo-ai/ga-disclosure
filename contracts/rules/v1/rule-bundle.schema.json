@@ -13,8 +13,8 @@
     "templateId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$" },
     "templateType": { "enum": ["STANDARD", "AUTO"] },
     "version": { "type": "integer", "minimum": 1 },
-    "applyFrom": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-    "applyTo": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "applyFrom": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "applyTo": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
     "supersedes": { "type": "object" },
     "body": { "type": "object" }
   },
