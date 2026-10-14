@@ -14,14 +14,15 @@
 - **mTLS 주체 전달 형식이 비어 있다**(§14 #23) — 운영 오버레이 그대로면 게이트·계약 연결의 인증서 주체 대조 경로가 404다(kind 데모는 대조가 꺼진 데모 프로파일).
 - **공개 서명 한도는 복제본마다 센다** — 실효 한도 = 룰 값 × 앱 복제본 수, IP 한도 = 30 × 진입점 복제본 수([`ingress.md`](docs/operations/ingress.md)).
 - **공개 서명 응답 하한(패딩)은 설정값**이고 규모에 따른 적정값은 측정하지 않았다.
+- **둘러보기의 첫 실행 시간을 재지 않았다** — 재현 기록의 6.4분은 캐시(툴체인·이미지·노드 이미지)가 찬 기계의 값이다.
 - 정정의 행위자·재배정(§14 #20), 중복 가명 병합(#22) 등 미결정 23항목의 최종 상태는 [설계서 §14](docs/설계서.md#14-미결정-사항-구현-전-확인-전부-파라미터어댑터로-흡수) 맨 앞 표.
 
 ## 숫자 (CI 출처)
 
 | Phase | 내용 | 테스트(CI, 실패·스킵 0) | 규칙 위반 주입 | E2E | CI run |
 |---|---|---:|---:|---:|---|
-| 0 | 골격·플랫폼 공유 | 4,869 | 표 7행 + 서술 3절 | — | [36549053160](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36549053160) |
-| 1 | 룰·서식 데이터 | 7,138 | 7행(풀면 10) | — | [36554847957](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36554847957) |
+| 0 | 골격·플랫폼 공유 | 4,869 | 16 | — | [36549053160](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36549053160) |
+| 1 | 룰·서식 데이터 | 7,138 | 10 | — | [36554847957](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36554847957) |
 | 2 | 카탈로그·고객 참조·컬럼 암호화 | 7,281 | 12 | — | [36701264864](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36701264864) |
 | 3A | 워크플로 코어·엔진 스냅샷 | 9,268 | 11 | — | [36712325175](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36712325175) |
 | 3B | 봉인·PDF/A·저장소 Object Lock | 10,790 | 22 | — | [36856909677](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/36856909677) |
@@ -29,10 +30,10 @@
 | 5 | 앵커·TSA·검증·파기 | 12,037 | 69 | — | [37099922622](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37099922622) |
 | 6A | REST API·작업·멱등 | 12,204 | 105 | — | [37786410851](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37786410851) |
 | 6B | 준법 큐·계약 연결·게이트 | 13,642 | 151 | — | [37926046428](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37926046428) |
-| 7 | 화면·E2E | 13,689 + 화면 단위 24 | 27(보고서; W3a·b를 둘로 세면 28) | 12 | [37968091134](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37968091134) |
+| 7 | 화면·E2E | 13,689 + 화면 단위 24 | 28 | 12 | [37968091134](https://github.com/hjryoo-ai/ga-disclosure/actions/runs/37968091134) |
 | 8 | 배포·운영·키 회전·백업·복구 | Phase 8 PR의 CI 뒤 기입 | | | |
 
-테스트 수는 각 run의 `test-reports` 아티팩트(Gradle 보고서 합계)와 대조했다. 주입은 규칙 시험(ArchUnit·SQL 스캔·트리거·린트)마다 일부러 위반을 넣어 실패를 확인하고 되돌린 기록이다 — 수는 각 Phase 보고서의 주입 표에서 센다(CI 아티팩트에는 없다).
+테스트 수는 각 run의 `test-reports` 아티팩트(Gradle 보고서 합계)와 대조했다. 주입은 규칙 시험(ArchUnit·SQL 스캔·트리거·린트)마다 일부러 위반을 넣어 실패를 확인하고 되돌린 기록이다 — 수는 각 Phase 보고서의 주입 표에서 센다(CI 아티팩트에는 없다). **세는 단위는 주입 ID 하나**다(표 한 행에 ID가 여럿이면 따로 — 예: Phase 7의 W3a·W3b는 2건이라 보고서 본문의 27이 아니라 28, 6A·6B도 같은 방식). ID가 없는 Phase 0·1은 주입한 위반 하나가 1건이다(Phase 0: 아키텍처 7 + SQL 스캔 4 + 트리거·제약·RLS 4 + jqwik 1).
 
 ## 아키텍처
 

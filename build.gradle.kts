@@ -236,6 +236,72 @@ scanPlaintextLeaks.configure { mustRunAfter(subprojects.map { p -> p.tasks.withT
 tasks.named("check") { dependsOn(scanPlaintextLeaks) }
 
 // ---------------------------------------------------------------------------------------------
+// Phase 8 13단계(CLAUDE.md 코드 규약 — "소스셋 밖의 파일을 읽는 테스트는 그 파일을 Gradle 입력으로 선언한다"): 테스트 태스크마다 그 원천
+// (+ 클래스패스에 오른 testFixtures)의 문자열 리터럴에서 저장소 경로(첫 마디가 저장소 최상위 이름)를 모아, 선언하지 않은 것이 있으면 실패한다.
+// 덮였다고 보는 것: ① 매번 도는 태스크(outputs.upToDateWhen { false }) ② 선언 입력 — 슬래시가 있는 경로는 그 파일(디렉터리면 그 아래 파일 전부),
+// 최상위 이름 하나(예: "docs" — 뒤 마디를 다음 resolve로 잇는 꼴)는 그 아래 입력 하나 이상 ③ 클래스패스에 오른 모듈의 src/main 아래(바뀌면 jar가 바뀐다)와
+// 태스크 자기 소스셋. 주입이 "최신"으로 건너뛰어 통과한 일이 세 번(E3.2 계약 디렉터리, 8 12단계 archTest 문서·스크립트, GlobalKekPathScanTest) —
+// 매번 원인은 시험이 아니라 입력 선언이었다.
+// ---------------------------------------------------------------------------------------------
+val verifyTestInputs = tasks.register("verifyTestInputs") {
+    group = "verification"
+    description = "Fails when a test reads a repository file outside its source sets without declaring it as a task input."
+    val root = rootDir
+    doLast {
+        val tops = root.listFiles().orEmpty().map { it.name }.filter { (!it.startsWith(".") || it == ".github") && it != "build" }.toSet()
+        val literal = Regex("\"([^\"\\\\\\n]+)\"")
+        val blockComments = Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL)
+        val lineComments = Regex("(?m)^\\s*//.*$")
+        val problems = mutableListOf<String>()
+        val checked = mutableListOf<String>()
+        val withSets = subprojects.mapNotNull { q -> q.extensions.findByType<SourceSetContainer>()?.let { q to it.toList() } }
+        withSets.forEach { (p, sets) ->
+            p.tasks.withType<Test>().toList().forEach { t ->
+                val classpath = t.classpath.files
+                val own = sets.filter { ss -> ss.output.classesDirs.files.any { it in t.testClassesDirs.files } }
+                val onPath = withSets.filter { (q, _) -> classpath.any { it.absolutePath.startsWith(q.layout.buildDirectory.get().asFile.absolutePath + File.separator) } }
+                val fixtures = onPath.mapNotNull { (q, qs) -> qs.firstOrNull { it.name == "testFixtures" }?.takeIf { fx ->
+                    classpath.any { it in fx.output.classesDirs.files || (it.name.startsWith(q.name) && it.name.contains("test-fixtures")) } } }
+                val paths = (own + fixtures).flatMap { it.java.srcDirs }.filter { it.isDirectory }
+                    .flatMap { d -> d.walkTopDown().filter { it.isFile && it.name.endsWith(".java") }.toList() }
+                    .flatMap { f -> literal.findAll(lineComments.replace(blockComments.replace(f.readText(), ""), "")).map { it.groupValues[1] }.toList() }
+                    .filter { it.substringBefore('/') in tops && !it.contains(' ') }
+                    .toSortedSet()
+                if (paths.isEmpty()) return@forEach
+                checked += t.path
+                val alwaysRuns = !(t.outputs as org.gradle.api.internal.TaskOutputsInternal).upToDateSpec
+                    .isSatisfiedBy(t as org.gradle.api.internal.TaskInternal)
+                if (alwaysRuns) return@forEach
+                val inputs = t.inputs.files.files.map { it.absolutePath }.toSet()
+                val ownPrefixes = own.flatMap { ss -> ss.allSource.srcDirs }.map { it.relativeTo(root).invariantSeparatorsPath + "/" }
+                val mainPrefixes = (onPath.map { it.first } + p).map { "${it.projectDir.relativeTo(root).invariantSeparatorsPath}/src/main/" }
+                paths.forEach { s ->
+                    val f = root.resolve(s)
+                    val normalized = s.trimEnd('/') + "/"
+                    val covered = when {
+                        (ownPrefixes + mainPrefixes).any { normalized.startsWith(it) } -> true
+                        !s.contains('/') && f.isDirectory -> inputs.any { it.startsWith(f.absolutePath + File.separator) }
+                        f.isFile -> f.absolutePath in inputs
+                        f.isDirectory -> f.walkTopDown().filter { it.isFile && it.name != ".DS_Store" }.all { it.absolutePath in inputs }
+                        // 없는 경로("여기 없어야 한다"를 단언하는 시험): 가장 가까운 상위 디렉터리가 입력이면 덮였다 — 파일이 생기면 입력이 바뀐다
+                        else -> generateSequence(f.parentFile) { it.parentFile }.first { it.exists() }.let { a ->
+                            a != root && a.walkTopDown().filter { it.isFile && it.name != ".DS_Store" }.all { it.absolutePath in inputs }
+                        }
+                    }
+                    if (!covered) problems += "${t.path} reads $s"
+                }
+            }
+        }
+        if (problems.isNotEmpty()) {
+            throw GradleException("테스트가 읽는 저장소 파일이 그 태스크의 입력이 아니다(바뀌어도 시험이 \"최신\"으로 건너뛴다) — inputs.file/inputs.dir로 선언하라:\n" +
+                problems.joinToString("\n"))
+        }
+        logger.lifecycle("verifyTestInputs: ${checked.size} test tasks read repository files, all declared: ${checked.joinToString(" ")}")
+    }
+}
+tasks.named("check") { dependsOn(verifyTestInputs) }
+
+// ---------------------------------------------------------------------------------------------
 // C11: platform-core·platform-spring을 mavenLocal에 발행한 뒤, 발행 아티팩트만으로 disclosure-domain을
 // 별도 빌드(verification/published-consumer)에서 컴파일한다. ~/.m2에 쓰므로 build에 묶지 않고 CI 잡으로 돌린다.
 // ---------------------------------------------------------------------------------------------

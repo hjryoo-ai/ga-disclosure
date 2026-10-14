@@ -32,4 +32,5 @@ sourceSets {
 
 tasks.test {
     inputs.dir(rootProject.layout.projectDirectory.dir("contracts")).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-demo/src/main/resources/demo/bundles")).withPathSensitivity(PathSensitivity.RELATIVE)
 }

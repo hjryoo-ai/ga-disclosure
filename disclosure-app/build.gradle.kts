@@ -181,6 +181,7 @@ testing {
                     systemProperty("ga.repoRoot", rootDir.absolutePath)
                     systemProperty("ga.tools", toolsDir.get().asFile.absolutePath)
                     inputs.dir(rootProject.layout.projectDirectory.dir("deploy")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docker-compose.yml")).withPathSensitivity(PathSensitivity.RELATIVE)
                 }
             }
         }
@@ -215,6 +216,11 @@ testing {
             targets.all {
                 testTask.configure {
                     shouldRunAfter(tasks.test)
+                    // 소스셋 밖에서 읽는 파일(계약·데모 자원·서식 대체 번들·롤 초기화 — verifyTestInputs)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("contracts")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-demo/src/main/resources")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("disclosure-infra/src/integrationTest/resources/rule-as-data")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docker/postgres/init-roles.sql")).withPathSensitivity(PathSensitivity.RELATIVE)
                 }
             }
         }

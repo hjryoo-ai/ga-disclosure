@@ -28,6 +28,7 @@
 - 엔진이 준 `ratioToAvg`는 불투명 문자열이다. DB 컬럼도 `TEXT`이며 `NUMERIC`·정규화·정렬·비교 금지(원문 보존이 해시 재현의 전제).
 - DB 스키마의 정본은 Flyway 마이그레이션 파일. 기존 `V*` 파일 수정 금지, JPA `ddl-auto` 류 금지. Spring Data JDBC 사용.
 - `disclosure-domain`·`disclosure-rules`·`disclosure-seal`(렌더러 제외)·`platform-core`는 Spring·DB 의존성을 갖지 않는다.
+- 소스셋 밖의 파일을 읽는 테스트는 그 파일(디렉터리)을 Gradle 입력으로 선언한다. 주입이 첫 시도에 실패하지 않으면 테스트보다 입력 선언을 먼저 본다(`verifyTestInputs`가 테스트 원천의 저장소 경로를 그 태스크의 입력과 대조한다).
 - 컨트롤러는 얇게, 로직은 유스케이스(`disclosure-workflow`)에. 예외는 도메인 예외 → `@RestControllerAdvice`에서 `{ code, message, details }`로 변환.
 - 상태 전이·검증 결과·서명·열람·내보내기는 전부 `audit_log`에 기록하며 업무 트랜잭션과 같은 트랜잭션이다.
 

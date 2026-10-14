@@ -124,6 +124,15 @@ testing {
             targets.all {
                 testTask.configure {
                     shouldRunAfter(tasks.test)
+                    // 소스셋 밖에서 읽는 파일(verifyTestInputs): 계약, 이미지·compose·E2E 하네스의 digest 고정, 설계서 표, 데모 고객 파일, 버전 카탈로그, 롤 초기화
+                    inputs.dir(rootProject.layout.projectDirectory.dir("contracts")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.dir(rootProject.layout.projectDirectory.dir("deploy/images")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docker-compose.yml")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("disclosure-web/e2e/env.mjs")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docs/설계서.md")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("disclosure-demo/src/main/resources/customers.json")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("gradle/libs.versions.toml")).withPathSensitivity(PathSensitivity.RELATIVE)
+                    inputs.file(rootProject.layout.projectDirectory.file("docker/postgres/init-roles.sql")).withPathSensitivity(PathSensitivity.RELATIVE)
                     // 같은 JVM에서 컨테이너를 재사용한다(PostgresHarness 싱글턴).
                     maxParallelForks = 1
                     val scanReport = layout.buildDirectory.file("reports/elapsed-retention-scan.txt")
@@ -139,6 +148,11 @@ testing {
 
 tasks.named("check") {
     dependsOn(testing.suites.named("integrationTest"))
+}
+
+// 단위 시험 클래스패스에도 시험 픽스처(PostgresHarness — 롤 초기화 파일을 읽는다)가 오른다(verifyTestInputs)
+tasks.test {
+    inputs.file(rootProject.layout.projectDirectory.file("docker/postgres/init-roles.sql")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // Phase 8 ③-x-2: 질의 계획 실측(수동 — 빌드·CI가 부르지 않는다). 허구 데이터(테넌트 하나에 확인서 10만·플래그 3만·감사 10만 — 감사는 체인을 지키는
