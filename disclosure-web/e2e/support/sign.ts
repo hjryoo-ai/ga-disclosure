@@ -23,7 +23,12 @@ export async function readDocument(page: Page): Promise<void> {
 export async function verifyBirthDate(page: Page, value: string, expected: 'passed' | 'failed'): Promise<void> {
   const input = page.locator('#birth-date');
   await type(page, input, value.replaceAll('-', ''));                       // 휴대폰 자판처럼 숫자 8자리
+  // 응답을 기다린다: 두 번째 실패부터는 안내 영역에 직전 "실패" 문구가 이미 있어 문구 대조만으로는 이 요청의 결과를 보지 않고 통과한다 —
+  // 응답 전에 다음 단계(링크 다시 열기)로 가면 요청이 끊겨 실패 횟수가 모자랐고(8 13단계 태그 CI의 kind E2E), 이 경합이 마지막 실패의 응답이
+  // "통과"이던 앱 결함을 가렸다
+  const answered = page.waitForResponse((r) => r.url().endsWith('/public/v1/sign/verify-identity') && r.request().method() === 'POST');
   await press(page, page.getByRole('button', { name: sign.identity.submit }));
+  await answered;
   await expect(page.locator('.live')).toHaveText(sign.identity[expected]);
   await expect(input).toHaveValue('');                                     // 제출 즉시 비운다
 }

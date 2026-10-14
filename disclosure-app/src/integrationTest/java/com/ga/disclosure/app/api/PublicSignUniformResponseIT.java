@@ -193,9 +193,15 @@ class PublicSignUniformResponseIT {
         rejections.put("6 used", call("/public/v1/sign/status", reissued, null));
 
         String remote = remoteLinkToken(FlowSupport.sealed(port, T, customer));
+        // 실패 다섯 번(룰 한도)의 응답은 모두 같다 — 마지막(세션이 닫히는) 실패도 "통과"가 아니고, 남은 시도 수를 드러내지 않는다(13단계: 마지막 실패가
+        // passed:true였다 — 이 시험은 응답을 보지 않았고, E2E는 직전 실패 문구가 남아 있어 마지막 응답을 보지 않고 통과했다)
+        List<String> failures = new java.util.ArrayList<>();
         for (int i = 0; i < 5; i++) {
-            call("/public/v1/sign/verify-identity", remote, "{\"birthDate\":\"1999-12-31\"}");
+            ApiTestSupport.Response r = call("/public/v1/sign/verify-identity", remote, "{\"birthDate\":\"1999-12-31\"}");
+            assertThat(r.status()).as("identity failure " + (i + 1)).isEqualTo(200);
+            failures.add(r.text());
         }
+        assertThat(failures).as("every failure, the last one included, is the same answer").containsOnly("{\"missing\":[\"BIRTH_DATE\"],\"passed\":false}");
         rejections.put("7 identity failures exhausted", call("/public/v1/sign/status", remote, null));
 
         // 질의·경로·메서드 거부는 유효한 헤더 토큰이 있어도 같은 거부다(그 검사만으로 거부되는지 본다)

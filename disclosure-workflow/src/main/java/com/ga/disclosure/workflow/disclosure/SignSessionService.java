@@ -393,7 +393,8 @@ public final class SignSessionService {
                         .put("sessionId", s.sessionId().toString()).put("failures", state.identityFailures()));
             }
         }
-        return new IdentityOutcome(s.sessionId(), results, revoked ? List.of() : IdentityPolicy.missing(required, state.identityPassed()),
+        // 세션이 닫혀도 통과하지 못한 수단은 빠진 채다 — 빈 목록이면 공개 응답이 "통과"가 됐다(Phase 8 13단계 — Phase 4부터의 결함)
+        return new IdentityOutcome(s.sessionId(), results, IdentityPolicy.missing(required, state.identityPassed()),
                 state.identityFailures(), revoked, List.of());
     }
 }
